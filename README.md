@@ -121,11 +121,12 @@ override environment variables, and environment variables override the file.
 ```bash
 go test -race ./...                            # unit and end-to-end tests (fake S3, no Docker)
 go test -race -tags=integration -run MinIO ./...  # same suites against MinIO (needs Docker)
+OGIT_TEST_DB=postgres go test -race -tags=integration ./interfaces/cli/server/  # end-to-end suite on PostgreSQL (needs Docker)
 air                                            # live reload, see .air.toml and start.sh
 ```
 
 Pull requests into `main` and `refactor` run gofmt, `go vet`, the tests and
-the MinIO integration tests in CI.
+the MinIO and PostgreSQL integration tests in CI.
 
 ## License
 

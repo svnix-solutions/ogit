@@ -16,10 +16,11 @@ air                                            # live reload: builds tmp/main, r
 
 go test -race ./...                            # everything, including end-to-end tests on fake S3; no Docker
 go test -race -tags=integration -run MinIO ./...   # MinIO variants via testcontainers (Docker must be running)
+OGIT_TEST_DB=postgres go test -race -tags=integration ./interfaces/cli/server/   # whole e2e suite on Postgres
 go test -run 'TestGitHTTPAuthorization/s3_fake/non_member' ./interfaces/cli/server/   # single subtest
 ```
 
-There is no Makefile. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs gofmt, `go vet`, `go test -race`, a static Linux build, and a separate MinIO job. Keep `gofmt -l .` empty.
+There is no Makefile. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs gofmt, `go vet`, `go test -race`, a static Linux build, and a separate job running the MinIO tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
 
 ## Layout
 
@@ -68,6 +69,7 @@ Repositories are addressed by slug (`slug.Make(name)`, which also prevents path 
 - **fiber-oapi**: unauthenticated `/api/v1` requests get **400** `"authentication required"`, not 401. Its validator is a private global, so custom tags such as `slug` cannot be registered (an unknown tag makes every request 500).
 - **GORM `default:` tags** drop zero values on insert, so the column default wins. This made every repo private (`IsPrivate` had `default:true`). Don't put defaults on booleans that callers set to false; apply defaults in the API layer instead (`is_private` is `*bool`, defaulting to true).
 - **IDs** are set in application code (`utils.UUIDv4()`) or in `BeforeCreate`. An empty string ID inserts fine on SQLite and then breaks the next insert.
+- **Postgres differs from SQLite**: JSON columns come back as `[]byte`, not `string`. `sql.Scanner` implementations must handle string, []byte and nil and return errors. A panic inside `Scan` deadlocks the connection (`database/sql` still holds the rows lock), so the request hangs instead of failing. That is how every Postgres login hung (`JSONB.Scan`). Run the Postgres e2e suite for anything touching persistence or migrations.
 - **Enum strings** in `domain` must match the migration's CHECK/enum values (`TokenRepo` = `"repository"`).
 - **Logging**: never log tokens, JWTs or passwords. `GormLogger.ParamsFilter` keeps bound values out of SQL logs; keep it.
 - `helperError.Catch` maps any unique-constraint failure to `gorm.ErrDuplicatedKey`, so "already exists" messages can hide a different constraint.

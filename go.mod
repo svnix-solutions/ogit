@@ -15,10 +15,15 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.9
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/gosimple/slug v1.15.0
+	github.com/jackc/pgx/v5 v5.7.5
+	github.com/johannesboyne/gofakes3 v1.0.0
 	github.com/labbs/fiber-oapi v1.5.0
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1
+	github.com/testcontainers/testcontainers-go v0.40.0
+	github.com/testcontainers/testcontainers-go/modules/minio v0.40.0
+	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
 	github.com/urfave/cli-altsrc/v3 v3.1.0
 	github.com/urfave/cli/v3 v3.4.1
 	golang.org/x/crypto v0.43.0
@@ -76,12 +81,10 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.7.5 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/johannesboyne/gofakes3 v1.0.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
@@ -115,8 +118,6 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.6 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
-	github.com/testcontainers/testcontainers-go v0.40.0 // indirect
-	github.com/testcontainers/testcontainers-go/modules/minio v0.40.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
