@@ -11,9 +11,31 @@ func (ctrl *Controller) GetProfile(ctx *fiber.Ctx, input struct{}) (*dtos.Profil
 	requestId := ctx.Locals("requestid").(string)
 	logger := ctrl.Logger.With().Str("request_id", requestId).Str("component", "http.api.v1.user.get_profile").Logger()
 
-	logger.Warn().Msg("GetProfile handler not implemented yet")
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusUnauthorized,
+			Details: "Authentication required",
+			Type:    "AUTHENTICATION_REQUIRED",
+		}
+	}
 
-	return nil, nil
+	user, err := ctrl.UserApp.GetById(authCtx.UserID)
+	if err != nil {
+		logger.Error().Err(err).Str("user_id", authCtx.UserID).Msg("failed to get profile")
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusNotFound,
+			Details: "user not found",
+			Type:    "USER_NOT_FOUND",
+		}
+	}
+
+	return &dtos.ProfileResponse{
+		Id:       user.Id,
+		Username: user.Username,
+		Email:    user.Email,
+		Avatar:   user.AvatarUrl,
+	}, nil
 }
 
 // CreateToken creates a personal access token for git over HTTP. Git uses

@@ -177,6 +177,11 @@ func (c *AuthApp) AuthorizeGit(repoSlug, operation string, creds *GitCredentials
 	return nil
 }
 
+// Logout ends the session identified by sessionId.
+func (c *AuthApp) Logout(sessionId string) error {
+	return c.SessionApp.Delete(sessionId)
+}
+
 func (c *AuthApp) Register(username, email, password string) error {
 	logger := c.Logger.With().Str("component", "application.auth.register").Logger()
 

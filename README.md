@@ -111,7 +111,6 @@ override environment variables, and environment variables override the file.
 ## Not implemented yet
 
 - SSH access
-- Logout, the user profile endpoint, and cleanup of expired sessions
 - Email verification (`registration.require_email_verification` is not enforced)
 - Endpoints for managing repository members, groups and SSH keys
 - Repositories in nested paths (`org/project.git`)

@@ -23,6 +23,7 @@ func (u *User) TableName() string {
 }
 
 type UserPers interface {
+	GetById(id string) (User, error)
 	GetByUsername(username string) (User, error)
 	GetByEmail(email string) (User, error)
 	Create(user *User) error

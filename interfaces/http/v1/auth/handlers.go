@@ -29,12 +29,35 @@ func (ctrl Controller) Logout(ctx *fiber.Ctx, input struct{}) (*dtos.LogoutRespo
 	requestId := ctx.Locals("requestid").(string)
 	logger := ctrl.Logger.With().Str("request_id", requestId).Str("component", "http.api.v1.auth.logout").Logger()
 
-	// authCtx, _ := fiberoapi.GetAuthContext(ctx)
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusUnauthorized,
+			Details: "Authentication required",
+			Type:    "AUTHENTICATION_REQUIRED",
+		}
+	}
 
-	logger.Warn().Msg("Logout handler not implemented yet")
+	sessionId, _ := authCtx.Claims[application.SessionIDClaim].(string)
+	if sessionId == "" {
+		logger.Error().Str("user_id", authCtx.UserID).Msg("auth context has no session id")
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusInternalServerError,
+			Details: "session not found",
+			Type:    "LOGOUT_FAILED",
+		}
+	}
+
+	if err := ctrl.AuthApp.Logout(sessionId); err != nil {
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusInternalServerError,
+			Details: "failed to end session",
+			Type:    "LOGOUT_FAILED",
+		}
+	}
 
 	return &dtos.LogoutResponse{
-		Message: "Logout not implemented yet",
+		Message: "Logged out",
 	}, nil
 }
 

@@ -22,4 +22,7 @@ func (s *Session) TableName() string {
 type SessionPers interface {
 	Create(session *Session) error
 	GetById(id string) (*Session, error)
+	DeleteById(id string) error
+	// DeleteExpired removes sessions that expired before now and returns how many.
+	DeleteExpired(now time.Time) (int64, error)
 }
