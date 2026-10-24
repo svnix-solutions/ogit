@@ -76,6 +76,14 @@ type Config struct {
 			AccessKey string
 			SecretKey string
 			Region    string
+
+			// Cache holds pack blocks and indexes (immutable): memory
+			// (default, MaxMB), redis (RedisURL, shared by servers) or none.
+			Cache struct {
+				Type     string
+				MaxMB    int
+				RedisURL string
+			}
 		}
 
 		Local struct {

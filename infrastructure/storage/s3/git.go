@@ -11,9 +11,12 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/format/packfile"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/storage/cache"
 	"github.com/rs/zerolog"
 )
 
@@ -22,6 +25,7 @@ type S3Storage struct {
 	bucket string
 	client *awss3.Client
 	config config.Config
+	cache  cache.Cache // pack blocks and indexes, shared by all repositories
 }
 
 func NewS3Storage(logger zerolog.Logger, cfg config.Config) *S3Storage {
@@ -40,11 +44,21 @@ func (s3s *S3Storage) Configure() error {
 
 	s3s.bucket = s3s.config.Storage.S3.Bucket
 
+	blobs, err := cache.New(cache.Config{
+		Type:     s3s.config.Storage.S3.Cache.Type,
+		MaxMB:    s3s.config.Storage.S3.Cache.MaxMB,
+		RedisURL: s3s.config.Storage.S3.Cache.RedisURL,
+	}, s3s.Logger)
+	if err != nil {
+		return err
+	}
+	s3s.cache = blobs
+
 	// Initialize S3 client
 	var s3Config S3Config
 	s3Config.Logger = s3s.Logger
 	s3Config.config = s3s.config
-	err := s3Config.Configure()
+	err = s3Config.Configure()
 	if err != nil {
 		return fmt.Errorf("failed to configure S3 client: %w", err)
 	}
@@ -73,7 +87,7 @@ func (s3s *S3Storage) GetStorer(repoPath string) (storer.Storer, error) {
 		return nil, errors.New("repository does not exist")
 	}
 
-	return NewS3Storer(s3s.client, s3s.bucket, s3s.getRepoKey(repoPath), s3s.Logger), nil
+	return NewS3Storer(s3s.client, s3s.bucket, s3s.getRepoKey(repoPath), s3s.Logger, s3s.cache), nil
 }
 
 func (s3s *S3Storage) CreateRepository(repoPath string) error {
@@ -120,8 +134,10 @@ func (s3s *S3Storage) CreateRepository(repoPath string) error {
 
 // createInitialCommit creates an initial commit with README.md and main branch
 func (s3s *S3Storage) createInitialCommit(repoKey string) error {
-	// Create a storer for this repository
-	storer := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger)
+	// The objects are built in memory and written as one pack: new
+	// repositories have no loose objects.
+	repo := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger, s3s.cache)
+	storer := memory.NewStorage()
 
 	// Create README.md content
 	readmeContent := []byte(`# Repository
@@ -202,16 +218,28 @@ Start adding your files and make your first commit!
 		return fmt.Errorf("failed to store commit: %w", err)
 	}
 
+	pw, err := repo.PackfileWriter()
+	if err != nil {
+		return err
+	}
+	if _, err := packfile.NewEncoder(pw, storer, false).Encode([]plumbing.Hash{readmeHash, treeHash, commitHash}, 0); err != nil {
+		pw.Close()
+		return fmt.Errorf("failed to encode initial pack: %w", err)
+	}
+	if err := pw.Close(); err != nil {
+		return fmt.Errorf("failed to store initial pack: %w", err)
+	}
+
 	// Create main branch pointing to the commit
 	mainRef := plumbing.NewHashReference(plumbing.ReferenceName("refs/heads/main"), commitHash)
-	if err := storer.SetReference(mainRef); err != nil {
+	if err := repo.SetReference(mainRef); err != nil {
 		return fmt.Errorf("failed to create main branch: %w", err)
 	}
 
 	// Create HEAD pointing to main branch (symbolic reference)
 	// This ensures that clone will checkout main branch by default
 	headRef := plumbing.NewSymbolicReference(plumbing.HEAD, "refs/heads/main")
-	if err := storer.SetReference(headRef); err != nil {
+	if err := repo.SetReference(headRef); err != nil {
 		return fmt.Errorf("failed to create HEAD: %w", err)
 	}
 

@@ -3,6 +3,7 @@ package s3
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -10,10 +11,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/format/index"
 	"github.com/go-git/go-git/v5/plumbing/storer"
+	"github.com/go-git/go-git/v5/storage"
+	"github.com/labbs/ogit/infrastructure/storage/cache"
 	"github.com/rs/zerolog"
 )
 
@@ -23,15 +27,23 @@ type S3Storer struct {
 	bucket   string
 	repoPath string
 	logger   zerolog.Logger
+	cache    cache.Cache
+
+	objects *objectsState // packs found for this request (see packs.go)
 }
 
-// NewS3Storer creates a new S3-based storer for a specific repository
-func NewS3Storer(client *awss3.Client, bucket, repoPath string, logger zerolog.Logger) *S3Storer {
+// NewS3Storer creates a new S3-based storer for a specific repository. blobs
+// caches pack blocks and indexes; nil disables caching.
+func NewS3Storer(client *awss3.Client, bucket, repoPath string, logger zerolog.Logger, blobs cache.Cache) *S3Storer {
+	if blobs == nil {
+		blobs = cache.None{}
+	}
 	return &S3Storer{
 		client:   client,
 		bucket:   bucket,
 		repoPath: repoPath,
 		logger:   logger,
+		cache:    blobs,
 	}
 }
 
@@ -85,12 +97,37 @@ func (s *S3Storer) SetEncodedObject(obj plumbing.EncodedObject) (plumbing.Hash, 
 			"git-type": obj.Type().String(),
 		},
 	})
+	if err == nil && s.objects != nil {
+		s.objects.hasLoose = true // readable through this storer right away
+	}
 
 	return hash, err
 }
 
-// EncodedObject returns the EncodedObject with the given hash
+// EncodedObject returns the EncodedObject with the given hash, from a pack
+// or, for repositories in the old layout, a loose object.
 func (s *S3Storer) EncodedObject(t plumbing.ObjectType, hash plumbing.Hash) (plumbing.EncodedObject, error) {
+	p, ok, err := s.findInPacks(hash)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		obj, err := s.packfile(p).Get(hash)
+		if err != nil {
+			return nil, err
+		}
+		if t != plumbing.AnyObject && obj.Type() != t {
+			return nil, plumbing.ErrObjectNotFound
+		}
+		return obj, nil
+	}
+	if !s.objects.hasLoose {
+		return nil, plumbing.ErrObjectNotFound
+	}
+	return s.looseObject(t, hash)
+}
+
+func (s *S3Storer) looseObject(t plumbing.ObjectType, hash plumbing.Hash) (plumbing.EncodedObject, error) {
 	objectKey := s.getObjectKey(fmt.Sprintf("objects/%s/%s", hash.String()[:2], hash.String()[2:]))
 
 	result, err := s.client.GetObject(context.TODO(), &awss3.GetObjectInput{
@@ -135,9 +172,28 @@ func (s *S3Storer) EncodedObject(t plumbing.ObjectType, hash plumbing.Hash) (plu
 
 // IterEncodedObjects returns an iterator for all the objects in the repository
 func (s *S3Storer) IterEncodedObjects(t plumbing.ObjectType) (storer.EncodedObjectIter, error) {
-	objectsPrefix := s.getObjectKey("objects/")
-
+	st, err := s.state()
+	if err != nil {
+		return nil, err
+	}
 	var objects []plumbing.EncodedObject
+	for _, p := range st.packs {
+		iter, err := s.packfile(p).GetByType(t)
+		if err != nil {
+			return nil, err
+		}
+		if err := iter.ForEach(func(o plumbing.EncodedObject) error {
+			objects = append(objects, o)
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if !st.hasLoose {
+		return storer.NewEncodedObjectSliceIter(objects), nil
+	}
+
+	objectsPrefix := s.getObjectKey("objects/")
 
 	paginator := awss3.NewListObjectsV2Paginator(s.client, &awss3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),
@@ -174,8 +230,16 @@ func (s *S3Storer) IterEncodedObjects(t plumbing.ObjectType) (storer.EncodedObje
 	return storer.NewEncodedObjectSliceIter(objects), nil
 }
 
-// HasEncodedObject returns true if the given hash is stored
+// HasEncodedObject returns nil if the given hash is stored
 func (s *S3Storer) HasEncodedObject(hash plumbing.Hash) error {
+	if _, ok, err := s.findInPacks(hash); err != nil {
+		return err
+	} else if ok {
+		return nil
+	}
+	if !s.objects.hasLoose {
+		return plumbing.ErrObjectNotFound
+	}
 	objectKey := s.getObjectKey(fmt.Sprintf("objects/%s/%s", hash.String()[:2], hash.String()[2:]))
 
 	_, err := s.client.HeadObject(context.TODO(), &awss3.HeadObjectInput{
@@ -191,6 +255,18 @@ func (s *S3Storer) HasEncodedObject(hash plumbing.Hash) error {
 
 // EncodedObjectSize returns the size of the encoded object
 func (s *S3Storer) EncodedObjectSize(hash plumbing.Hash) (int64, error) {
+	if p, ok, err := s.findInPacks(hash); err != nil {
+		return 0, err
+	} else if ok {
+		offset, err := p.idx.FindOffset(hash)
+		if err != nil {
+			return 0, err
+		}
+		return s.packfile(p).GetSizeByOffset(offset)
+	}
+	if !s.objects.hasLoose {
+		return 0, plumbing.ErrObjectNotFound
+	}
 	objectKey := s.getObjectKey(fmt.Sprintf("objects/%s/%s", hash.String()[:2], hash.String()[2:]))
 
 	result, err := s.client.HeadObject(context.TODO(), &awss3.HeadObjectInput{
@@ -528,30 +604,112 @@ func (s *S3Storer) AddAlternate(remote string) error {
 	return fmt.Errorf("alternates not supported in S3 storage")
 }
 
-// CheckAndSetReference atomically checks and sets a reference
-func (s *S3Storer) CheckAndSetReference(new, old *plumbing.Reference) error {
-	if old != nil {
-		// Check if the old reference matches the current state
-		current, err := s.Reference(old.Name())
-		if err != nil {
-			return err
-		}
+// Reference updates use S3 conditional requests on the ref object's ETag,
+// so they stay atomic with several servers on one bucket: updates
+// (If-Match) and creates (If-None-Match) are enforced by AWS S3, MinIO, R2
+// and others. Deletes compare the stored value and send If-Match too, but
+// some providers (MinIO) ignore it on DELETE, which leaves a small race
+// between a delete and a concurrent update of the same ref there.
 
-		if old.Type() == plumbing.HashReference && current.Type() == plumbing.HashReference {
-			if old.Hash() != current.Hash() {
-				return fmt.Errorf("reference has changed")
-			}
-		} else if old.Type() == plumbing.SymbolicReference && current.Type() == plumbing.SymbolicReference {
-			if old.Target() != current.Target() {
-				return fmt.Errorf("reference has changed")
-			}
-		} else {
-			return fmt.Errorf("reference type mismatch")
+// refObjectKey is where a reference is stored (same mapping as
+// SetReference: the full ref name under the repository).
+func (s *S3Storer) refObjectKey(name plumbing.ReferenceName) string {
+	return s.getObjectKey(strings.TrimPrefix(string(name), "/"))
+}
+
+// readRef returns the stored hash of a reference and its ETag.
+func (s *S3Storer) readRef(name plumbing.ReferenceName) (plumbing.Hash, string, error) {
+	out, err := s.client.GetObject(context.TODO(), &awss3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(s.refObjectKey(name))})
+	if err != nil {
+		return plumbing.ZeroHash, "", plumbing.ErrReferenceNotFound
+	}
+	defer out.Body.Close()
+	content, err := io.ReadAll(out.Body)
+	if err != nil {
+		return plumbing.ZeroHash, "", err
+	}
+	return plumbing.NewHash(strings.TrimSpace(string(content))), aws.ToString(out.ETag), nil
+}
+
+// preconditionFailed reports whether err is S3 refusing a conditional
+// request because the object changed (or exists, for If-None-Match).
+func preconditionFailed(err error) bool {
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "PreconditionFailed", "ConditionalRequestConflict":
+			return true
 		}
 	}
+	return false
+}
 
-	// Set the new reference
-	return s.SetReference(new)
+// CheckAndSetReference sets ref only if the stored value is still old.
+func (s *S3Storer) CheckAndSetReference(ref, old *plumbing.Reference) error {
+	if old == nil {
+		return s.SetReference(ref)
+	}
+	current, etag, err := s.readRef(old.Name())
+	if err != nil {
+		return err
+	}
+	if current != old.Hash() {
+		return storage.ErrReferenceHasChanged
+	}
+	return s.putRefIfMatch(ref, etag)
+}
+
+// putRefIfMatch writes ref only if the stored object still has etag: another
+// server may have updated it since it was read.
+func (s *S3Storer) putRefIfMatch(ref *plumbing.Reference, etag string) error {
+	_, err := s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
+		Bucket:  aws.String(s.bucket),
+		Key:     aws.String(s.refObjectKey(ref.Name())),
+		Body:    strings.NewReader(ref.Hash().String()),
+		IfMatch: aws.String(etag),
+	})
+	if preconditionFailed(err) {
+		return storage.ErrReferenceHasChanged
+	}
+	return err
+}
+
+// CreateReference stores ref only if it does not exist yet.
+func (s *S3Storer) CreateReference(ref *plumbing.Reference) error {
+	_, err := s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(s.refObjectKey(ref.Name())),
+		Body:        strings.NewReader(ref.Hash().String()),
+		IfNoneMatch: aws.String("*"),
+	})
+	if preconditionFailed(err) {
+		return storage.ErrReferenceHasChanged
+	}
+	return err
+}
+
+// RemoveReferenceIf deletes the reference only if it still points to old.
+func (s *S3Storer) RemoveReferenceIf(name plumbing.ReferenceName, old plumbing.Hash) error {
+	current, etag, err := s.readRef(name)
+	if err != nil {
+		return err
+	}
+	if current != old {
+		return storage.ErrReferenceHasChanged
+	}
+	return s.deleteRefIfMatch(name, etag)
+}
+
+func (s *S3Storer) deleteRefIfMatch(name plumbing.ReferenceName, etag string) error {
+	_, err := s.client.DeleteObject(context.TODO(), &awss3.DeleteObjectInput{
+		Bucket:  aws.String(s.bucket),
+		Key:     aws.String(s.refObjectKey(name)),
+		IfMatch: aws.String(etag),
+	})
+	if preconditionFailed(err) {
+		return storage.ErrReferenceHasChanged
+	}
+	return err
 }
 
 // PackRefs packs references into a packed-refs file (not implemented for S3)

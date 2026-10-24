@@ -9,6 +9,7 @@ import (
 	"github.com/labbs/ogit/interfaces/cli/admin"
 	"github.com/labbs/ogit/interfaces/cli/migration"
 	"github.com/labbs/ogit/interfaces/cli/server"
+	"github.com/labbs/ogit/interfaces/cli/storage"
 
 	"github.com/urfave/cli/v3"
 )
@@ -41,6 +42,7 @@ func main() {
 			server.NewInstance(version),
 			migration.NewInstance(version),
 			admin.NewInstance(version),
+			storage.NewInstance(version),
 		},
 	}
 
