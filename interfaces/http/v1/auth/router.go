@@ -23,9 +23,9 @@ func SetupAuthRouter(controller Controller) {
 		Security:    "disabled",
 	})
 
-	fiberoapi.Get(controller.FiberOapi, "/logout", controller.Logout, fiberoapi.OpenAPIOptions{
+	fiberoapi.Post(controller.FiberOapi, "/logout", controller.Logout, fiberoapi.OpenAPIOptions{
 		Summary:     "Logout user",
-		Description: "Invalidate user session",
+		Description: "End the current session; its token stops working",
 		OperationID: "auth.logout",
 		Tags:        []string{"Auth"},
 	})

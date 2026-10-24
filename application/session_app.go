@@ -42,9 +42,32 @@ func (c *SessionApp) Create(session *domain.Session) error {
 	return nil
 }
 
-func (c *SessionApp) DeleteExpired() error {
-	// logger := c.Logger.With().Str("component", "application.session.delete_expired").Logger()
+// SessionIDClaim is the AuthContext claim holding the session ID, used by logout.
+const SessionIDClaim = "session_id"
 
+// Delete ends a session; tokens referencing it stop validating.
+func (c *SessionApp) Delete(sessionId string) error {
+	logger := c.Logger.With().Str("component", "application.session.delete").Logger()
+
+	if err := c.SessionPers.DeleteById(sessionId); err != nil {
+		logger.Error().Err(err).Str("session_id", sessionId).Msg("failed to delete session")
+		return err
+	}
+	return nil
+}
+
+// DeleteExpired removes expired sessions. It runs every minute (infrastructure/jobs).
+func (c *SessionApp) DeleteExpired() error {
+	logger := c.Logger.With().Str("component", "application.session.delete_expired").Logger()
+
+	n, err := c.SessionPers.DeleteExpired(time.Now())
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to delete expired sessions")
+		return err
+	}
+	if n > 0 {
+		logger.Info().Int64("count", n).Msg("deleted expired sessions")
+	}
 	return nil
 }
 
@@ -70,6 +93,7 @@ func (c *SessionApp) ValidateToken(token string) (*fiberoapi.AuthContext, error)
 
 	ctx := &fiberoapi.AuthContext{
 		UserID: session.UserId,
+		Claims: map[string]interface{}{SessionIDClaim: session.Id},
 	}
 
 	return ctx, nil

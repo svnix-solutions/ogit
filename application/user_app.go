@@ -26,6 +26,21 @@ func NewUserApp(config config.Config, logger zerolog.Logger, userPers domain.Use
 	}
 }
 
+func (c *UserApp) GetById(id string) (*domain.User, error) {
+	logger := c.Logger.With().Str("component", "application.user.get_by_id").Logger()
+
+	user, err := c.UserPres.GetById(id)
+	switch helperError.Catch(err) {
+	case gorm.ErrRecordNotFound:
+		return nil, fmt.Errorf("user not found")
+	case nil:
+	default:
+		logger.Error().Err(err).Str("user_id", id).Msg("failed to get user by id")
+		return nil, err
+	}
+	return &user, nil
+}
+
 func (c *UserApp) GetByEmail(email string) (*domain.User, error) {
 	logger := c.Logger.With().Str("component", "application.user.get_by_email").Logger()
 
