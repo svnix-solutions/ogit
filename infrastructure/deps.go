@@ -24,4 +24,5 @@ type Deps struct {
 	RepoApp    *application.RepositoryApp
 	GitApp     *application.GitApp
 	TokenApp   *application.TokenApp
+	GroupApp   *application.GroupApp
 }

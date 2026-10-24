@@ -1,0 +1,47 @@
+// Package apierror maps application errors to API error responses.
+package apierror
+
+import (
+	"errors"
+
+	"github.com/gofiber/fiber/v2"
+	fiberoapi "github.com/labbs/fiber-oapi"
+	"github.com/labbs/ogit/application"
+	"github.com/rs/zerolog"
+)
+
+var mapping = []struct {
+	err  error
+	code int
+	typ  string
+}{
+	{application.ErrRepositoryNotFound, fiber.StatusNotFound, "REPOSITORY_NOT_FOUND"},
+	{application.ErrGroupNotFound, fiber.StatusNotFound, "GROUP_NOT_FOUND"},
+	{application.ErrUserNotFound, fiber.StatusNotFound, "USER_NOT_FOUND"},
+	{application.ErrMemberNotFound, fiber.StatusNotFound, "MEMBER_NOT_FOUND"},
+	{application.ErrForbidden, fiber.StatusForbidden, "FORBIDDEN"},
+	{application.ErrInvalidRole, fiber.StatusBadRequest, "INVALID_ROLE"},
+	{application.ErrInvalidGroupName, fiber.StatusBadRequest, "INVALID_GROUP_NAME"},
+	{application.ErrInvalidMember, fiber.StatusBadRequest, "INVALID_MEMBER"},
+	{application.ErrAlreadyMember, fiber.StatusConflict, "ALREADY_MEMBER"},
+	{application.ErrGroupNameTaken, fiber.StatusConflict, "GROUP_NAME_TAKEN"},
+	{application.ErrLastOwner, fiber.StatusConflict, "LAST_OWNER"},
+	{application.ErrOwnerMustTransfer, fiber.StatusConflict, "OWNER_MUST_TRANSFER"},
+}
+
+// From converts err into an error response. Unknown errors are logged and
+// returned as a generic 500 without their message.
+func From(err error, logger zerolog.Logger) *fiberoapi.ErrorResponse {
+	for _, m := range mapping {
+		if errors.Is(err, m.err) {
+			return &fiberoapi.ErrorResponse{Code: m.code, Details: m.err.Error(), Type: m.typ}
+		}
+	}
+	logger.Error().Err(err).Msg("request failed")
+	return &fiberoapi.ErrorResponse{Code: fiber.StatusInternalServerError, Details: "internal error", Type: "INTERNAL_ERROR"}
+}
+
+// Unauthenticated is returned when a handler finds no auth context.
+func Unauthenticated() *fiberoapi.ErrorResponse {
+	return &fiberoapi.ErrorResponse{Code: fiber.StatusUnauthorized, Details: "Authentication required", Type: "AUTHENTICATION_REQUIRED"}
+}

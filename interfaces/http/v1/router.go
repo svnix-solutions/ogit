@@ -3,6 +3,7 @@ package v1
 import (
 	"github.com/labbs/ogit/infrastructure"
 	"github.com/labbs/ogit/interfaces/http/v1/auth"
+	"github.com/labbs/ogit/interfaces/http/v1/group"
 	"github.com/labbs/ogit/interfaces/http/v1/repository"
 	"github.com/labbs/ogit/interfaces/http/v1/user"
 )
@@ -35,4 +36,11 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		RepositoryApp: deps.RepoApp,
 	}
 	repository.SetupRepositoryRouter(repoCtrl)
+
+	group.SetupGroupRouter(group.Controller{
+		Config:    deps.Config,
+		Logger:    deps.Logger,
+		FiberOapi: grp.Group("/group"),
+		GroupApp:  deps.GroupApp,
+	})
 }

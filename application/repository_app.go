@@ -19,15 +19,19 @@ type RepositoryApp struct {
 	Logger               zerolog.Logger
 	RepoPres             domain.RepositoryPers
 	RepositoryMemberPers domain.RepositoryMemberPers
+	GroupPers            domain.GroupPers
+	UserPers             domain.UserPers
 	SSHKeyPres           domain.SSHKeyPers
 	StorageConfig        storage.Config
 }
 
-func NewRepositoryApp(config config.Config, logger zerolog.Logger, repoPers domain.RepositoryPers, repositoryMemberPers domain.RepositoryMemberPers, sshKeyPers domain.SSHKeyPers, storageConfig storage.Config) *RepositoryApp {
+func NewRepositoryApp(config config.Config, logger zerolog.Logger, repoPers domain.RepositoryPers, repositoryMemberPers domain.RepositoryMemberPers, groupPers domain.GroupPers, userPers domain.UserPers, sshKeyPers domain.SSHKeyPers, storageConfig storage.Config) *RepositoryApp {
 	return &RepositoryApp{
 		Config:               config,
 		Logger:               logger,
 		RepoPres:             repoPers,
+		GroupPers:            groupPers,
+		UserPers:             userPers,
 		SSHKeyPres:           sshKeyPers,
 		StorageConfig:        storageConfig,
 		RepositoryMemberPers: repositoryMemberPers,
@@ -137,56 +141,40 @@ func (c *RepositoryApp) GetRepository(id, slug *string) (*domain.Repository, err
 	return repository, nil
 }
 
+// GetUserEffectiveRole returns the highest role userId has on the repository,
+// directly or through one of their groups.
 func (c *RepositoryApp) GetUserEffectiveRole(repositoryId, userId string) (domain.AccessType, error) {
 	logger := c.Logger.With().Str("component", "application.repository.get_user_effective_role").Logger()
 
-	// Récupérer tous les membres du repository (users + groups) avec les relations
 	members, err := c.RepositoryMemberPers.GetByRepositoryWithRelations(repositoryId)
 	if err != nil {
 		logger.Error().Err(err).Str("repository_id", repositoryId).Msg("failed to get repository members")
 		return domain.AccessTypeNone, err
 	}
 
-	var effectiveRole domain.AccessType = domain.AccessTypeNone
+	groupIds, err := c.GroupPers.GroupIdsForUser(userId)
+	if err != nil {
+		logger.Error().Err(err).Str("user_id", userId).Msg("failed to get user groups")
+		return domain.AccessTypeNone, err
+	}
+	inGroup := make(map[string]bool, len(groupIds))
+	for _, id := range groupIds {
+		inGroup[id] = true
+	}
 
+	effectiveRole := domain.AccessTypeNone
 	for _, member := range members {
 		switch member.MemberType {
 		case domain.MemberTypeUser:
-			// Permission directe utilisateur
 			if member.UserId != nil && *member.UserId == userId {
 				effectiveRole = domain.MaxAccessType(effectiveRole, member.AccessType)
-				logger.Debug().
-					Str("user_id", userId).
-					Str("direct_role", string(member.AccessType)).
-					Str("current_effective", string(effectiveRole)).
-					Msg("Found direct user permission")
 			}
-
 		case domain.MemberTypeGroup:
-			// Permission via groupe - vérifier si l'user est dans le groupe
-			if member.GroupId != nil {
-				// Vérifier si l'utilisateur est membre du groupe
-				for _, groupMember := range member.Group.Members {
-					if groupMember.Id == userId {
-						effectiveRole = domain.MaxAccessType(effectiveRole, member.AccessType)
-						logger.Debug().
-							Str("user_id", userId).
-							Str("group_id", *member.GroupId).
-							Str("group_role", string(member.AccessType)).
-							Str("current_effective", string(effectiveRole)).
-							Msg("Found group permission")
-						break
-					}
-				}
+			if member.GroupId != nil && inGroup[*member.GroupId] {
+				effectiveRole = domain.MaxAccessType(effectiveRole, member.AccessType)
 			}
 		}
 	}
-
-	logger.Debug().
-		Str("user_id", userId).
-		Str("repository_id", repositoryId).
-		Str("effective_role", string(effectiveRole)).
-		Msg("Calculated effective role")
 
 	return effectiveRole, nil
 }
