@@ -14,7 +14,7 @@ import (
 )
 
 // Repository lifecycle rules:
-//   - owners rename (the slug follows the name; the old slug keeps working
+//   - owners rename (the slug follows the name; the old path keeps working
 //     through a redirect until another repository takes it), change
 //     visibility, archive/unarchive and delete;
 //   - maintainers and owners edit the description;
@@ -23,7 +23,7 @@ import (
 //   - deleting needs the slug repeated and removes the git data.
 
 var (
-	ErrRepositoryNameTaken = errors.New("a repository with this name or slug already exists")
+	ErrRepositoryNameTaken = errors.New("this namespace already has a repository with this name")
 	ErrInvalidName         = errors.New("name must produce a non-empty slug")
 	ErrGitArchived         = errors.New("repository is archived")
 )
@@ -56,7 +56,7 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 		if newSlug == "" {
 			return nil, ErrInvalidName
 		}
-		if err := c.RepoPres.Rename(repo.Id, name, newSlug, repo.Slug); helperError.Catch(err) == gorm.ErrDuplicatedKey {
+		if err := c.RepoPres.Rename(repo.Id, repo.Namespace, name, newSlug, repo.Slug); helperError.Catch(err) == gorm.ErrDuplicatedKey {
 			return nil, ErrRepositoryNameTaken
 		} else if err != nil {
 			return nil, err
@@ -120,7 +120,7 @@ func purgeRepository(pers domain.RepositoryPers, store storage.Config, logger ze
 		return err
 	}
 	if err := store.DeleteRepository(repo.StorageKey); err != nil {
-		logger.Error().Err(err).Str("component", "application.repository").Str("repository", repo.Slug).
+		logger.Error().Err(err).Str("component", "application.repository").Str("repository", repo.FullPath()).
 			Msg("repository deleted but its git data could not be removed")
 	}
 	return nil

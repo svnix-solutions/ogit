@@ -29,7 +29,7 @@ export function HomePage() {
                 {r.is_private ? <Lock className="mt-0.5 h-4 w-4 text-muted-foreground" /> : <Globe className="mt-0.5 h-4 w-4 text-muted-foreground" />}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 font-medium">
-                    {r.name}
+                    <span className="text-muted-foreground">{r.namespace} /</span> {r.name}
                     {r.archived && (
                       <span className="inline-flex items-center gap-1 rounded-full border px-2 text-xs text-muted-foreground">
                         <Archive className="h-3 w-3" /> archived
@@ -38,7 +38,7 @@ export function HomePage() {
                   </div>
                   {r.description && <p className="truncate text-sm text-muted-foreground">{r.description}</p>}
                 </div>
-                <code className="hidden text-xs text-muted-foreground sm:block">/{r.slug}.git</code>
+                <code className="hidden text-xs text-muted-foreground sm:block">/{r.full_path}.git</code>
               </div>
             ))}
           </Card>

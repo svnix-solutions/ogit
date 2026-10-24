@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/database"
@@ -41,7 +42,7 @@ func NewInstance(version string) *cli.Command {
 		list = append(list, config.DatabaseFlags(cfg)...)
 		list = append(list, config.StorageFlags(cfg)...)
 		list = append(list,
-			&cli.StringFlag{Name: "repository", Usage: "slug of the repository", Destination: &slug},
+			&cli.StringFlag{Name: "repository", Usage: "the repository, as <owner>/<name>", Destination: &slug},
 			&cli.BoolFlag{Name: "all", Usage: "every repository", Destination: &all},
 		)
 		return
@@ -91,7 +92,7 @@ func NewInstance(version string) *cli.Command {
 // --repository or --all; a nil storage means another storage type.
 func s3Targets(cfg config.Config, slug string, all bool) (*s3.S3Storage, []domain.Repository, error) {
 	if (slug == "") == !all {
-		return nil, nil, errors.New("specify --repository <slug> or --all")
+		return nil, nil, errors.New("specify --repository <owner>/<name> or --all")
 	}
 
 	l := logger.NewLogger(cfg.Logger.Level, cfg.Logger.Pretty, cfg.Version)
@@ -123,7 +124,11 @@ func s3Targets(cfg config.Config, slug string, all bool) (*s3.S3Storage, []domai
 			}
 		}
 	} else {
-		repo, err := repos.GetRepository(domain.Repository{Slug: slug})
+		namespace, name, ok := application.SplitPath(slug)
+		if !ok {
+			return nil, nil, fmt.Errorf("--repository takes <owner>/<name>, not %q", slug)
+		}
+		repo, err := repos.GetByPath(namespace, name)
 		if err != nil {
 			return nil, nil, fmt.Errorf("repository %q not found: %w", slug, err)
 		}
@@ -145,12 +150,12 @@ func repack(cfg config.Config, slug string, all bool, out io.Writer) error {
 	for _, repo := range targets {
 		n, err := s3store.Repack(repo.StorageKey)
 		if err != nil {
-			return fmt.Errorf("repack %s: %w", repo.Slug, err)
+			return fmt.Errorf("repack %s: %w", repo.FullPath(), err)
 		}
 		if n == 0 {
-			_, _ = fmt.Fprintf(out, "%s: already packed\n", repo.Slug)
+			_, _ = fmt.Fprintf(out, "%s: already packed\n", repo.FullPath())
 		} else {
-			_, _ = fmt.Fprintf(out, "%s: packed %d loose objects\n", repo.Slug, n)
+			_, _ = fmt.Fprintf(out, "%s: packed %d loose objects\n", repo.FullPath(), n)
 		}
 	}
 	return nil
@@ -174,8 +179,8 @@ func gc(cfg config.Config, slug string, all bool, grace time.Duration, out io.Wr
 		res, err := s3store.GC(repo.StorageKey, grace)
 		if err != nil {
 			// Keep going: one broken repository must not block the others.
-			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.Slug, err)
-			failed = append(failed, repo.Slug)
+			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.FullPath(), err)
+			failed = append(failed, repo.FullPath())
 			continue
 		}
 		var done []string
@@ -191,7 +196,7 @@ func gc(cfg config.Config, slug string, all bool, grace time.Duration, out io.Wr
 		if len(done) == 0 {
 			done = append(done, "nothing to do")
 		}
-		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.Slug, strings.Join(done, ", "))
+		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.FullPath(), strings.Join(done, ", "))
 	}
 	if len(failed) > 0 {
 		return fmt.Errorf("gc failed for %s", strings.Join(failed, ", "))
@@ -216,8 +221,8 @@ func prune(cfg config.Config, slug string, all bool, expire, grace time.Duration
 	for _, repo := range targets {
 		res, err := s3store.Prune(repo.StorageKey, expire, grace, dryRun)
 		if err != nil {
-			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.Slug, err)
-			failed = append(failed, repo.Slug)
+			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.FullPath(), err)
+			failed = append(failed, repo.FullPath())
 			continue
 		}
 		var done []string
@@ -236,7 +241,7 @@ func prune(cfg config.Config, slug string, all bool, expire, grace time.Duration
 		if len(done) == 0 {
 			done = append(done, "nothing to prune")
 		}
-		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.Slug, strings.Join(done, ", "))
+		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.FullPath(), strings.Join(done, ", "))
 	}
 	if len(failed) > 0 {
 		return fmt.Errorf("prune failed for %s", strings.Join(failed, ", "))

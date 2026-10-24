@@ -20,12 +20,12 @@ var (
 
 	// 400
 	ErrInvalidRole      = errors.New("invalid role")
-	ErrInvalidGroupName = errors.New("group name must be 1-64 characters: lowercase letters, digits, '.', '_' or '-', starting with a letter or digit")
+	ErrInvalidGroupName = errors.New("group name must be 1-64 characters: lowercase letters, digits, '.', '_' or '-', starting with a letter or digit, not ending in .git, and not a reserved word")
 	ErrInvalidMember    = errors.New("specify exactly one of username or group")
 
 	// 409
 	ErrAlreadyMember     = errors.New("already a member")
-	ErrGroupNameTaken    = errors.New("group name already taken")
+	ErrGroupNameTaken    = errors.New("group name already taken (by a group or a user)")
 	ErrLastOwner         = domain.ErrLastOwner
 	ErrOwnerMustTransfer = errors.New("the group owner must transfer ownership first")
 )

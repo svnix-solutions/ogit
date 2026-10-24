@@ -16,8 +16,18 @@ type Controller struct {
 	AuthApp       *application.AuthApp
 }
 
+// Repositories are at /<namespace>/<repo>.git. The flat /<repo>.git URLs
+// used before namespaces get a 404 that says so, rather than falling through
+// to the web UI.
 func SetupGitRouter(controller Controller) {
-	controller.Fiber.Get("/:repo/info/refs", controller.Authorize("/info/refs", ""), controller.InfoRefs)
-	controller.Fiber.Post("/:repo/git-upload-pack", controller.Authorize("/git-upload-pack", "git-upload-pack"), controller.HandleUploadPack)
-	controller.Fiber.Post("/:repo/git-receive-pack", controller.Authorize("/git-receive-pack", "git-receive-pack"), controller.HandleReceivePack)
+	controller.Fiber.Get("/:owner/:repo/info/refs", controller.Authorize("/info/refs", ""), controller.InfoRefs)
+	controller.Fiber.Post("/:owner/:repo/git-upload-pack", controller.Authorize("/git-upload-pack", "git-upload-pack"), controller.HandleUploadPack)
+	controller.Fiber.Post("/:owner/:repo/git-receive-pack", controller.Authorize("/git-receive-pack", "git-receive-pack"), controller.HandleReceivePack)
+
+	flat := func(ctx *fiber.Ctx) error {
+		return ctx.Status(fiber.StatusNotFound).SendString("repository not found: repositories are addressed as /<owner>/<name>.git")
+	}
+	controller.Fiber.Get("/:repo/info/refs", flat)
+	controller.Fiber.Post("/:repo/git-upload-pack", flat)
+	controller.Fiber.Post("/:repo/git-receive-pack", flat)
 }

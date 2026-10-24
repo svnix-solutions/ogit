@@ -1,14 +1,17 @@
 package dtos
 
 type GetRepositoryRequest struct {
-	// UUID or slug; the handler tells them apart. ("slug" is not a validator
-	// tag, and fiber-oapi does not allow registering custom ones.)
+	// UUID or <namespace>/<slug> with the slash URL-encoded (alice%2Fsite);
+	// see repoid.Split.
 	Identifier string `path:"identifier" json:"-" validate:"required"`
 }
 
 type GetRepositoryResponse struct {
 	Id          string `json:"id"`
+	Namespace   string `json:"namespace"`
+	OwnerType   string `json:"owner_type"` // user or group
 	Slug        string `json:"slug"`
+	FullPath    string `json:"full_path"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	IsPrivate   bool   `json:"is_private"`
@@ -17,7 +20,7 @@ type GetRepositoryResponse struct {
 
 type UpdateRepositoryRequest struct {
 	Identifier  string  `path:"identifier" json:"-" validate:"required"`
-	Name        *string `json:"name"`        // owners; the old slug keeps working
+	Name        *string `json:"name"`        // owners; the old path keeps working
 	Description *string `json:"description"` // maintainers and owners
 	IsPrivate   *bool   `json:"is_private"`  // owners
 	Archived    *bool   `json:"archived"`    // owners; archived repositories refuse pushes
@@ -30,4 +33,9 @@ type DeleteRepositoryRequest struct {
 
 type DeleteRepositoryResponse struct {
 	Message string `json:"message"`
+}
+
+type TransferRepositoryRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	Namespace  string `json:"namespace" validate:"required"` // a username or group name
 }

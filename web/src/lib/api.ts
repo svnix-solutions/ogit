@@ -64,7 +64,9 @@ export function isUnauthenticated(err: unknown): boolean {
 export type Profile = { id: string; username: string; email: string; avatar: string };
 export type RepositorySummary = {
   id: string;
+  namespace: string;
   slug: string;
+  full_path: string; // <namespace>/<slug>
   name: string;
   description: string;
   is_private: boolean;

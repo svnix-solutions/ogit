@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -140,7 +141,9 @@ type GitCredentials struct {
 // slug is allowed. creds is nil for anonymous requests, which may only read
 // public repositories. Private repositories the caller cannot read are
 // reported as not found so that their existence is not disclosed.
-func (c *AuthApp) AuthorizeGit(repoSlug, operation string, creds *GitCredentials) (*domain.Repository, error) {
+// AuthorizeGit checks a git operation on the repository at repoPath
+// (<namespace>/<slug>).
+func (c *AuthApp) AuthorizeGit(repoPath, operation string, creds *GitCredentials) (*domain.Repository, error) {
 	logger := c.Logger.With().Str("component", "application.auth.authorize_git").Logger()
 
 	var requiredScope domain.TokenScope
@@ -156,7 +159,7 @@ func (c *AuthApp) AuthorizeGit(repoSlug, operation string, creds *GitCredentials
 		return nil, fmt.Errorf("invalid git operation: %s", operation)
 	}
 
-	repo, repoErr := c.RepositoryApp.GetRepository(nil, &repoSlug)
+	repo, repoErr := c.RepositoryApp.GetRepository(nil, &repoPath)
 
 	if creds == nil {
 		if repoErr == nil && !repo.IsPrivate && gitOperation == "read" {
@@ -253,6 +256,16 @@ func (c *AuthApp) Register(username, email, password string) error {
 	logger := c.Logger.With().Str("component", "application.auth.register").Logger()
 
 	if err := checkRegistrationPolicy(c.Config, email, password); err != nil {
+		return err
+	}
+	// The username is also the user's namespace (see namespace.go).
+	switch err := checkNewNamespace(c.RepositoryApp.UserPers, c.RepositoryApp.GroupPers, username); err {
+	case nil:
+	case domain.ErrInvalidNamespaceName:
+		return fmt.Errorf("%w: username %s", ErrRegistrationRejected, strings.TrimPrefix(err.Error(), "name "))
+	case ErrNamespaceTaken:
+		return fmt.Errorf("%w: username is already taken", ErrRegistrationRejected)
+	default:
 		return err
 	}
 

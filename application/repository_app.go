@@ -3,6 +3,7 @@ package application
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/gosimple/slug"
@@ -38,8 +39,28 @@ func NewRepositoryApp(config config.Config, logger zerolog.Logger, repoPers doma
 	}
 }
 
-func (c *RepositoryApp) Create(name, description, creator string, isPrivate bool) (*domain.Repository, error) {
+// Create makes a repository in namespace (the creator's own when empty).
+// See namespace.go for who may create where.
+func (c *RepositoryApp) Create(namespace, name, description, creator string, isPrivate bool) (*domain.Repository, error) {
 	logger := c.Logger.With().Str("component", "application.repository.create").Logger()
+
+	if namespace == "" {
+		user, err := c.UserPers.GetById(creator)
+		if err != nil {
+			return nil, err
+		}
+		namespace = user.Username
+	}
+	ns, err := c.namespaceForCreate(namespace, creator)
+	if err != nil {
+		return nil, err
+	}
+
+	name = strings.TrimSpace(name)
+	repoSlug := slug.Make(name)
+	if repoSlug == "" {
+		return nil, ErrInvalidName
+	}
 
 	id := utils.UUIDv4()
 	repo := &domain.Repository{
@@ -47,24 +68,26 @@ func (c *RepositoryApp) Create(name, description, creator string, isPrivate bool
 		Name:          name,
 		Description:   description,
 		IsPrivate:     isPrivate,
-		Slug:          slug.Make(name),
+		Namespace:     ns.Path,
+		OwnerType:     ns.Type,
+		OwnerId:       ns.Id,
+		Slug:          repoSlug,
 		StorageKey:    id, // never changes, so renames do not move data
 		DefaultBranch: "main",
 	}
 
-	err := c.RepoPres.Create(repo)
+	err = c.RepoPres.Create(repo)
 	if helperError.Catch(err) == gorm.ErrDuplicatedKey {
-		logger.Warn().Str("repo_name", name).Msg("repository with the same name already exists")
-		return nil, fmt.Errorf("repository with the same name already exists")
+		return nil, ErrRepositoryNameTaken
 	} else if err != nil {
 		logger.Error().Err(err).Str("repo_id", repo.Id).Str("repo_name", repo.Name).Msg("failed to create repository")
 		return nil, err
 	}
 
-	// The slug now belongs to this repository, even if it used to redirect
+	// The path now belongs to this repository, even if it used to redirect
 	// to another one.
-	if err := c.RepoPres.DropRedirect(repo.Slug); err != nil {
-		logger.Warn().Err(err).Str("slug", repo.Slug).Msg("failed to drop redirect")
+	if err := c.RepoPres.DropRedirect(repo.Namespace, repo.Slug); err != nil {
+		logger.Warn().Err(err).Str("path", repo.FullPath()).Msg("failed to drop redirect")
 	}
 
 	err = c.StorageConfig.CreateRepository(repo.StorageKey)
@@ -75,6 +98,11 @@ func (c *RepositoryApp) Create(name, description, creator string, isPrivate bool
 		return nil, fmt.Errorf("failed to create repository storage: %w", err)
 	}
 
+	// In a group's namespace the group's role applies (namespaceRole); the
+	// creator gets no extra row.
+	if ns.Type == domain.OwnerGroup {
+		return repo, nil
+	}
 	member := &domain.RepositoryMember{
 		Id:           utils.UUIDv4(),
 		RepositoryId: repo.Id,
@@ -101,11 +129,12 @@ func (c *RepositoryApp) Create(name, description, creator string, isPrivate bool
 // from GetRepositoryForUser, when the user may not see it.
 var ErrRepositoryNotFound = errors.New("repository not found")
 
-// GetRepositoryForUser returns the repository identified by id or slug if
-// userId may read it. Private repositories the user cannot read are reported
-// as ErrRepositoryNotFound so that their existence is not disclosed.
-func (c *RepositoryApp) GetRepositoryForUser(id, slug *string, userId string) (*domain.Repository, error) {
-	repo, err := c.GetRepository(id, slug)
+// GetRepositoryForUser returns the repository identified by id or path
+// (<namespace>/<slug>) if userId may read it. Private repositories the user
+// cannot read are reported as ErrRepositoryNotFound so that their existence
+// is not disclosed.
+func (c *RepositoryApp) GetRepositoryForUser(id, path *string, userId string) (*domain.Repository, error) {
+	repo, err := c.GetRepository(id, path)
 	if err != nil {
 		return nil, err
 	}
@@ -120,46 +149,56 @@ func (c *RepositoryApp) GetRepositoryForUser(id, slug *string, userId string) (*
 	return repo, nil
 }
 
-func (c *RepositoryApp) GetRepository(id, slug *string) (*domain.Repository, error) {
+// GetRepository finds a repository by id or by path, <namespace>/<slug>
+// (former paths of renamed repositories included). A flat path, as used
+// before namespaces, is not found.
+func (c *RepositoryApp) GetRepository(id, path *string) (*domain.Repository, error) {
 	logger := c.Logger.With().Str("component", "application.repository.get").Logger()
 
-	if id == nil && slug == nil {
-		logger.Error().Msg("either id or slug must be provided")
-		return nil, fmt.Errorf("either id or slug must be provided")
-	}
-
-	var repo domain.Repository
-	if id != nil {
-		repo.Id = *id
-	}
-	if slug != nil {
-		repo.Slug = *slug
-	}
-
-	repository, err := c.RepoPres.GetRepository(repo)
-	if id == nil && isNotFound(err) {
-		// A former slug of a renamed repository.
-		if renamed, rerr := c.RepoPres.ResolveRedirect(*slug); rerr == nil {
-			return renamed, nil
+	var repository *domain.Repository
+	var err error
+	switch {
+	case id != nil:
+		repository, err = c.RepoPres.GetRepository(domain.Repository{Id: *id})
+	case path != nil:
+		namespace, slug, ok := SplitPath(*path)
+		if !ok {
+			return nil, ErrRepositoryNotFound
 		}
+		repository, err = c.RepoPres.GetByPath(namespace, slug)
+		if isNotFound(err) {
+			if renamed, rerr := c.RepoPres.ResolveRedirect(namespace, slug); rerr == nil {
+				return renamed, nil
+			}
+		}
+	default:
+		return nil, fmt.Errorf("either id or path must be provided")
 	}
 	switch helperError.Catch(err) {
 	case nil:
 	case gorm.ErrRecordNotFound:
-		logger.Warn().Str("repo_id", repo.Id).Str("repo_slug", repo.Slug).Msg("repository not found")
 		return nil, ErrRepositoryNotFound
 	default:
-		logger.Error().Err(err).Str("repo_id", repo.Id).Str("repo_slug", repo.Slug).Msg("failed to get repository")
+		logger.Error().Err(err).Msg("failed to get repository")
 		return nil, err
 	}
-
 	return repository, nil
 }
 
-// GetUserEffectiveRole returns the highest role userId has on the repository,
-// directly or through one of their groups.
+// GetUserEffectiveRole returns the highest role userId has on the repository:
+// directly, through one of their groups being a member, or through its
+// namespace (their own, or a group's they belong to).
 func (c *RepositoryApp) GetUserEffectiveRole(repositoryId, userId string) (domain.AccessType, error) {
 	logger := c.Logger.With().Str("component", "application.repository.get_user_effective_role").Logger()
+
+	repo, err := c.GetRepository(&repositoryId, nil)
+	if err != nil {
+		return domain.AccessTypeNone, err
+	}
+	fromNamespace, err := c.namespaceRole(repo, userId)
+	if err != nil {
+		return domain.AccessTypeNone, err
+	}
 
 	members, err := c.RepositoryMemberPers.GetByRepositoryWithRelations(repositoryId)
 	if err != nil {
@@ -177,7 +216,7 @@ func (c *RepositoryApp) GetUserEffectiveRole(repositoryId, userId string) (domai
 		inGroup[id] = true
 	}
 
-	effectiveRole := domain.AccessTypeNone
+	effectiveRole := fromNamespace
 	for _, member := range members {
 		switch member.MemberType {
 		case domain.MemberTypeUser:

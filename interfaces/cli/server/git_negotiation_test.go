@@ -54,7 +54,7 @@ func testFetchNegotiation(t *testing.T, opts ...func(*config.Config)) {
 
 	// 300 commits: well past the 32 haves of a first negotiation round.
 	writer := t.TempDir()
-	g.mustRun(writer, "clone", g.url("history"), ".")
+	g.mustRun(writer, "clone", g.url("owner/history"), ".")
 	for i := 0; i < 300; i++ {
 		require.NoError(t, os.WriteFile(filepath.Join(writer, fmt.Sprintf("f%d.txt", i%20)), []byte(fmt.Sprintf("content %d\n", i)), 0o644))
 		g.mustRun(writer, "add", "-A")
@@ -64,9 +64,9 @@ func testFetchNegotiation(t *testing.T, opts ...func(*config.Config)) {
 
 	for _, transport := range []string{"ssh", "http"} {
 		t.Run(transport, func(t *testing.T) {
-			url := g.url("history")
+			url := g.url("owner/history")
 			if transport == "http" {
-				url = srv.url + "/history.git"
+				url = srv.url + "/owner/history.git"
 			}
 			reader := t.TempDir()
 			g.mustRun(reader, "clone", "-q", url, ".")
@@ -126,9 +126,9 @@ func testPushDelta(t *testing.T, opts ...func(*config.Config)) {
 	big := strings.Repeat("a line of text that git will delta-compress\n", 2000)
 	for _, transport := range []string{"ssh", "http"} {
 		t.Run(transport, func(t *testing.T) {
-			url := g.url("deltas")
+			url := g.url("owner/deltas")
 			if transport == "http" {
-				url = strings.Replace(srv.url, "http://", fmt.Sprintf("http://%s:%s@", owner.git.Username, owner.git.Password), 1) + "/deltas.git"
+				url = strings.Replace(srv.url, "http://", fmt.Sprintf("http://%s:%s@", owner.git.Username, owner.git.Password), 1) + "/owner/deltas.git"
 			}
 			dir := t.TempDir()
 			g.mustRun(dir, "clone", "-q", url, ".")

@@ -297,7 +297,7 @@ func (c *AuthApp) IdentifySSHKey(keys domain.SSHKeyPers, fingerprint string) (*S
 // ("git-upload-pack" or "git-receive-pack") on the repository, with the same
 // outcomes as AuthorizeGit: private repositories the key cannot read are
 // reported as not found.
-func (c *AuthApp) AuthorizeSSH(id *SSHIdentity, repoSlug, operation string) (*domain.Repository, error) {
+func (c *AuthApp) AuthorizeSSH(id *SSHIdentity, repoPath, operation string) (*domain.Repository, error) {
 	var write bool
 	switch operation {
 	case "git-upload-pack":
@@ -307,7 +307,7 @@ func (c *AuthApp) AuthorizeSSH(id *SSHIdentity, repoSlug, operation string) (*do
 		return nil, fmt.Errorf("invalid git operation: %s", operation)
 	}
 
-	repo, err := c.RepositoryApp.GetRepository(nil, &repoSlug)
+	repo, err := c.RepositoryApp.GetRepository(nil, &repoPath)
 	if err != nil {
 		return nil, ErrGitNotFound
 	}

@@ -36,12 +36,12 @@ func TestS3RedisCacheSharedBetweenServers(t *testing.T) {
 	a.createRepo(t, owner.session, "Shared", false)
 	b := startTestServer(t, withRedis, func(c *config.Config) { c.Database = a.deps.Config.Database })
 
-	git := newGitCLI(t, newSSHKey(t, "x"), 0)                         // public repo over HTTP: no key used
-	git.mustRun(t.TempDir(), "clone", "-q", a.url+"/shared.git", ".") // server A warms Redis
+	git := newGitCLI(t, newSSHKey(t, "x"), 0)                               // public repo over HTTP: no key used
+	git.mustRun(t.TempDir(), "clone", "-q", a.url+"/owner/shared.git", ".") // server A warms Redis
 
 	counter.Reset()
 	status, _ := b.get(t, "/api/health", "")
 	require.Equal(t, http.StatusOK, status)
-	git.mustRun(t.TempDir(), "clone", "-q", b.url+"/shared.git", ".")
+	git.mustRun(t.TempDir(), "clone", "-q", b.url+"/owner/shared.git", ".")
 	assert.Zero(t, counter.Get("RANGE"), "server B reads pack blocks from Redis: %v", counter)
 }

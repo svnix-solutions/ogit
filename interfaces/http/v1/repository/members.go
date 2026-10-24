@@ -5,8 +5,8 @@ import (
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/domain"
-	"github.com/labbs/ogit/infrastructure/helpers/validator"
 	"github.com/labbs/ogit/interfaces/http/v1/apierror"
+	"github.com/labbs/ogit/interfaces/http/v1/repoid"
 	"github.com/labbs/ogit/interfaces/http/v1/repository/dtos"
 )
 
@@ -38,7 +38,8 @@ func (ctrl *Controller) ListRepositories(ctx *fiber.Ctx, req dtos.ListRepositori
 	resp.Repositories = make([]dtos.RepositorySummary, 0, len(repos))
 	for _, r := range repos {
 		resp.Repositories = append(resp.Repositories, dtos.RepositorySummary{
-			Id: r.Id, Slug: r.Slug, Name: r.Name, Description: r.Description, IsPrivate: r.IsPrivate, IsArchived: r.IsArchived,
+			Id: r.Id, Namespace: r.Namespace, Slug: r.Slug, FullPath: r.FullPath(), Name: r.Name, Description: r.Description,
+			IsPrivate: r.IsPrivate, IsArchived: r.IsArchived,
 		})
 	}
 	return resp, nil
@@ -49,15 +50,19 @@ func (ctrl *Controller) UpdateRepository(ctx *fiber.Ctx, req dtos.UpdateReposito
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
-	id, slug := splitIdentifier(req.Identifier)
+	id, slug := repoid.Split(req.Identifier)
 	repo, err := ctrl.RepositoryApp.Update(id, slug, authCtx.UserID, application.RepositoryUpdate{
 		Name: req.Name, Description: req.Description, IsPrivate: req.IsPrivate, Archived: req.Archived,
 	})
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	return &dtos.GetRepositoryResponse{Id: repo.Id, Slug: repo.Slug, Name: repo.Name, Description: repo.Description,
-		IsPrivate: repo.IsPrivate, IsArchived: repo.IsArchived}, nil
+	return repositoryResponse(repo), nil
+}
+
+func repositoryResponse(repo *domain.Repository) *dtos.GetRepositoryResponse {
+	return &dtos.GetRepositoryResponse{Id: repo.Id, Namespace: repo.Namespace, OwnerType: string(repo.OwnerType), Slug: repo.Slug,
+		FullPath: repo.FullPath(), Name: repo.Name, Description: repo.Description, IsPrivate: repo.IsPrivate, IsArchived: repo.IsArchived}
 }
 
 func (ctrl *Controller) DeleteRepository(ctx *fiber.Ctx, req dtos.DeleteRepositoryRequest) (*dtos.DeleteRepositoryResponse, *fiberoapi.ErrorResponse) {
@@ -65,11 +70,24 @@ func (ctrl *Controller) DeleteRepository(ctx *fiber.Ctx, req dtos.DeleteReposito
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
-	id, slug := splitIdentifier(req.Identifier)
+	id, slug := repoid.Split(req.Identifier)
 	if err := ctrl.RepositoryApp.Delete(id, slug, authCtx.UserID, req.Confirm); err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
 	return &dtos.DeleteRepositoryResponse{Message: "repository deleted"}, nil
+}
+
+func (ctrl *Controller) TransferRepository(ctx *fiber.Ctx, req dtos.TransferRepositoryRequest) (*dtos.GetRepositoryResponse, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, path := repoid.Split(req.Identifier)
+	repo, err := ctrl.RepositoryApp.Transfer(id, path, authCtx.UserID, req.Namespace)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return repositoryResponse(repo), nil
 }
 
 func (ctrl *Controller) ListMembers(ctx *fiber.Ctx, req dtos.ListMembersRequest) (*dtos.ListMembersResponse, *fiberoapi.ErrorResponse) {
@@ -78,7 +96,7 @@ func (ctrl *Controller) ListMembers(ctx *fiber.Ctx, req dtos.ListMembersRequest)
 		return nil, apierror.Unauthenticated()
 	}
 
-	id, slug := splitIdentifier(req.Identifier)
+	id, slug := repoid.Split(req.Identifier)
 	members, err := ctrl.RepositoryApp.ListMembers(id, slug, authCtx.UserID)
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
@@ -97,7 +115,7 @@ func (ctrl *Controller) AddMember(ctx *fiber.Ctx, req dtos.AddMemberRequest) (*d
 		return nil, apierror.Unauthenticated()
 	}
 
-	id, slug := splitIdentifier(req.Identifier)
+	id, slug := repoid.Split(req.Identifier)
 	member, err := ctrl.RepositoryApp.AddMember(id, slug, authCtx.UserID, application.AddMemberInput{
 		Username: req.Username,
 		Group:    req.Group,
@@ -117,7 +135,7 @@ func (ctrl *Controller) UpdateMember(ctx *fiber.Ctx, req dtos.UpdateMemberReques
 		return nil, apierror.Unauthenticated()
 	}
 
-	id, slug := splitIdentifier(req.Identifier)
+	id, slug := repoid.Split(req.Identifier)
 	member, err := ctrl.RepositoryApp.UpdateMember(id, slug, authCtx.UserID, req.MemberId, domain.AccessType(req.Role))
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
@@ -133,7 +151,7 @@ func (ctrl *Controller) RemoveMember(ctx *fiber.Ctx, req dtos.RemoveMemberReques
 		return nil, apierror.Unauthenticated()
 	}
 
-	id, slug := splitIdentifier(req.Identifier)
+	id, slug := repoid.Split(req.Identifier)
 	if err := ctrl.RepositoryApp.RemoveMember(id, slug, authCtx.UserID, req.MemberId); err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
@@ -141,13 +159,6 @@ func (ctrl *Controller) RemoveMember(ctx *fiber.Ctx, req dtos.RemoveMemberReques
 }
 
 // splitIdentifier tells a repository UUID from a slug.
-func splitIdentifier(identifier string) (id, slug *string) {
-	if validator.IsValidUUID(identifier) {
-		return &identifier, nil
-	}
-	return nil, &identifier
-}
-
 func memberResponse(m *domain.RepositoryMember) dtos.MemberResponse {
 	resp := dtos.MemberResponse{Id: m.Id, Type: string(m.MemberType), Role: string(m.AccessType)}
 	switch m.MemberType {

@@ -1,8 +1,6 @@
 package application
 
 import (
-	"regexp"
-
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
@@ -20,22 +18,28 @@ import (
 //     transfers ownership or deletes the group;
 //   - anyone but the owner can leave; the owner must transfer first.
 
-var groupNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
-
 type GroupApp struct {
 	Config    config.Config
 	Logger    zerolog.Logger
 	GroupPers domain.GroupPers
 	UserPers  domain.UserPers
+	RepoPers  domain.RepositoryPers
 }
 
-func NewGroupApp(config config.Config, logger zerolog.Logger, groupPers domain.GroupPers, userPers domain.UserPers) *GroupApp {
-	return &GroupApp{Config: config, Logger: logger, GroupPers: groupPers, UserPers: userPers}
+func NewGroupApp(config config.Config, logger zerolog.Logger, groupPers domain.GroupPers, userPers domain.UserPers, repoPers domain.RepositoryPers) *GroupApp {
+	return &GroupApp{Config: config, Logger: logger, GroupPers: groupPers, UserPers: userPers, RepoPers: repoPers}
 }
 
+// Create makes a group; its name is also its namespace (see namespace.go).
 func (c *GroupApp) Create(actorId, name, description string) (*domain.Group, error) {
-	if !groupNamePattern.MatchString(name) {
+	switch err := checkNewNamespace(c.UserPers, c.GroupPers, name); err {
+	case nil:
+	case domain.ErrInvalidNamespaceName:
 		return nil, ErrInvalidGroupName
+	case ErrNamespaceTaken:
+		return nil, ErrGroupNameTaken
+	default:
+		return nil, err
 	}
 
 	group := &domain.Group{
@@ -98,6 +102,11 @@ func (c *GroupApp) Delete(identifier, actorId string) error {
 	}
 	if actor.Role != domain.GroupRoleOwner {
 		return ErrForbidden
+	}
+	if repos, err := c.RepoPers.InNamespace(domain.OwnerGroup, group.Id); err != nil {
+		return err
+	} else if len(repos) > 0 {
+		return ErrNamespaceNotEmpty
 	}
 	return c.GroupPers.Delete(group.Id)
 }

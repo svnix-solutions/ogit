@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"testing"
 	"time"
@@ -45,8 +46,8 @@ func testGitHTTPAuthorization(t *testing.T, opts ...func(*config.Config)) {
 
 	srv.createRepo(t, owner, "Private Repo", true)
 	srv.createRepo(t, owner, "Public Repo", false)
-	private := srv.url + "/private-repo.git"
-	public := srv.url + "/public-repo.git"
+	private := srv.url + "/owner/private-repo.git"
+	public := srv.url + "/owner/public-repo.git"
 
 	ownerRW := srv.createToken(t, owner, "owner-rw", "read:repository", "write:repository")
 	ownerRO := srv.createToken(t, owner, "owner-ro", "read:repository")
@@ -61,7 +62,7 @@ func testGitHTTPAuthorization(t *testing.T, opts ...func(*config.Config)) {
 		require.NoError(t, err, "clone public")
 		assert.ErrorIs(t, commitAndPush(t, repo, nil), transport.ErrAuthenticationRequired, "push public")
 
-		_, err = clone(t, srv.url+"/does-not-exist.git", nil)
+		_, err = clone(t, srv.url+"/owner/does-not-exist.git", nil)
 		assert.ErrorIs(t, err, transport.ErrAuthenticationRequired, "missing repos look like private ones")
 	})
 
@@ -111,14 +112,14 @@ func testGitHTTPAuthorization(t *testing.T, opts ...func(*config.Config)) {
 		status, body := srv.post(t, "/api/v1/repository", owner, map[string]any{"name": "Unspecified"})
 		require.Equal(t, http.StatusOK, status, "create repo: %v", body)
 
-		_, err := clone(t, srv.url+"/unspecified.git", nil)
+		_, err := clone(t, srv.url+"/owner/unspecified.git", nil)
 		assert.ErrorIs(t, err, transport.ErrAuthenticationRequired)
-		_, err = clone(t, srv.url+"/unspecified.git", ownerRO)
+		_, err = clone(t, srv.url+"/owner/unspecified.git", ownerRO)
 		assert.NoError(t, err)
 	})
 
 	t.Run("missing_repo_with_valid_token", func(t *testing.T) {
-		_, err := clone(t, srv.url+"/does-not-exist.git", ownerRW)
+		_, err := clone(t, srv.url+"/owner/does-not-exist.git", ownerRW)
 		assert.ErrorIs(t, err, transport.ErrRepositoryNotFound)
 	})
 }
@@ -240,6 +241,12 @@ func (s *testServer) registerAndLogin(t *testing.T, email, username string) stri
 	return body["token"].(string)
 }
 
+// repoAPI is the API URL of a repository addressed by its path
+// ("<namespace>/<slug>"); the slash is escaped so it stays one path segment.
+func repoAPI(path string) string {
+	return "/api/v1/repository/" + url.PathEscape(path)
+}
+
 func (s *testServer) createRepo(t *testing.T, bearer, name string, private bool) map[string]any {
 	t.Helper()
 	status, body := s.post(t, "/api/v1/repository", bearer, map[string]any{"name": name, "is_private": private})
@@ -294,9 +301,9 @@ func (s *testServer) createToken(t *testing.T, bearer, name string, scopes ...st
 	return &githttp.BasicAuth{Username: name, Password: body["token"].(string)}
 }
 
-func clone(t *testing.T, url string, auth *githttp.BasicAuth) (*git.Repository, error) {
+func clone(t *testing.T, repoURL string, auth *githttp.BasicAuth) (*git.Repository, error) {
 	t.Helper()
-	opts := &git.CloneOptions{URL: url}
+	opts := &git.CloneOptions{URL: repoURL}
 	if auth != nil {
 		opts.Auth = auth
 	}

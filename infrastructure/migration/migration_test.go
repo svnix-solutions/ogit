@@ -73,15 +73,92 @@ func TestRepositoryLifecycleMigrationBackfillsStorageKey(t *testing.T) {
 	require.NoError(t, goose.SetDialect("sqlite3"))
 	ctx := context.WithValue(context.Background(), "dbDialect", "sqlite")
 
-	const before = 20261024140000
+	const before, lifecycle = 20261024140000, 20261024150000
 	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", before))
 	require.NoError(t, db.Exec(`INSERT INTO repository (id, name, slug, created_at, updated_at) VALUES ('r1', 'Legacy', 'legacy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`).Error)
 
-	require.NoError(t, goose.UpContext(ctx, sqlDB, "files"))
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", lifecycle))
 	var key string
 	require.NoError(t, db.Raw(`SELECT storage_key FROM repository WHERE id = 'r1'`).Scan(&key).Error)
 	assert.Equal(t, "legacy", key)
 
 	require.NoError(t, goose.DownToContext(ctx, sqlDB, "files", before))
-	require.NoError(t, goose.UpContext(ctx, sqlDB, "files"))
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", lifecycle))
+}
+
+func migratedTo(t *testing.T, version int64) (*gorm.DB, func(int64), func(int64)) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "ogit.sqlite")), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	goose.SetBaseFS(migrationFiles)
+	require.NoError(t, goose.SetDialect("sqlite3"))
+	ctx := context.WithValue(context.Background(), "dbDialect", "sqlite")
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", version))
+	up := func(v int64) { t.Helper(); require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", v)) }
+	down := func(v int64) { t.Helper(); require.NoError(t, goose.DownToContext(ctx, sqlDB, "files", v)) }
+	return db, up, down
+}
+
+const beforeNamespaces, namespaces = 20261024150000, 20261025100000
+
+// Existing repositories move under their oldest user owner, keep their
+// data (storage key) and lose their flat redirects.
+func TestNamespacesMigration(t *testing.T) {
+	db, up, down := migratedTo(t, beforeNamespaces)
+	for _, q := range []string{
+		`INSERT INTO user (id, username, email, password) VALUES ('u1', 'alice', 'a@example.com', 'x'), ('u2', 'bob', 'b@example.com', 'x')`,
+		`INSERT INTO repository (id, name, slug, storage_key, is_private, created_at, updated_at) VALUES
+			('r1', 'Website', 'website', 'website', false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+			('r2', 'Infra', 'infra', 'r2', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		// r1: bob became an owner after alice; r2: bob only.
+		`INSERT INTO repository_member (id, repository_id, member_type, user_id, access_type, created_at, updated_at) VALUES
+			('m1', 'r1', 'user', 'u1', 'owner', '2026-01-01', '2026-01-01'),
+			('m2', 'r1', 'user', 'u2', 'owner', '2026-02-01', '2026-02-01'),
+			('m3', 'r2', 'user', 'u1', 'developer', '2026-01-01', '2026-01-01'),
+			('m4', 'r2', 'user', 'u2', 'owner', '2026-03-01', '2026-03-01')`,
+		`INSERT INTO repository_redirect (slug, repository_id) VALUES ('old-website', 'r1')`,
+	} {
+		require.NoError(t, db.Exec(q).Error)
+	}
+
+	up(namespaces)
+	type row struct{ Id, Namespace, OwnerType, OwnerId, Slug, StorageKey string }
+	var rows []row
+	require.NoError(t, db.Raw(`SELECT id, namespace, owner_type, owner_id, slug, storage_key FROM repository ORDER BY id`).Scan(&rows).Error)
+	assert.Equal(t, []row{
+		{"r1", "alice", "user", "u1", "website", "website"},
+		{"r2", "bob", "user", "u2", "infra", "r2"},
+	}, rows)
+	var redirects int64
+	require.NoError(t, db.Raw(`SELECT COUNT(*) FROM repository_redirect`).Scan(&redirects).Error)
+	assert.Zero(t, redirects, "flat redirects are dropped")
+
+	// Slugs are unique per namespace now.
+	insert := func(id, ns string) error {
+		return db.Exec(`INSERT INTO repository (id, name, namespace, owner_type, owner_id, slug, storage_key) VALUES (?, 'Website', ?, 'user', 'u2', 'website', ?)`, id, ns, id).Error
+	}
+	require.NoError(t, insert("r3", "bob"), "same slug and name in another namespace")
+	assert.Error(t, insert("r4", "bob"), "but not twice in one")
+	require.NoError(t, db.Exec(`INSERT INTO repository_redirect (namespace, slug, repository_id) VALUES ('alice', 'old', 'r1')`).Error)
+
+	// Rolling back works while slugs are still globally unique.
+	require.NoError(t, db.Exec(`DELETE FROM repository WHERE id = 'r3'`).Error)
+	down(beforeNamespaces)
+	var slug string
+	require.NoError(t, db.Raw(`SELECT slug FROM repository WHERE id = 'r1'`).Scan(&slug).Error)
+	assert.Equal(t, "website", slug)
+	up(namespaces)
+}
+
+func TestNamespacesMigrationNamesOrphans(t *testing.T) {
+	db, _, _ := migratedTo(t, beforeNamespaces)
+	require.NoError(t, db.Exec(`INSERT INTO repository (id, name, slug, storage_key, created_at, updated_at) VALUES ('r1', 'Lost', 'lost', 'lost', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`).Error)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	ctx := context.WithValue(context.Background(), "dbDialect", "sqlite")
+	err = goose.UpToContext(ctx, sqlDB, "files", namespaces)
+	require.ErrorContains(t, err, "without a user owner can't be given a namespace: lost")
 }

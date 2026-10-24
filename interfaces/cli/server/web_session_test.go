@@ -139,7 +139,7 @@ func TestWebSessionLoginErrors(t *testing.T) {
 // cookie next to one is ignored.
 func TestBearerIgnoresCookies(t *testing.T) {
 	srv := startTestServer(t)
-	bearer := srv.registerAndLogin(t, "api@example.com", "api")
+	bearer := srv.registerAndLogin(t, "api@example.com", "apiuser")
 	srv.registerAndLogin(t, "web@example.com", "web")
 	b := newBrowser(t, srv)
 	b.login("web@example.com")
@@ -151,7 +151,7 @@ func TestBearerIgnoresCookies(t *testing.T) {
 	defer resp.Body.Close()
 	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	assert.Equal(t, "api", body["username"])
+	assert.Equal(t, "apiuser", body["username"])
 
 	status, _ := srv.post(t, "/api/v1/repository", bearer, map[string]any{"name": "Api Repo"})
 	assert.Equal(t, http.StatusOK, status)

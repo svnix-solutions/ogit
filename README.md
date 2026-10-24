@@ -71,13 +71,17 @@ curl -X POST localhost:8080/api/v1/user/token -H "Authorization: Bearer $SESSION
   -d '{"name": "laptop", "scopes": ["read:repository", "write:repository"]}'
 ```
 
-Repositories are addressed by their slug (`My Project` → `my-project`). Git
-asks for credentials: the username is the **token name** and the password is
-the **token**.
+Repositories live under their owner, a user or a group:
+`<owner>/<slug>` (`My Project` created by `me` → `me/my-project`). Git asks
+for credentials: the username is the **token name** and the password is the
+**token**.
 
 ```bash
-git clone http://localhost:8080/my-project.git
+git clone http://localhost:8080/me/my-project.git
 ```
+
+In the API, a repository is identified by its id or by its path with the
+slash URL-encoded: `/api/v1/repository/me%2Fmy-project`.
 
 | Caller | Clone / fetch | Push |
 |---|---|---|
@@ -97,12 +101,12 @@ Everyone connects as `git`, and the key identifies the account:
 curl -X POST localhost:8080/api/v1/user/ssh-keys -H "Authorization: Bearer $SESSION" \
   -H 'Content-Type: application/json' -d "{\"key\": \"$(cat ~/.ssh/id_ed25519.pub)\"}"
 
-git clone ssh://git@localhost:2222/my-project.git
+git clone ssh://git@localhost:2222/me/my-project.git
 ssh -T -p 2222 git@localhost      # "Hi <username>! ..."
 ```
 
 - **Same access rules as HTTP:** private repositories return "not found" to non-members, reporters can't push, and disabled or unverified accounts are rejected.
-- **Deploy keys** belong to one repository and are read-only unless `"read_only": false`. Its maintainers and owners manage them at `/api/v1/repository/<slug>/deploy-keys`; use them for CI.
+- **Deploy keys** belong to one repository and are read-only unless `"read_only": false`. Its maintainers and owners manage them at `/api/v1/repository/<owner>%2F<slug>/deploy-keys`; use them for CI.
 - **One place per key:** a key can be used once, on one account or as one deploy key. When SMTP is configured, users are emailed when a key is added to their account.
 - **Admins** can list and revoke a user's keys at `/api/v1/admin/users/<username>/ssh-keys`.
 - **Host key:** an ed25519 key is generated at `ssh.host_key_path` on first start. Keep that file; in Docker, put it on a volume and publish the port (`-p 2222:2222`). If it changes, clients warn about a changed host key.
@@ -111,28 +115,45 @@ ssh -T -p 2222 git@localhost      # "Hi <username>! ..."
 
 ```bash
 # Owners: rename (the old URL keeps working), change visibility, archive (read-only)
-curl -X PATCH localhost:8080/api/v1/repository/my-project -H "Authorization: Bearer $SESSION" \
+curl -X PATCH localhost:8080/api/v1/repository/me%2Fmy-project -H "Authorization: Bearer $SESSION" \
   -H 'Content-Type: application/json' -d '{"name": "Better Name", "is_private": false, "archived": true}'
 # Maintainers and owners: description
-curl -X PATCH localhost:8080/api/v1/repository/better-name -H "Authorization: Bearer $SESSION" \
+curl -X PATCH localhost:8080/api/v1/repository/me%2Fbetter-name -H "Authorization: Bearer $SESSION" \
   -H 'Content-Type: application/json' -d '{"description": "What it does"}'
+# Owners: move it to a group you maintain or own (or back to your namespace)
+curl -X POST localhost:8080/api/v1/repository/me%2Fbetter-name/transfer -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"namespace": "backend"}'
 # Owners: delete permanently (repeat the slug)
-curl -X DELETE "localhost:8080/api/v1/repository/better-name?confirm=better-name" -H "Authorization: Bearer $SESSION"
+curl -X DELETE "localhost:8080/api/v1/repository/backend%2Fbetter-name?confirm=better-name" -H "Authorization: Bearer $SESSION"
 # Browse public repositories
 curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: Bearer $SESSION"
 ```
 
-- **Renaming:** the slug changes, and the old one keeps working for the API, HTTP and SSH until another repository takes it. Git data never moves.
+- **Renaming and moving:** the path changes, and the old one keeps working for the API, HTTP and SSH until another repository takes it. Git data never moves.
 - **Archiving:** an archived repository can be cloned and fetched, but refuses pushes from everyone until it's unarchived.
 
-### Members and groups
+### Namespaces, members and groups
 
-The creator of a repository is its owner. Owners and maintainers share it
-with other users or groups (`/documentation` lists every endpoint):
+Every repository belongs to a user or a group, its namespace. Usernames and
+group names are one set of names (lowercase letters, digits, `.`, `_`, `-`;
+not ending in `.git`; a few words such as `admin`, `api`, `explore`,
+`settings` are reserved), so `/<name>` is never ambiguous.
+
+- **Your namespace:** you create repositories there by default and own them.
+- **A group's namespace:** its owner and maintainers create repositories there with `{"namespace": "<group>", "name": ...}`. Group members get their group role on all of the group's repositories: the owner is owner, maintainers are maintainers, members are developers.
+- A user or group that still has repositories in its namespace can't be deleted; move or delete them first.
+
+Repositories created before namespaces existed moved under their first owner
+(`/my-project.git` became `/<owner>/my-project.git`); the old URLs no longer
+work.
+
+The creator of a repository in their own namespace is its owner. Owners and
+maintainers share it with other users or groups (`/documentation` lists every
+endpoint):
 
 ```bash
 # Give a user access: reporter (read), developer (push), maintainer, owner
-curl -X POST localhost:8080/api/v1/repository/my-project/members -H "Authorization: Bearer $SESSION" \
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/members -H "Authorization: Bearer $SESSION" \
   -H 'Content-Type: application/json' -d '{"username": "alice", "role": "developer"}'
 
 # Create a group, add people, then give the whole group access
@@ -140,7 +161,7 @@ curl -X POST localhost:8080/api/v1/group -H "Authorization: Bearer $SESSION" \
   -H 'Content-Type: application/json' -d '{"name": "backend"}'
 curl -X POST localhost:8080/api/v1/group/backend/members -H "Authorization: Bearer $SESSION" \
   -H 'Content-Type: application/json' -d '{"username": "bob", "role": "member"}'
-curl -X POST localhost:8080/api/v1/repository/my-project/members -H "Authorization: Bearer $SESSION" \
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/members -H "Authorization: Bearer $SESSION" \
   -H 'Content-Type: application/json' -d '{"group": "backend", "role": "developer"}'
 ```
 
@@ -150,7 +171,7 @@ curl -X POST localhost:8080/api/v1/repository/my-project/members -H "Authorizati
   - A repository always keeps at least one owner. Anyone can leave, except the last owner.
   - Anyone who can read the repository can list its members.
 - **Groups**:
-  - Any user can create a group (names: lowercase letters, digits, `.`, `_`, `-`) and becomes its owner.
+  - Any user can create a group (its name follows the namespace rules above) and becomes its owner.
   - The owner and maintainers add and remove members. Only the owner manages maintainers, transfers ownership (`POST /api/v1/group/<name>/transfer`) or deletes the group.
   - Groups are visible to their members only.
 - `GET /api/v1/repository` and `GET /api/v1/group` list your repositories and groups.
@@ -175,12 +196,13 @@ Admins use `/api/v1/admin` (`/documentation` lists the details):
 | `PATCH /api/v1/admin/users/<username>` | `{"active": false}` disables the account and ends its sessions immediately; also `"email_verified": true`, `"role": "admin"` or `"user"` |
 | `DELETE /api/v1/admin/users/<username>` | delete a user and their sessions, tokens and memberships |
 | `GET /api/v1/admin/repositories` | list every repository |
-| `POST /api/v1/admin/repositories/<slug>/owner` | make a user owner, e.g. when a repo's owners are gone |
-| `DELETE /api/v1/admin/repositories/<slug>?confirm=<slug>` | permanently delete a repository and its git data |
+| `POST /api/v1/admin/repositories/<owner>%2F<slug>/owner` | make a user owner, e.g. when a repo's owners are gone |
+| `POST /api/v1/admin/repositories/<owner>%2F<slug>/transfer` | `{"namespace": "..."}` moves it to any user's or group's namespace |
+| `DELETE /api/v1/admin/repositories/<owner>%2F<slug>?confirm=<slug>` | permanently delete a repository and its git data |
 | `POST /api/v1/admin/groups/<name>/transfer` | make a user the group owner |
 
 - Admins have no implicit access to repository content. To get access, they make themselves owner, which shows in the member list.
-- A user is not deleted while they're the only owner of a repository or own a group. The error lists them, so the admin can hand them over first.
+- A user is not deleted while they're the only owner of a repository, have repositories in their namespace, or own a group. The error lists them, so the admin can hand them over (or move them) first.
 - The API never removes the last active admin; the CLI can always promote one.
 - Admin actions are logged with `"component":"audit"`.
 
@@ -256,7 +278,7 @@ repository gets slower with every push (a clone after 40 pushes takes 92
 requests instead of 12). Merge them regularly, e.g. from a nightly cron job:
 
 ```bash
-./ogit storage gc -c config.yaml --all             # or --repository <slug>
+./ogit storage gc -c config.yaml --all             # or --repository <owner>/<name>
 ```
 
 It merges the small packs and leaves the big old ones alone, so each run
@@ -287,7 +309,7 @@ Repositories created before packs (one S3 object per git object) still
 work, but stay slow until they are converted:
 
 ```bash
-./ogit storage repack -c config.yaml --repository <slug>   # or --all
+./ogit storage repack -c config.yaml --repository <owner>/<name>   # or --all
 ```
 
 The command writes one pack, checks that every object is in it, then deletes
@@ -308,7 +330,7 @@ HTTPS or with `X-Forwarded-Proto: https`).
 ## Not implemented yet
 
 - SSH key management
-- Repositories in nested paths (`org/project.git`)
+- Sub-groups (`org/team/project.git`)
 
 ## Development
 
