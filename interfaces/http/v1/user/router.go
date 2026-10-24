@@ -12,6 +12,7 @@ type Controller struct {
 	Logger    zerolog.Logger
 	FiberOapi *fiberoapi.OApiGroup
 	UserApp   *application.UserApp
+	TokenApp  *application.TokenApp
 }
 
 func SetupUserRouter(controller Controller) {
@@ -19,6 +20,13 @@ func SetupUserRouter(controller Controller) {
 		Summary:     "Get user profile",
 		Description: "Retrieve the profile of the authenticated user",
 		OperationID: "user.getProfile",
+		Tags:        []string{"User"},
+	})
+
+	fiberoapi.Post(controller.FiberOapi, "/token", controller.CreateToken, fiberoapi.OpenAPIOptions{
+		Summary:     "Create access token",
+		Description: "Create a personal access token for git over HTTP (username: token name, password: token). The token is only returned once.",
+		OperationID: "user.createToken",
 		Tags:        []string{"User"},
 	})
 }

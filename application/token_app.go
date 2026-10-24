@@ -1,7 +1,11 @@
 package application
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/labbs/ogit/domain"
@@ -31,7 +35,7 @@ func (c *TokenApp) GetByNameAndToken(name, tokenStr string) (*domain.Token, erro
 
 	logger.Debug().Str("name", name).Msg("fetching token by name and token")
 
-	token, err := c.TokenPers.GetByNameAndToken(name, tokenStr)
+	token, err := c.TokenPers.GetByNameAndToken(name, HashToken(tokenStr))
 	switch helperError.Catch(err) {
 	case gorm.ErrRecordNotFound:
 		logger.Warn().Str("name", name).Msg("token not found")
@@ -54,6 +58,60 @@ func (c *TokenApp) GetByNameAndToken(name, tokenStr string) (*domain.Token, erro
 	}
 
 	return token, nil
+}
+
+// tokenPrefix makes oGit tokens recognisable (e.g. by secret scanners).
+const tokenPrefix = "ogit_"
+
+// HashToken returns the value stored in the token column. Only the hash is
+// persisted; the plaintext token is shown to the user once, at creation.
+func HashToken(tokenStr string) string {
+	sum := sha256.Sum256([]byte(tokenStr))
+	return hex.EncodeToString(sum[:])
+}
+
+// grantableScopes are the scopes a user may put on a personal access token.
+var grantableScopes = []domain.TokenScope{
+	domain.ScopeReadRepository,
+	domain.ScopeWriteRepository,
+}
+
+// CreateUserToken creates a personal access token for userId and returns the
+// plaintext token, which is not stored and cannot be retrieved later.
+func (c *TokenApp) CreateUserToken(userId, name, description string, scopes []domain.TokenScope, expiresAt *time.Time) (string, *domain.Token, error) {
+	if len(scopes) == 0 {
+		return "", nil, fmt.Errorf("at least one scope is required")
+	}
+	for _, s := range scopes {
+		if !slices.Contains(grantableScopes, s) {
+			return "", nil, fmt.Errorf("unsupported scope: %s", s)
+		}
+	}
+	if expiresAt != nil && expiresAt.Before(time.Now()) {
+		return "", nil, fmt.Errorf("expiration must be in the future")
+	}
+
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return "", nil, fmt.Errorf("failed to generate token: %w", err)
+	}
+	plaintext := tokenPrefix + hex.EncodeToString(secret)
+
+	token := &domain.Token{
+		Name:        name,
+		Description: description,
+		Token:       HashToken(plaintext),
+		Type:        domain.TokenUser,
+		UserId:      &userId,
+		Active:      true,
+		Scopes:      scopes,
+		ExpiresAt:   expiresAt,
+	}
+	if err := c.Create(token); err != nil {
+		return "", nil, err
+	}
+
+	return plaintext, token, nil
 }
 
 func (c *TokenApp) Create(token *domain.Token) error {
