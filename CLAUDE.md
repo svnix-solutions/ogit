@@ -17,10 +17,11 @@ air                                            # live reload: builds tmp/main, r
 go test -race ./...                            # everything, including end-to-end tests on fake S3; no Docker
 go test -race -tags=integration -run MinIO ./...   # MinIO variants via testcontainers (Docker must be running)
 OGIT_TEST_DB=postgres go test -race -tags=integration ./interfaces/cli/server/   # whole e2e suite on Postgres
+go test -race -tags=integration -run Mailpit ./...   # real SMTP via a Mailpit container
 go test -run 'TestGitHTTPAuthorization/s3_fake/non_member' ./interfaces/cli/server/   # single subtest
 ```
 
-There is no Makefile. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs gofmt, `go vet`, `go test -race`, a static Linux build, and a separate job running the MinIO tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
+There is no Makefile. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs gofmt, `go vet`, `go test -race`, a static Linux build, and a separate job running the MinIO and Mailpit tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
 
 ## Layout
 
@@ -52,8 +53,10 @@ Startup rules: `session.secret_key` must be ≥ 32 bytes, or empty (a random per
 ## Auth model
 
 - **API sessions**: login returns a JWT (HS256 only) that references a `session` row. fiber-oapi validates it on every `/api/v1` route unless `Security: "disabled"` is set (login, register, health). `SessionApp.ValidateToken` puts the session ID into `AuthContext.Claims[application.SessionIDClaim]`. `POST /api/v1/auth/logout` deletes that row, so the JWT stops validating although it has not expired. A cron job (`infrastructure/jobs`) deletes expired sessions every minute.
+- **Email verification** (`application/email_verification.go`, off by default): when `registration.require_email_verification` is on, `Authenticate` refuses unverified users (after the password check) with `ErrEmailNotVerified` (403). `setupDeps` refuses to start without `smtp.host`, `smtp.from` and `http.public_url`. Links are single-use and stored hashed, one pending per user (`email_verification`). Resend always answers 200 and is rate-limited. The link is a plain Fiber GET (HTML page), next to the `POST /api/v1/auth/verify` JSON endpoint. Mail goes through `mail.Sender`: `SMTPSender` in production; tests set `srv.deps.AuthApp.Mailer` to a `mailtest.Recorder` or use `mailtest.StartMailpit` (integration tag).
 - **Git over HTTP**: HTTP Basic, username = token name, password = personal access token (`POST /api/v1/user/token`). Tokens are `ogit_<64 hex>`. Only `application.HashToken` (SHA-256) is stored; lookups hash the presented value. Token types: `user` (scoped by repository roles) and `repository` (bound to one repo).
 - `AuthApp.AuthorizeGit` decides, and `interfaces/http/git/auth.go` maps the result: `ErrGitUnauthenticated` → 401 + `WWW-Authenticate` (git prompts), `ErrGitNotFound` → 404, `ErrGitForbidden` → 403. Anonymous callers may only read public repos.
+- **Login never reveals whether an account exists**: an unknown email and a wrong password both return 401 `INVALID_CREDENTIALS` and both pay for one bcrypt comparison (`dummyPasswordHash`). Account state (disabled, unverified) is only reported after a correct password. Keep this for any new credential check. `TestLoginDoesNotRevealAccounts` checks the answer and the timing.
 - **Never disclose private repositories**: callers who can't read one get the same 404 as for a missing repo (git routes and `RepositoryApp.GetRepositoryForUser`). Keep that for new endpoints.
 - Roles (`domain/member.go`): reporter = read, developer = write, maintainer/owner = admin. The repo creator becomes owner. `RepositoryApp.GetUserEffectiveRole` is the max of the direct membership and every group membership (via `group_member`).
 - **Membership rules** live in `application/repository_members.go` and `application/group_app.go` (each file starts with a summary). Owners do anything; maintainers are capped at developer (`checkCanManage`). Groups are at most maintainer on a repo and can only be added by their members. Repos keep at least one owner (`domain.ErrLastOwner`, enforced in `repositoryMemberPers` inside a transaction, with `FOR UPDATE` on postgres; `TestLastOwnerConcurrentDemotion` shows the lock is needed). Groups have exactly one owner (`group.owner_id` mirrors the owner's `group_member` row) and change owner only through `TransferOwnership`.

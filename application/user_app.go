@@ -32,7 +32,7 @@ func (c *UserApp) GetById(id string) (*domain.User, error) {
 	user, err := c.UserPres.GetById(id)
 	switch helperError.Catch(err) {
 	case gorm.ErrRecordNotFound:
-		return nil, fmt.Errorf("user not found")
+		return nil, ErrUserNotFound
 	case nil:
 	default:
 		logger.Error().Err(err).Str("user_id", id).Msg("failed to get user by id")
@@ -47,8 +47,7 @@ func (c *UserApp) GetByEmail(email string) (*domain.User, error) {
 	user, err := c.UserPres.GetByEmail(email)
 	switch helperError.Catch(err) {
 	case gorm.ErrRecordNotFound:
-		logger.Warn().Str("email", email).Msg("user not found")
-		return nil, fmt.Errorf("user not found")
+		return nil, ErrUserNotFound
 	case nil:
 		// no error
 	default:

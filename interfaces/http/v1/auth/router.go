@@ -37,4 +37,20 @@ func SetupAuthRouter(controller Controller) {
 		Tags:        []string{"Auth"},
 		Security:    "disabled",
 	})
+
+	fiberoapi.Post(controller.FiberOapi, "/verify", controller.VerifyEmail, fiberoapi.OpenAPIOptions{
+		Summary:     "Verify email",
+		Description: "Consume the token from a verification email. The emailed link itself is GET /api/v1/auth/verify?token=..., which answers with an HTML page.",
+		OperationID: "auth.verifyEmail",
+		Tags:        []string{"Auth"},
+		Security:    "disabled",
+	})
+
+	fiberoapi.Post(controller.FiberOapi, "/verify/resend", controller.ResendVerification, fiberoapi.OpenAPIOptions{
+		Summary:     "Resend verification email",
+		Description: "Sends a new link if the address belongs to an unverified account (at most one per minute; older links stop working). Always answers the same.",
+		OperationID: "auth.resendVerification",
+		Tags:        []string{"Auth"},
+		Security:    "disabled",
+	})
 }

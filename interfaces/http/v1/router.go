@@ -19,6 +19,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		AuthApp:   deps.AuthApp,
 	}
 	auth.SetupAuthRouter(authCtrl)
+	// The link in verification emails: a plain page, not an OpenAPI operation.
+	deps.Http.Fiber.Get("/api/v1/auth/verify", authCtrl.VerifyEmailPage)
 
 	userCtrl := user.Controller{
 		Config:    deps.Config,

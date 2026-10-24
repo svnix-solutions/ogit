@@ -19,11 +19,32 @@ func RegistrationFlags(cfg *Config) []cli.Flag {
 		},
 		&cli.BoolFlag{
 			Name:        "registration.require_email_verification",
-			Value:       true,
+			Usage:       "Require new users to verify their email before they can log in (needs smtp.* and http.public_url)",
+			Value:       false,
 			Destination: &cfg.Registration.RequireEmailVerification,
 			Sources: cli.NewValueSourceChain(
 				cli.EnvVar("REGISTRATION_REQUIRE_EMAIL_VERIFICATION"),
 				altsrcyaml.YAML("registration.require_email_verification", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+		&cli.IntFlag{
+			Name:        "registration.verification_ttl_hours",
+			Usage:       "How long an email verification link stays valid",
+			Value:       24,
+			Destination: &cfg.Registration.VerificationTTLHours,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("REGISTRATION_VERIFICATION_TTL_HOURS"),
+				altsrcyaml.YAML("registration.verification_ttl_hours", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+		&cli.StringFlag{
+			Name:        "registration.verification_url_template",
+			Usage:       "Link sent in verification emails; {public_url} and {token} are replaced",
+			Value:       DefaultVerificationURLTemplate,
+			Destination: &cfg.Registration.VerificationURLTemplate,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("REGISTRATION_VERIFICATION_URL_TEMPLATE"),
+				altsrcyaml.YAML("registration.verification_url_template", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
 			),
 		},
 		&cli.StringSliceFlag{

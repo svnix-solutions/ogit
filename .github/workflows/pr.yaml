@@ -44,7 +44,7 @@ jobs:
     - name: Build app
       run: CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static" -X "main.version=${{ steps.version.outputs.full }}"' -o bin/app cmd/cmd.go
   integration:
-    name: Integration (MinIO, Postgres)
+    name: Integration (MinIO, Mailpit, Postgres)
     runs-on: ubuntu-latest
 
     steps:
@@ -57,9 +57,9 @@ jobs:
         cache: true
         cache-dependency-path: go.sum
 
-    # testcontainers starts MinIO and Postgres through the runner's Docker daemon.
-    - name: Integration tests (MinIO)
-      run: go test -race -count=1 -tags=integration -run MinIO ./...
+    # testcontainers starts MinIO, Mailpit and Postgres through the runner's Docker daemon.
+    - name: Integration tests (MinIO, Mailpit)
+      run: go test -race -count=1 -tags=integration -run 'MinIO|Mailpit' ./...
 
     - name: End-to-end tests on Postgres
       run: go test -race -count=1 -tags=integration ./interfaces/cli/server/

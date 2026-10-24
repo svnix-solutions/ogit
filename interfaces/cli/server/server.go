@@ -12,6 +12,7 @@ import (
 	"github.com/labbs/ogit/infrastructure/http"
 	"github.com/labbs/ogit/infrastructure/jobs"
 	"github.com/labbs/ogit/infrastructure/logger"
+	"github.com/labbs/ogit/infrastructure/mail"
 	"github.com/labbs/ogit/infrastructure/persistence"
 	"github.com/labbs/ogit/infrastructure/storage"
 	routes "github.com/labbs/ogit/interfaces/http"
@@ -45,6 +46,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.SessionFlags(cfg)...)
 	list = append(list, config.RegistrationFlags(cfg)...)
 	list = append(list, config.StorageFlags(cfg)...)
+	list = append(list, config.SMTPFlags(cfg)...)
 	return
 }
 
@@ -98,6 +100,10 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		logger.Error().Err(err).Str("event", "http.runserver.config.session_secret").Msg("Invalid session configuration")
 		return deps, err
 	}
+	if err = cfg.ValidateEmailVerification(); err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.email_verification").Msg("Invalid email verification configuration")
+		return deps, err
+	}
 	deps.Config = cfg
 
 	// Initialize other cron scheduler (go-cron)
@@ -134,7 +140,9 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers)
-	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp)
+	deps.Mailer = mail.NewSMTPSender(deps.Config)
+	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp,
+		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))
 
 	// Initialize HTTP server (fiber + fiberoapi)
 	deps.Http, err = http.Configure(deps.Config, deps.Logger, *deps.SessionApp, true)

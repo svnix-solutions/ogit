@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,10 +12,32 @@ import (
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/helpers/tokenutil"
+	"github.com/labbs/ogit/infrastructure/mail"
 	"github.com/labbs/ogit/interfaces/http/v1/auth/dtos"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
 )
+
+var (
+	// ErrInvalidCredentials is returned for an unknown email and for a
+	// wrong password alike.
+	ErrInvalidCredentials = errors.New("invalid email or password")
+	ErrAccountDisabled    = errors.New("account is disabled")
+)
+
+var (
+	dummyHashOnce sync.Once
+	dummyHash     []byte
+)
+
+// dummyPasswordHash is a bcrypt hash (same cost as real ones) to compare
+// against when no user matches, so that the response takes as long.
+func dummyPasswordHash() []byte {
+	dummyHashOnce.Do(func() {
+		dummyHash, _ = bcrypt.GenerateFromPassword([]byte("ogit-dummy-password"), bcrypt.DefaultCost)
+	})
+	return dummyHash
+}
 
 type AuthApp struct {
 	Config        config.Config
@@ -23,36 +46,53 @@ type AuthApp struct {
 	SessionApp    SessionApp
 	TokenApp      TokenApp
 	RepositoryApp RepositoryApp
+
+	// Email verification
+	Mailer           mail.Sender
+	VerificationPers domain.EmailVerificationPers
 }
 
-func NewAuthApp(config config.Config, logger zerolog.Logger, userApp UserApp, sessionApp SessionApp, tokenApp TokenApp, repositoryApp RepositoryApp) *AuthApp {
+func NewAuthApp(config config.Config, logger zerolog.Logger, userApp UserApp, sessionApp SessionApp, tokenApp TokenApp, repositoryApp RepositoryApp, mailer mail.Sender, verificationPers domain.EmailVerificationPers) *AuthApp {
 	return &AuthApp{
-		Config:        config,
-		Logger:        logger,
-		UserApp:       userApp,
-		SessionApp:    sessionApp,
-		TokenApp:      tokenApp,
-		RepositoryApp: repositoryApp,
+		Config:           config,
+		Logger:           logger,
+		UserApp:          userApp,
+		SessionApp:       sessionApp,
+		TokenApp:         tokenApp,
+		RepositoryApp:    repositoryApp,
+		Mailer:           mailer,
+		VerificationPers: verificationPers,
 	}
 }
 
 func (c *AuthApp) Authenticate(email, password string, ctx *fiber.Ctx) (*dtos.LoginResponse, error) {
 	logger := c.Logger.With().Str("component", "application.auth.authenticate").Logger()
 
+	// An unknown email and a wrong password must be indistinguishable, in
+	// the answer and in timing: compare against a dummy hash when there is no
+	// user, so both paths pay for one bcrypt comparison.
 	user, err := c.UserApp.GetByEmail(email)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user by email: %w", err)
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash(), []byte(password))
+		if errors.Is(err, ErrUserNotFound) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
 	}
 
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		logger.Warn().Str("user_id", user.Id).Msg("invalid password attempt")
+		return nil, ErrInvalidCredentials
+	}
+
+	// Account state is checked after the password, so only the account
+	// holder learns it.
 	if !user.Active {
-		logger.Warn().Str("email", email).Msg("attempt to authenticate inactive user")
-		return nil, fmt.Errorf("user is not active")
+		logger.Warn().Str("user_id", user.Id).Msg("login attempt on disabled account")
+		return nil, ErrAccountDisabled
 	}
-
-	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
-	if err != nil {
-		logger.Warn().Str("email", email).Msg("invalid password attempt")
-		return nil, fmt.Errorf("invalid credentials")
+	if c.Config.Registration.RequireEmailVerification && user.EmailVerifiedAt == nil {
+		return nil, ErrEmailNotVerified
 	}
 
 	session := &domain.Session{
@@ -208,11 +248,23 @@ func (c *AuthApp) Register(username, email, password string) error {
 		Password: string(hashedPassword),
 		Active:   true,
 	}
+	requireVerification := c.Config.Registration.RequireEmailVerification
+	if !requireVerification {
+		now := time.Now()
+		user.EmailVerifiedAt = &now
+	}
 
 	err = c.UserApp.Create(user)
 	if err != nil {
 		logger.Error().Err(err).Str("email", email).Msg("failed to create user")
 		return fmt.Errorf("failed to create user: %w", err)
+	}
+
+	if requireVerification {
+		// The account is kept if sending fails; the user can resend.
+		if err := c.sendVerification(&user); err != nil {
+			logger.Error().Err(err).Str("user_id", user.Id).Msg("failed to send verification email")
+		}
 	}
 
 	return nil

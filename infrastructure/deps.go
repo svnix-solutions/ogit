@@ -6,6 +6,7 @@ import (
 	"github.com/labbs/ogit/infrastructure/cronscheduler"
 	"github.com/labbs/ogit/infrastructure/database"
 	"github.com/labbs/ogit/infrastructure/http"
+	"github.com/labbs/ogit/infrastructure/mail"
 	"github.com/labbs/ogit/infrastructure/storage"
 	"github.com/rs/zerolog"
 )
@@ -17,6 +18,7 @@ type Deps struct {
 	CronScheduler cronscheduler.Config
 	Database      database.Config
 	Storage       storage.Config
+	Mailer        mail.Sender
 
 	UserApp    *application.UserApp
 	SessionApp *application.SessionApp
