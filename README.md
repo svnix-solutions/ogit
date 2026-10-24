@@ -101,7 +101,6 @@ ssh -T -p 2222 git@localhost      # "Hi <username>! ..."
 - **One place per key:** a key can be used once, on one account or as one deploy key. When SMTP is configured, users are emailed when a key is added to their account.
 - **Admins** can list and revoke a user's keys at `/api/v1/admin/users/<username>/ssh-keys`.
 - **Host key:** an ed25519 key is generated at `ssh.host_key_path` on first start. Keep that file; in Docker, put it on a volume and publish the port (`-p 2222:2222`). If it changes, clients warn about a changed host key.
-- **Known limitation:** the go-git server doesn't negotiate common commits, so `git fetch` re-sends history the client already has (`warning: no common commits`). It works, just with more data than needed.
 
 ### Managing a repository
 
