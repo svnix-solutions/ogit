@@ -121,14 +121,18 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 	logger.Debug().Str("repoPath", repoPath).Msg("Handling receive-pack request")
 
 	// Get the go-git transport server for this repository
-	srv, ep, err := helpergit.GetTransportServer(repoPath, ctrl.StorageConfig)
+	_, ep, err := helpergit.GetTransportServer(repoPath, ctrl.StorageConfig)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to get transport server")
 		return err
 	}
+	st, err := ctrl.StorageConfig.GetStorer(repoPath)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("repository not found")
+	}
 
-	// Create a receive pack session
-	sess, err := srv.NewReceivePackSession(ep, nil)
+	// Ref updates are checked against the old values in the request.
+	sess, expect, err := helpergit.GuardedReceivePack(st, ep)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create receive pack session")
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
@@ -140,14 +144,17 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 		logger.Error().Err(err).Msg("Failed to decode receive pack request")
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 	}
+	expect(req)
 
 	// Process the receive pack request and generate a status report
 	report, err := sess.ReceivePack(context.Background(), req)
 	c.Set("Content-Type", "application/x-git-receive-pack-result")
 	if err != nil {
-		logger.Error().Err(err).Msg("Receive pack failed")
-		// Even if there was an error, we still need to send the report
-		_ = report.Encode(c.Response().BodyWriter())
+		logger.Warn().Err(err).Msg("Receive pack failed")
+		// Even if there was an error, send the report: it says which refs failed.
+		if report != nil {
+			_ = report.Encode(c.Response().BodyWriter())
+		}
 		return nil
 	}
 
