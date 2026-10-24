@@ -11,6 +11,7 @@ import (
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/helpers/tokenutil"
+	"github.com/labbs/ogit/infrastructure/mail"
 	"github.com/labbs/ogit/interfaces/http/v1/auth/dtos"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
@@ -23,16 +24,22 @@ type AuthApp struct {
 	SessionApp    SessionApp
 	TokenApp      TokenApp
 	RepositoryApp RepositoryApp
+
+	// Email verification
+	Mailer           mail.Sender
+	VerificationPers domain.EmailVerificationPers
 }
 
-func NewAuthApp(config config.Config, logger zerolog.Logger, userApp UserApp, sessionApp SessionApp, tokenApp TokenApp, repositoryApp RepositoryApp) *AuthApp {
+func NewAuthApp(config config.Config, logger zerolog.Logger, userApp UserApp, sessionApp SessionApp, tokenApp TokenApp, repositoryApp RepositoryApp, mailer mail.Sender, verificationPers domain.EmailVerificationPers) *AuthApp {
 	return &AuthApp{
-		Config:        config,
-		Logger:        logger,
-		UserApp:       userApp,
-		SessionApp:    sessionApp,
-		TokenApp:      tokenApp,
-		RepositoryApp: repositoryApp,
+		Config:           config,
+		Logger:           logger,
+		UserApp:          userApp,
+		SessionApp:       sessionApp,
+		TokenApp:         tokenApp,
+		RepositoryApp:    repositoryApp,
+		Mailer:           mailer,
+		VerificationPers: verificationPers,
 	}
 }
 
@@ -53,6 +60,11 @@ func (c *AuthApp) Authenticate(email, password string, ctx *fiber.Ctx) (*dtos.Lo
 	if err != nil {
 		logger.Warn().Str("email", email).Msg("invalid password attempt")
 		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	// Checked after the password, so only the account holder learns it.
+	if c.Config.Registration.RequireEmailVerification && user.EmailVerifiedAt == nil {
+		return nil, ErrEmailNotVerified
 	}
 
 	session := &domain.Session{
@@ -208,11 +220,23 @@ func (c *AuthApp) Register(username, email, password string) error {
 		Password: string(hashedPassword),
 		Active:   true,
 	}
+	requireVerification := c.Config.Registration.RequireEmailVerification
+	if !requireVerification {
+		now := time.Now()
+		user.EmailVerifiedAt = &now
+	}
 
 	err = c.UserApp.Create(user)
 	if err != nil {
 		logger.Error().Err(err).Str("email", email).Msg("failed to create user")
 		return fmt.Errorf("failed to create user: %w", err)
+	}
+
+	if requireVerification {
+		// The account is kept if sending fails; the user can resend.
+		if err := c.sendVerification(&user); err != nil {
+			logger.Error().Err(err).Str("user_id", user.Id).Msg("failed to send verification email")
+		}
 	}
 
 	return nil

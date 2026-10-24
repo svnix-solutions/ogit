@@ -6,6 +6,7 @@
 http:
   port: 8080
   logs: false          # access log for every request
+  public_url: ""       # externally reachable base URL, e.g. https://git.example.com (needed for email links)
 
 logger:
   level: info          # debug, info, warn, error
@@ -28,7 +29,20 @@ registration:
   domain_whitelist: []        # e.g. ["example.com"]; empty allows any domain
   password_min_length: 12
   password_complexity: true   # upper and lower case, digit and symbol
-  require_email_verification: true  # not enforced yet: there is no verification flow
+  # New users must open a link sent by email before they can log in.
+  # Needs smtp.host, smtp.from and http.public_url. Existing accounts, and
+  # accounts created while this is off, count as verified.
+  require_email_verification: false
+  verification_ttl_hours: 24
+  verification_url_template: "{public_url}/api/v1/auth/verify?token={token}"
+
+smtp:                  # outgoing mail, used for email verification
+  host: ""
+  port: 587
+  username: ""         # optional
+  password: ""
+  from: ""             # e.g. "oGit <git@example.com>"
+  tls: starttls        # starttls, tls (implicit, usually port 465) or none
 
 storage:
   type: local          # local or s3

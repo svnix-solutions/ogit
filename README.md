@@ -132,16 +132,31 @@ override environment variables, and environment variables override the file.
 | `registration.domain_whitelist` | `REGISTRATION_DOMAIN_WHITELIST` | any domain |
 | `registration.password_min_length` | `REGISTRATION_PASSWORD_MIN_LENGTH` | `12` |
 | `registration.password_complexity` | `REGISTRATION_PASSWORD_COMPLEXITY` | `true` |
+| `registration.require_email_verification` | `REGISTRATION_REQUIRE_EMAIL_VERIFICATION` | `false`; see [Email verification](#email-verification) |
+| `http.public_url` | `HTTP_PUBLIC_URL` | none; needed for email links |
+| `smtp.host`, `.port`, `.username`, `.password`, `.from`, `.tls` | `SMTP_*` | port `587`, tls `starttls` |
 | `storage.type` | `STORAGE_TYPE` | `local` (or `s3`) |
 | `storage.local.path` | `STORAGE_LOCAL_PATH` | `./repositories` |
 | `storage.s3.bucket`, `.endpoint`, `.accesskey`, `.secretkey`, `.region` | `STORAGE_S3_*` | region `us-east-1` |
 
 `./ogit server --help` lists every flag.
 
+### Email verification
+
+With `registration.require_email_verification: true`, new users receive a link
+(`{http.public_url}/api/v1/auth/verify?token=…`, valid
+`registration.verification_ttl_hours`) and cannot log in until they open it.
+The server refuses to start unless `smtp.host`, `smtp.from` and
+`http.public_url` are set.
+
+- Accounts that existed before the upgrade, or were created while the setting was off, count as verified.
+- `POST /api/v1/auth/verify/resend {"email": "…"}` sends a new link. It sends at most one per minute, older links stop working, and it gives the same answer whether or not the address is registered.
+- If the email can't be sent at registration, the account is still created and the user can resend later.
+- `registration.verification_url_template` changes the link, e.g. to point at a web UI that calls `POST /api/v1/auth/verify {"token": "…"}`.
+
 ## Not implemented yet
 
 - SSH access
-- Email verification (`registration.require_email_verification` is not enforced)
 - SSH key management
 - Site administrators (the `admin` user role is not used yet)
 - Repositories in nested paths (`org/project.git`)
@@ -151,12 +166,13 @@ override environment variables, and environment variables override the file.
 ```bash
 go test -race ./...                            # unit and end-to-end tests (fake S3, no Docker)
 go test -race -tags=integration -run MinIO ./...  # same suites against MinIO (needs Docker)
+go test -race -tags=integration -run Mailpit ./...  # real SMTP delivery through Mailpit (needs Docker)
 OGIT_TEST_DB=postgres go test -race -tags=integration ./interfaces/cli/server/  # end-to-end suite on PostgreSQL (needs Docker)
 air                                            # live reload, see .air.toml and start.sh
 ```
 
 Pull requests into `main` and `refactor` run gofmt, `go vet`, the tests and
-the MinIO and PostgreSQL integration tests in CI.
+the MinIO, Mailpit and PostgreSQL integration tests in CI.
 
 ## License
 

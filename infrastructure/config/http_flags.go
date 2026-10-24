@@ -27,5 +27,14 @@ func ServerFlags(cfg *Config) []cli.Flag {
 				altsrcyaml.YAML("http.logs", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
 			),
 		},
+		&cli.StringFlag{
+			Name:        "http.public_url",
+			Usage:       "Externally reachable base URL (e.g. https://git.example.com), used in links sent by email",
+			Destination: &cfg.Server.PublicURL,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("HTTP_PUBLIC_URL"),
+				altsrcyaml.YAML("http.public_url", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
 	}
 }

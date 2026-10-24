@@ -14,6 +14,13 @@ func (ctrl Controller) Login(ctx *fiber.Ctx, req dtos.LoginRequest) (*dtos.Login
 	logger := ctrl.Logger.With().Str("request_id", requestId).Str("component", "http.api.v1.auth.login").Logger()
 
 	resp, err := ctrl.AuthApp.Authenticate(req.Email, req.Password, ctx)
+	if errors.Is(err, application.ErrEmailNotVerified) {
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusForbidden,
+			Details: "verify your email address first; POST /api/v1/auth/verify/resend sends a new link",
+			Type:    "EMAIL_NOT_VERIFIED",
+		}
+	}
 	if err != nil {
 		logger.Error().Err(err).Str("email", req.Email).Msg("failed to authenticate user")
 		return nil, &fiberoapi.ErrorResponse{

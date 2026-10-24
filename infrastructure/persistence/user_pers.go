@@ -1,6 +1,8 @@
 package persistence
 
 import (
+	"time"
+
 	"github.com/labbs/ogit/domain"
 	"gorm.io/gorm"
 )
@@ -29,6 +31,10 @@ func (u *userPers) GetByEmail(email string) (domain.User, error) {
 	var user domain.User
 	err := u.db.Where("email = ?", email).First(&user).Error
 	return user, err
+}
+
+func (u *userPers) MarkEmailVerified(userId string, at time.Time) error {
+	return u.db.Model(&domain.User{}).Where("id = ?", userId).Update("email_verified_at", at).Error
 }
 
 func (u *userPers) Create(user *domain.User) error {

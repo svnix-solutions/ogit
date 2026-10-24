@@ -12,6 +12,9 @@ type Config struct {
 		Port int
 		// HttpLogs indicates if HTTP logs are enabled
 		HttpLogs bool
+		// PublicURL is the externally reachable base URL (e.g.
+		// https://git.example.com), used in links sent by email
+		PublicURL string
 	}
 
 	// Logger is the configuration for the zerolog logger.
@@ -46,6 +49,18 @@ type Config struct {
 		DomainWhitelist          []string // List of allowed domains for registration
 		PasswordMinLength        int      // Minimum password length for registration
 		PasswordComplexity       bool     // Require complex passwords (uppercase, lowercase, numbers, symbols)
+		VerificationTTLHours     int      // How long an email verification link stays valid
+		VerificationURLTemplate  string   // Link sent by email; {public_url} and {token} are replaced
+	}
+
+	// SMTP is the outgoing mail server, required for email verification.
+	SMTP struct {
+		Host     string
+		Port     int
+		Username string
+		Password string
+		From     string
+		TLS      string // starttls, tls (implicit, usually port 465) or none
 	}
 
 	// StorageType is the type of storage to use (e.g., local, s3).
