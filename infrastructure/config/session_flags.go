@@ -19,7 +19,7 @@ func SessionFlags(cfg *Config) []cli.Flag {
 		},
 		&cli.StringFlag{
 			Name:        "session.secret_key",
-			Value:       "supersecretkey", // In production, use a secure key and do not hardcode it
+			Usage:       "HMAC key for session tokens, at least 32 bytes. If unset, a random key is generated at startup and sessions do not survive restarts.",
 			Destination: &cfg.Session.SecretKey,
 			Sources: cli.NewValueSourceChain(
 				cli.EnvVar("SESSION_SECRET_KEY"),
