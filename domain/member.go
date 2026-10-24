@@ -1,5 +1,7 @@
 package domain
 
+import "errors"
+
 type MemberType string
 type AccessType string
 
@@ -61,4 +63,14 @@ func (a AccessType) CanWrite() bool {
 
 func (a AccessType) CanAdmin() bool {
 	return a.Level() >= AccessTypeMaintainer.Level()
+}
+
+// ErrLastOwner is returned when a change would leave a repository without
+// an owner.
+var ErrLastOwner = errors.New("a repository must keep at least one owner")
+
+// IsAssignable reports whether a is a role that can be given to a member
+// ("none" is not: remove the member instead).
+func (a AccessType) IsAssignable() bool {
+	return a == AccessTypeReporter || a == AccessTypeDeveloper || a == AccessTypeMaintainer || a == AccessTypeOwner
 }

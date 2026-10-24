@@ -82,6 +82,36 @@ git clone http://localhost:8080/my-project.git
 
 Private repositories that the caller can't read are reported as not found.
 
+### Members and groups
+
+The creator of a repository is its owner. Owners and maintainers share it
+with other users or groups (`/documentation` lists every endpoint):
+
+```bash
+# Give a user access: reporter (read), developer (push), maintainer, owner
+curl -X POST localhost:8080/api/v1/repository/my-project/members -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"username": "alice", "role": "developer"}'
+
+# Create a group, add people, then give the whole group access
+curl -X POST localhost:8080/api/v1/group -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"name": "backend"}'
+curl -X POST localhost:8080/api/v1/group/backend/members -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"username": "bob", "role": "member"}'
+curl -X POST localhost:8080/api/v1/repository/my-project/members -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"group": "backend", "role": "developer"}'
+```
+
+- **Repositories**:
+  - Owners can grant any role; maintainers only up to developer.
+  - Groups can be given at most maintainer, and only by someone in the group.
+  - A repository always keeps at least one owner. Anyone can leave, except the last owner.
+  - Anyone who can read the repository can list its members.
+- **Groups**:
+  - Any user can create a group (names: lowercase letters, digits, `.`, `_`, `-`) and becomes its owner.
+  - The owner and maintainers add and remove members. Only the owner manages maintainers, transfers ownership (`POST /api/v1/group/<name>/transfer`) or deletes the group.
+  - Groups are visible to their members only.
+- `GET /api/v1/repository` and `GET /api/v1/group` list your repositories and groups.
+
 ## Configuration
 
 Settings come from the YAML file given with `-c` (default `config.yaml`; a
@@ -112,7 +142,8 @@ override environment variables, and environment variables override the file.
 
 - SSH access
 - Email verification (`registration.require_email_verification` is not enforced)
-- Endpoints for managing repository members, groups and SSH keys
+- SSH key management
+- Site administrators (the `admin` user role is not used yet)
 - Repositories in nested paths (`org/project.git`)
 
 ## Development

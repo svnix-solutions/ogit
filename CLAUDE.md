@@ -55,7 +55,9 @@ Startup rules: `session.secret_key` must be ≥ 32 bytes, or empty (a random per
 - **Git over HTTP**: HTTP Basic, username = token name, password = personal access token (`POST /api/v1/user/token`). Tokens are `ogit_<64 hex>`. Only `application.HashToken` (SHA-256) is stored; lookups hash the presented value. Token types: `user` (scoped by repository roles) and `repository` (bound to one repo).
 - `AuthApp.AuthorizeGit` decides, and `interfaces/http/git/auth.go` maps the result: `ErrGitUnauthenticated` → 401 + `WWW-Authenticate` (git prompts), `ErrGitNotFound` → 404, `ErrGitForbidden` → 403. Anonymous callers may only read public repos.
 - **Never disclose private repositories**: callers who can't read one get the same 404 as for a missing repo (git routes and `RepositoryApp.GetRepositoryForUser`). Keep that for new endpoints.
-- Roles (`domain/member.go`): reporter = read, developer = write, maintainer/owner = admin. The repo creator becomes owner. There are no endpoints yet to manage members or groups.
+- Roles (`domain/member.go`): reporter = read, developer = write, maintainer/owner = admin. The repo creator becomes owner. `RepositoryApp.GetUserEffectiveRole` is the max of the direct membership and every group membership (via `group_member`).
+- **Membership rules** live in `application/repository_members.go` and `application/group_app.go` (each file starts with a summary). Owners do anything; maintainers are capped at developer (`checkCanManage`). Groups are at most maintainer on a repo and can only be added by their members. Repos keep at least one owner (`domain.ErrLastOwner`, enforced in `repositoryMemberPers` inside a transaction, with `FOR UPDATE` on postgres; `TestLastOwnerConcurrentDemotion` shows the lock is needed). Groups have exactly one owner (`group.owner_id` mirrors the owner's `group_member` row) and change owner only through `TransferOwnership`.
+- Application errors (`application/errors.go`) map to HTTP statuses in one place, `interfaces/http/v1/apierror`. Use `apierror.From` in new handlers. Path params in request DTOs are tagged `json:"-"`, because fiber-oapi parses the body after the path and a body field could otherwise override them.
 
 ## Storage
 
@@ -70,6 +72,7 @@ Repositories are addressed by slug (`slug.Make(name)`, which also prevents path 
 - **GORM `default:` tags** drop zero values on insert, so the column default wins. This made every repo private (`IsPrivate` had `default:true`). Don't put defaults on booleans that callers set to false; apply defaults in the API layer instead (`is_private` is `*bool`, defaulting to true).
 - **IDs** are set in application code (`utils.UUIDv4()`) or in `BeforeCreate`. An empty string ID inserts fine on SQLite and then breaks the next insert.
 - **Postgres differs from SQLite**: JSON columns come back as `[]byte`, not `string`. `sql.Scanner` implementations must handle string, []byte and nil and return errors. A panic inside `Scan` deadlocks the connection (`database/sql` still holds the rows lock), so the request hangs instead of failing. That is how every Postgres login hung (`JSONB.Scan`). Run the Postgres e2e suite for anything touching persistence or migrations.
+- **SQLite does not enforce foreign keys** here (the `foreign_keys` pragma is off), so `ON DELETE CASCADE` only works on postgres. Delete dependent rows explicitly in a transaction (see `groupPers.Delete`).
 - **Enum strings** in `domain` must match the migration's CHECK/enum values (`TokenRepo` = `"repository"`).
 - **Logging**: never log tokens, JWTs or passwords. `GormLogger.ParamsFilter` keeps bound values out of SQL logs; keep it.
 - `helperError.Catch` maps any unique-constraint failure to `gorm.ErrDuplicatedKey`, so "already exists" messages can hide a different constraint.

@@ -247,6 +247,31 @@ func (s *testServer) createRepo(t *testing.T, bearer, name string, private bool)
 	return body
 }
 
+// request sends a JSON request (body may be nil) and decodes the JSON response.
+func (s *testServer) request(t *testing.T, method, path, bearer string, body any) (int, map[string]any) {
+	t.Helper()
+	var reader *bytes.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		require.NoError(t, err)
+		reader = bytes.NewReader(payload)
+	} else {
+		reader = bytes.NewReader(nil)
+	}
+	req, err := http.NewRequest(method, s.url+path, reader)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
 func (s *testServer) get(t *testing.T, path, bearer string) (int, map[string]any) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, s.url+path, nil)

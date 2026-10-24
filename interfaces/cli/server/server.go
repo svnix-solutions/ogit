@@ -131,8 +131,9 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 
 	deps.UserApp = application.NewUserApp(deps.Config, deps.Logger, userPers, groupPers)
 	deps.SessionApp = application.NewSessionApp(deps.Config, deps.Logger, sessionPers, deps.UserApp)
-	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, nil, deps.Storage)
+	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
+	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers)
 	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp)
 
 	// Initialize HTTP server (fiber + fiberoapi)
