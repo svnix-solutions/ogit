@@ -36,6 +36,11 @@ registration:
   verification_ttl_hours: 24
   verification_url_template: "{public_url}/api/v1/auth/verify?token={token}"
 
+ssh:                   # git over SSH: ssh://git@host:2222/<repo>.git
+  enabled: false
+  port: 2222
+  host_key_path: ./ssh_host_ed25519_key   # generated on first start; keep it (in Docker: a volume)
+
 smtp:                  # outgoing mail, used for email verification
   host: ""
   port: 587

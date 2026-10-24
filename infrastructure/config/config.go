@@ -49,6 +49,13 @@ type Config struct {
 		VerificationURLTemplate  string   // Link sent by email; {public_url} and {token} are replaced
 	}
 
+	// SSH is the git-over-SSH server.
+	SSH struct {
+		Enabled     bool
+		Port        int
+		HostKeyPath string // ed25519 host key, generated on first start if missing
+	}
+
 	// SMTP is the outgoing mail server, required for email verification.
 	SMTP struct {
 		Host     string

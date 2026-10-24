@@ -71,7 +71,7 @@ type RepositoryPers interface {
 	Create(repo *Repository) error
 	Delete(repo Repository) error
 	// Purge deletes the repository and every row that references it
-	// (members, repository tokens) in one transaction.
+	// (members, repository tokens, deploy keys) in one transaction.
 	Purge(id string) error
 	List(limit, offset int) ([]Repository, int64, error)
 	// SoleOwnedBy returns the repositories where userId is the only owner.

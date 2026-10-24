@@ -33,6 +33,10 @@ var mapping = []struct {
 	{application.ErrConfirmMismatch, fiber.StatusBadRequest, "CONFIRM_MISMATCH"},
 	{application.ErrRegistrationRejected, fiber.StatusBadRequest, "PASSWORD_REJECTED"},
 	{application.ErrInvalidCredentials, fiber.StatusBadRequest, "INVALID_PASSWORD"},
+	{application.ErrInvalidSSHKey, fiber.StatusBadRequest, "INVALID_SSH_KEY"},
+	{application.ErrSSHKeyInUse, fiber.StatusConflict, "SSH_KEY_IN_USE"},
+	{application.ErrSSHKeyName, fiber.StatusConflict, "SSH_KEY_NAME_TAKEN"},
+	{application.ErrSSHKeyNotFound, fiber.StatusNotFound, "SSH_KEY_NOT_FOUND"},
 }
 
 // From converts err into an error response. Known application errors keep

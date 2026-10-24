@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net"
 	"strconv"
 
 	"github.com/labbs/ogit/application"
@@ -16,6 +17,7 @@ import (
 	"github.com/labbs/ogit/infrastructure/persistence"
 	"github.com/labbs/ogit/infrastructure/storage"
 	routes "github.com/labbs/ogit/interfaces/http"
+	sshserver "github.com/labbs/ogit/interfaces/ssh"
 
 	"github.com/urfave/cli/v3"
 )
@@ -47,6 +49,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.RegistrationFlags(cfg)...)
 	list = append(list, config.StorageFlags(cfg)...)
 	list = append(list, config.SMTPFlags(cfg)...)
+	list = append(list, config.SSHFlags(cfg)...)
 	return
 }
 
@@ -73,6 +76,13 @@ func runServer(cfg config.Config) error {
 
 	// Setup routes
 	routes.SetupRoutes(deps)
+
+	if cfg.SSH.Enabled {
+		if err := startSSH(deps); err != nil {
+			logger.Fatal().Err(err).Str("event", "http.runserver.ssh").Msg("Failed to start SSH server")
+			return err
+		}
+	}
 
 	// Start HTTP server
 	logger.Info().Str("event", "http.runserver.http.listen").Msgf("Starting HTTP server on port %d", cfg.Server.Port)
@@ -144,6 +154,10 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Config: deps.Config, Logger: deps.Logger, UserPers: userPers, SessionPers: sessionPers,
 		RepoPers: repoPers, RepositoryMemberPers: repositoryMemberPers, GroupPers: groupPers, Storage: deps.Storage,
 	}
+	deps.SSHKeyApp = &application.SSHKeyApp{
+		Config: deps.Config, Logger: deps.Logger, SSHKeyPers: persistence.NewSSHKeyPers(deps.Database.Db), UserPers: userPers,
+		RepositoryApp: deps.RepoApp, AdminApp: deps.AdminApp, Mailer: deps.Mailer,
+	}
 	deps.Mailer = mail.NewSMTPSender(deps.Config)
 	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp,
 		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))
@@ -156,4 +170,23 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	}
 
 	return deps, nil
+}
+
+// startSSH listens for git over SSH on ssh.port in the background.
+func startSSH(deps infrastructure.Deps) error {
+	srv, err := sshserver.New(deps.Config.SSH.HostKeyPath, deps.Logger, deps.AuthApp, deps.SSHKeyApp.SSHKeyPers, deps.Storage)
+	if err != nil {
+		return err
+	}
+	ln, err := net.Listen("tcp", ":"+strconv.Itoa(deps.Config.SSH.Port))
+	if err != nil {
+		return err
+	}
+	deps.Logger.Info().Str("event", "http.runserver.ssh.listen").Msgf("Starting SSH server on port %d", deps.Config.SSH.Port)
+	go func() {
+		if err := srv.Serve(ln); err != nil {
+			deps.Logger.Error().Err(err).Msg("SSH server stopped")
+		}
+	}()
+	return nil
 }

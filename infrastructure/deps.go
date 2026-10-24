@@ -28,4 +28,5 @@ type Deps struct {
 	TokenApp   *application.TokenApp
 	GroupApp   *application.GroupApp
 	AdminApp   *application.AdminApp
+	SSHKeyApp  *application.SSHKeyApp
 }
