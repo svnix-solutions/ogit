@@ -7,3 +7,7 @@ logger:
 database:
   dialect: sqlite
   dsn: ./database.sqlite
+# HMAC key for session tokens, at least 32 bytes (e.g. `openssl rand -hex 32`).
+# If unset, a random key is generated at startup and sessions do not survive restarts.
+session:
+  secret_key: ""

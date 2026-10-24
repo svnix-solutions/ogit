@@ -15,13 +15,13 @@ func NewUserPers(db *gorm.DB) *userPers {
 
 func (u *userPers) GetByUsername(username string) (domain.User, error) {
 	var user domain.User
-	err := u.db.Debug().Where("username = ?", username).First(&user).Error
+	err := u.db.Where("username = ?", username).First(&user).Error
 	return user, err
 }
 
 func (u *userPers) GetByEmail(email string) (domain.User, error) {
 	var user domain.User
-	err := u.db.Debug().Where("email = ?", email).First(&user).Error
+	err := u.db.Where("email = ?", email).First(&user).Error
 	return user, err
 }
 

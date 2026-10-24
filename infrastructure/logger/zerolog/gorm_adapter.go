@@ -48,6 +48,13 @@ func (l *GormLogger) Error(ctx context.Context, msg string, data ...any) {
 	}
 }
 
+// ParamsFilter implements gorm.ParamsFilter so that logged SQL keeps its
+// placeholders instead of the bound values, which include password hashes,
+// token hashes and email addresses.
+func (l *GormLogger) ParamsFilter(_ context.Context, sql string, _ ...any) (string, []any) {
+	return sql, nil
+}
+
 func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
 	if l.LogLevel <= gormlogger.Silent {
 		return

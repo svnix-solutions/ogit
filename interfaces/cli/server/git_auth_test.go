@@ -143,7 +143,7 @@ type testServer struct {
 	deps infrastructure.Deps
 }
 
-func startTestServer(t *testing.T) *testServer {
+func startTestServer(t *testing.T, opts ...func(*config.Config)) *testServer {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -154,9 +154,15 @@ func startTestServer(t *testing.T) *testServer {
 	cfg.Database.DSN = filepath.Join(dir, "ogit.sqlite")
 	cfg.Storage.Type = "local"
 	cfg.Storage.Local.Path = filepath.Join(dir, "repositories")
-	cfg.Session.SecretKey = "test-secret"
+	cfg.Session.SecretKey = "test-secret-at-least-32-bytes-long"
 	cfg.Session.ExpirationMinutes = 60
 	cfg.Session.Issuer = "ogit-test"
+	cfg.Registration.Enabled = true
+	cfg.Registration.PasswordMinLength = 12
+	cfg.Registration.PasswordComplexity = true
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 
 	deps, err := setupDeps(cfg)
 	require.NoError(t, err)
@@ -194,7 +200,7 @@ func (s *testServer) post(t *testing.T, path, bearer string, body any) (int, map
 // registerAndLogin returns a session JWT for a new user.
 func (s *testServer) registerAndLogin(t *testing.T, email, username string) string {
 	t.Helper()
-	const password = "correct-horse-battery-staple"
+	const password = "Correct-Horse-Battery-9"
 	status, body := s.post(t, "/api/v1/auth/register", "", map[string]any{"email": email, "username": username, "password": password})
 	require.Equal(t, http.StatusOK, status, "register: %v", body)
 	status, body = s.post(t, "/api/v1/auth/login", "", map[string]any{"email": email, "password": password})

@@ -87,15 +87,18 @@ func runServer(cfg config.Config) error {
 // application services and HTTP server. Routes and cron jobs are not set up.
 func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	var err error
-
-	// Initialize dependencies
-	deps := infrastructure.Deps{
-		Config: cfg,
-	}
+	var deps infrastructure.Deps
 
 	// Initialize logger
 	deps.Logger = logger.NewLogger(cfg.Logger.Level, cfg.Logger.Pretty, cfg.Version)
 	logger := deps.Logger.With().Str("component", "interfaces.cli.http.runserver").Logger()
+
+	// Validate configuration before anything uses it
+	if err = cfg.EnsureSessionSecret(deps.Logger); err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.session_secret").Msg("Invalid session configuration")
+		return deps, err
+	}
+	deps.Config = cfg
 
 	// Initialize other cron scheduler (go-cron)
 	deps.CronScheduler, err = cronscheduler.Configure(deps.Logger)

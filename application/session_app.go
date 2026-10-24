@@ -53,18 +53,18 @@ func (c *SessionApp) ValidateToken(token string) (*fiberoapi.AuthContext, error)
 
 	sessionId, err := tokenutil.GetSessionIdFromToken(token, c.Config)
 	if err != nil {
-		logger.Error().Err(err).Str("token", token).Msg("failed to get session id from token")
+		logger.Error().Err(err).Msg("failed to get session id from token")
 		return nil, fmt.Errorf("invalid token")
 	}
 
 	session, err := c.SessionPers.GetById(sessionId)
 	if err != nil {
-		logger.Error().Err(err).Str("token", token).Msg("failed to get session by token")
+		logger.Error().Err(err).Str("session_id", sessionId).Msg("failed to get session by token")
 		return nil, fmt.Errorf("invalid token")
 	}
 
 	if session.ExpiresAt.Before(time.Now()) {
-		logger.Warn().Str("token", token).Msg("session has expired")
+		logger.Warn().Str("session_id", sessionId).Msg("session has expired")
 		return nil, fmt.Errorf("session has expired")
 	}
 

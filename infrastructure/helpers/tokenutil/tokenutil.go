@@ -1,6 +1,7 @@
 package tokenutil
 
 import (
+	"errors"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -26,15 +27,16 @@ func CreateAccessToken(user_id, sessionId string, config config.Config) (accessT
 }
 
 func GetSessionIdFromToken(tokenString string, config config.Config) (string, error) {
+	// Only accept the algorithm CreateAccessToken signs with.
 	token, err := jwt.ParseWithClaims(tokenString, &JwtCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(config.Session.SecretKey), nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
 		return "", err
 	}
-	if claims, ok := token.Claims.(*JwtCustomClaims); ok && token.Valid {
-		return claims.SessionID, nil
-	} else {
-		return "", err
+	claims, ok := token.Claims.(*JwtCustomClaims)
+	if !ok || !token.Valid || claims.SessionID == "" {
+		return "", errors.New("invalid token claims")
 	}
+	return claims.SessionID, nil
 }
