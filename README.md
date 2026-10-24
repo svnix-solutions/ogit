@@ -1,179 +1,132 @@
 # oGit
 
-A lightweight Git server supporting both HTTP and SSH protocols with multiple storage backends.
+A Git server over HTTP with users, access control and pluggable repository
+storage (local filesystem or any S3-compatible object store).
 
 ## Features
 
-### Current Features ✅
+- **Git Smart HTTP**: clone, fetch and push with any git client
+- **Users and sessions**: registration and login with JWT sessions, plus a configurable registration policy
+- **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
+- **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
+- **Database**: SQLite or PostgreSQL
+- **REST API** with OpenAPI documentation at `/documentation`
 
-- **HTTP Git Server**: Full Git Smart HTTP protocol support
-  - Clone, push, pull operations via HTTP/HTTPS
-  - REST API for repository management
-  - Graceful shutdown handling
+## Quick start
 
-- **SSH Git Server**: Custom SSH implementation for Git operations
-  - Clone, push, pull operations via SSH
-  - Public key and password authentication
-  - Git protocol over SSH (git-upload-pack, git-receive-pack)
+Building needs Go (see `go.mod`) and a C toolchain, because the SQLite driver uses CGO.
 
-- **Storage Backends**:
-  - **Local**: File system storage for repositories
-  - **S3**: Amazon S3 compatible storage (tested and working)
-
-- **Configuration**:
-  - YAML configuration files
-  - Command-line flags
-  - Environment variable support
-
-- **Authentication**:
-  - Demo mode (password: "demo", accepts any SSH key)
-  - Extensible authentication framework
-
-- **Logging**: Structured logging with zerolog
-
-### Architecture
-
-- **Parallel Servers**: HTTP and SSH servers run concurrently
-- **Graceful Shutdown**: CTRL+C handling with 30-second timeout
-- **Storage Abstraction**: Pluggable storage backend system
-- **Transport Abstraction**: Unified Git transport layer
-
-## Quick Start
-
-### Configuration
-
-Copy the example configuration:
 ```bash
-cp config-example.yaml config.yaml
+go build -o ogit ./cmd/cmd.go
+
+cp config-example.yaml config.yaml   # then edit it
+./ogit migration -c config.yaml      # create or upgrade the database schema
+./ogit server -c config.yaml         # listens on :8080 by default
 ```
 
-Edit `config.yaml` to configure your storage backend and server settings.
+Run `migration` before the first start and after every upgrade. The server
+starts without it, but API calls then fail with missing tables.
 
-### Running the Server
+### Docker
+
+Release images are published to `ghcr.io/<owner>/<repo>` for `v*` tags. The
+container reads `/config/config.yaml`, runs the migrations, then starts the
+server:
 
 ```bash
-# Build the application
-make build
-
-# Run with default configuration
-./main
-
-# Or run with custom config
-./main --config ./config.yaml
+docker run -p 8080:8080 \
+  -v "$PWD/config.yaml:/config/config.yaml:ro" \
+  -v "$PWD/data:/data" \
+  ghcr.io/<owner>/<repo>:<tag>
 ```
 
-### Git Operations
+Point `database.dsn` and `storage.local.path` at the `/data` volume, or use
+PostgreSQL and S3. `docker-compose.yaml` starts a local PostgreSQL for
+development.
 
-**HTTP Access:**
+## Using git
 
-Anonymous users can clone public repositories. Everything else (cloning private
-repositories, pushing) needs a personal access token. Git sends the token name
-as the username and the token as the password.
+Accounts and repositories are managed through the API (`/documentation` lists
+every endpoint):
 
 ```bash
-# Create a token (SESSION is the JWT returned by /api/v1/auth/login).
-# Scopes: read:repository (clone/fetch), write:repository (push).
-curl -X POST http://localhost:8080/api/v1/user/token \
-  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+# Register and log in; the login response contains a session token
+curl -X POST localhost:8080/api/v1/auth/register -H 'Content-Type: application/json' \
+  -d '{"email": "me@example.com", "username": "me", "password": "Correct-Horse-9"}'
+SESSION=$(curl -s -X POST localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"email": "me@example.com", "password": "Correct-Horse-9"}' | jq -r .token)
+
+# Create a repository (private unless "is_private": false)
+curl -X POST localhost:8080/api/v1/repository -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"name": "My Project"}'
+
+# Create a personal access token for git; the "token" field is shown only once
+curl -X POST localhost:8080/api/v1/user/token -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' \
   -d '{"name": "laptop", "scopes": ["read:repository", "write:repository"]}'
-# The "token" field is shown only once.
-
-# Clone and push; git prompts for credentials (username: laptop, password: the token)
-git clone http://localhost:8080/your-repo.git
-git push origin main
 ```
 
-Repositories are private unless created with `"is_private": false`.
+Repositories are addressed by their slug (`My Project` → `my-project`). Git
+asks for credentials: the username is the **token name** and the password is
+the **token**.
 
-**SSH Access:**
-**Not stable**
 ```bash
-# Clone via SSH (demo password: "demo")
-git clone ssh://demo@localhost:2022/your-repo.git
-
-# Push via SSH
-git push origin main
+git clone http://localhost:8080/my-project.git
 ```
 
-## Configuration Options
+| Caller | Clone / fetch | Push |
+|---|---|---|
+| Anonymous | public repositories only | never |
+| Token with `read:repository` | public repos, and private repos the user can read | no |
+| Token with `write:repository` | as above | repos where the user is developer or higher |
 
-### Server Configuration
-- `server.http.enabled`: Enable/disable HTTP server
-- `server.http.port`: HTTP server port (default: 8080)
-- `server.ssh.enabled`: Enable/disable SSH server  
-- `server.ssh.port`: SSH server port (default: 2022)
-- `server.ssh.hostkey`: Path to SSH host key file
+Private repositories that the caller can't read are reported as not found.
 
-### Storage Configuration
-- `storage.type`: Storage backend ("local" or "s3")
-- `storage.local.path`: Local storage directory
-- `storage.s3.*`: S3 configuration options
+## Configuration
 
-## Known Issues 🐛
+Settings come from the YAML file given with `-c` (default `config.yaml`; a
+missing file is ignored), from environment variables, or from flags. Flags
+override environment variables, and environment variables override the file.
+`config-example.yaml` documents every key. The main ones:
 
-### SSH Protocol
-- **Client Warning**: Git clients may show "remote end hung up unexpectedly" message
-  - **Impact**: Cosmetic only - all operations complete successfully
-  - **Status**: Under investigation - server-side operations work perfectly
-  - **Workaround**: Message can be safely ignored
+| YAML key | Environment | Default |
+|---|---|---|
+| `http.port` | `HTTP_PORT` | `8080` |
+| `http.logs` | `HTTP_LOGS` | `false` |
+| `logger.level` / `logger.pretty` | `LOGGER_LEVEL` / `LOGGER_PRETTY` | `info` / `false` |
+| `database.dialect` | `DATABASE_DIALECT` | `sqlite` (or `postgres`) |
+| `database.dsn` | `DATABASE_DSN` | `./database.sqlite` |
+| `session.secret_key` | `SESSION_SECRET_KEY` | random per start; set ≥ 32 bytes in production |
+| `session.expiration_minutes` | `SESSION_EXPIRATION_MINUTES` | `43200` (30 days) |
+| `registration.enabled` | `REGISTRATION_ENABLED` | `true` |
+| `registration.domain_whitelist` | `REGISTRATION_DOMAIN_WHITELIST` | any domain |
+| `registration.password_min_length` | `REGISTRATION_PASSWORD_MIN_LENGTH` | `12` |
+| `registration.password_complexity` | `REGISTRATION_PASSWORD_COMPLEXITY` | `true` |
+| `storage.type` | `STORAGE_TYPE` | `local` (or `s3`) |
+| `storage.local.path` | `STORAGE_LOCAL_PATH` | `./repositories` |
+| `storage.s3.bucket`, `.endpoint`, `.accesskey`, `.secretkey`, `.region` | `STORAGE_S3_*` | region `us-east-1` |
 
-### Performance
-- **S3 Storage**: Slower than local storage due to network latency
-  - **Expected**: Normal behavior for remote storage
-  - **Optimization**: Consider using S3 transfer acceleration
+`./ogit server --help` lists every flag.
 
-## Future Features 🚀
+## Not implemented yet
 
-### Authentication & Security
-- [ ] Multi-user authentication system
-- [ ] Role-based access control (RBAC)
-- [ ] JWT token authentication
-- [ ] LDAP/Active Directory integration
-- [ ] Rate limiting and DDoS protection
-
-### Storage Enhancements  
-- [ ] Azure Blob Storage backend
-- [ ] Google Cloud Storage backend
-- [ ] Redis caching layer
-- [ ] Repository compression and deduplication
-
-### Git Features
-- [ ] Web UI for repository browsing
-- [ ] Webhook support for CI/CD integration
-- [ ] Branch protection rules
-- [ ] Repository mirroring
-- [ ] Git LFS (Large File Storage) support
-
-### Operations & Monitoring
-- [ ] Metrics and monitoring (Prometheus)
-- [ ] Health check endpoints
-- [ ] Docker containerization
-- [ ] Kubernetes deployment manifests
-- [ ] Backup and restore tools
-
-### Protocol Improvements
-- [ ] Git protocol v2 support
-- [ ] HTTP/2 support
-- [ ] TLS certificate management
-- [ ] SSH key management interface
+- SSH access
+- Logout, the user profile endpoint, and cleanup of expired sessions
+- Email verification (`registration.require_email_verification` is not enforced)
+- Endpoints for managing repository members, groups and SSH keys
+- Repositories in nested paths (`org/project.git`)
 
 ## Development
 
-### Building
 ```bash
-make build
+go test -race ./...                            # unit and end-to-end tests (fake S3, no Docker)
+go test -race -tags=integration -run MinIO ./...  # same suites against MinIO (needs Docker)
+air                                            # live reload, see .air.toml and start.sh
 ```
 
-### Testing
-```bash
-make test
-```
-
-### Running Tests with Coverage
-```bash
-make test-coverage
-```
+Pull requests into `main` and `refactor` run gofmt, `go vet`, the tests and
+the MinIO integration tests in CI.
 
 ## License
 
-See [LICENSE](LICENSE) file for details.
+See [LICENSE](LICENSE).
