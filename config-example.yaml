@@ -59,3 +59,7 @@ storage:
     accesskey: ""
     secretkey: ""
     region: us-east-1
+    cache:             # pack indexes and 4 MiB pack blocks read from S3 (packs never change)
+      type: memory     # memory (per server), redis (shared by every server) or none
+      max_mb: 256      # memory only: LRU size limit
+      redis_url: ""    # redis only, e.g. redis://localhost:6379/0

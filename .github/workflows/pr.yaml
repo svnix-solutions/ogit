@@ -57,9 +57,9 @@ jobs:
         cache: true
         cache-dependency-path: go.sum
 
-    # testcontainers starts MinIO, Mailpit and Postgres through the runner's Docker daemon.
-    - name: Integration tests (MinIO, Mailpit)
-      run: go test -race -count=1 -tags=integration -run 'MinIO|Mailpit' ./...
+    # testcontainers starts MinIO, Mailpit, Redis and Postgres through the runner's Docker daemon.
+    - name: Integration tests (MinIO, Mailpit, Redis)
+      run: go test -race -count=1 -tags=integration -run 'MinIO|Mailpit|Redis' ./...
 
     - name: End-to-end tests on Postgres
       run: go test -race -count=1 -tags=integration ./interfaces/cli/server/
