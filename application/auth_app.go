@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/utils"
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/helpers/tokenutil"
@@ -161,6 +162,7 @@ func (c *AuthApp) Register(username, email, password string) error {
 	}
 
 	user := domain.User{
+		Id:       utils.UUIDv4(),
 		Username: username,
 		Email:    email,
 		Password: string(hashedPassword),

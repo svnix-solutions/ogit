@@ -14,7 +14,7 @@ func NewTokenPers(db *gorm.DB) *tokenPers {
 }
 
 func (t *tokenPers) Create(token *domain.Token) error {
-	return t.db.Create(&token).Error
+	return t.db.Create(token).Error
 }
 
 func (t *tokenPers) GetByNameAndToken(name, tokenStr string) (*domain.Token, error) {

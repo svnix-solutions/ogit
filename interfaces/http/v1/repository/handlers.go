@@ -52,7 +52,12 @@ func (ctrl *Controller) CreateRepository(ctx *fiber.Ctx, req dtos.CreateReposito
 		}
 	}
 
-	repo, err := ctrl.RepositoryApp.Create(req.Name, req.Description, authCtx.UserID, req.IsPrivate)
+	isPrivate := true
+	if req.IsPrivate != nil {
+		isPrivate = *req.IsPrivate
+	}
+
+	repo, err := ctrl.RepositoryApp.Create(req.Name, req.Description, authCtx.UserID, isPrivate)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to create repository")
 		return nil, &fiberoapi.ErrorResponse{

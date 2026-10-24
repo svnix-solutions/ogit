@@ -3,7 +3,7 @@ package dtos
 type CreateRepositoryRequest struct {
 	Name        string `json:"name" validate:"required"`
 	Description string `json:"description"`
-	IsPrivate   bool   `json:"is_private"`
+	IsPrivate   *bool  `json:"is_private"` // defaults to true when omitted
 }
 
 type CreateRepositoryResponse struct {
