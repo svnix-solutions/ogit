@@ -16,6 +16,9 @@ type GetRepositoryResponse struct {
 	Description string `json:"description"`
 	IsPrivate   bool   `json:"is_private"`
 	IsArchived  bool   `json:"archived"`
+	// Role is the caller's effective role (none, reporter, developer,
+	// maintainer, owner); only on GET.
+	Role string `json:"role,omitempty"`
 }
 
 type UpdateRepositoryRequest struct {

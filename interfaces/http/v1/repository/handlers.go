@@ -46,6 +46,11 @@ func (ctrl *Controller) GetRepository(ctx *fiber.Ctx, req dtos.GetRepositoryRequ
 	var response dtos.GetRepositoryResponse
 	mapper.MapStructByFieldNames(repo, &response)
 	response.FullPath = repo.FullPath()
+	role, err := ctrl.RepositoryApp.GetUserEffectiveRole(repo.Id, authCtx.UserID)
+	if err != nil {
+		return nil, apierror.From(err, logger)
+	}
+	response.Role = string(role)
 
 	return &response, nil
 }

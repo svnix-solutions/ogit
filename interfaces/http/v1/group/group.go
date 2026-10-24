@@ -35,13 +35,13 @@ func (ctrl *Controller) List(ctx *fiber.Ctx, _ struct{}) (*dtos.ListGroupsRespon
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
-	groups, err := ctrl.GroupApp.ListForUser(authCtx.UserID)
+	groups, err := ctrl.GroupApp.MembershipsFor(authCtx.UserID)
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
 	resp := &dtos.ListGroupsResponse{Groups: make([]dtos.GroupResponse, 0, len(groups))}
 	for _, g := range groups {
-		resp.Groups = append(resp.Groups, dtos.GroupResponse{Id: g.Id, Name: g.Name, Description: g.Description})
+		resp.Groups = append(resp.Groups, dtos.GroupResponse{Id: g.Id, Name: g.Name, Description: g.Description, Role: string(g.Role)})
 	}
 	return resp, nil
 }

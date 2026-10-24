@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -127,4 +128,34 @@ func (c *TokenApp) Create(token *domain.Token) error {
 	}
 
 	return nil
+}
+
+// ErrTokenNotFound is returned for tokens that don't exist or aren't the
+// caller's.
+var ErrTokenNotFound = errors.New("token not found")
+
+// ListUserTokens returns userId's personal access tokens (hashes only).
+func (c *TokenApp) ListUserTokens(userId string) ([]domain.Token, error) {
+	tokens, err := c.TokenPers.GetByUserId(userId)
+	if err != nil {
+		return nil, err
+	}
+	var own []domain.Token
+	for _, t := range tokens {
+		if t.Type == domain.TokenUser {
+			own = append(own, t)
+		}
+	}
+	return own, nil
+}
+
+// RevokeUserToken deletes one of userId's personal access tokens.
+func (c *TokenApp) RevokeUserToken(userId, tokenId string) error {
+	token, err := c.TokenPers.GetById(tokenId)
+	if isNotFound(err) || (err == nil && (token.Type != domain.TokenUser || token.UserId == nil || *token.UserId != userId)) {
+		return ErrTokenNotFound
+	} else if err != nil {
+		return err
+	}
+	return c.TokenPers.Delete(token)
 }

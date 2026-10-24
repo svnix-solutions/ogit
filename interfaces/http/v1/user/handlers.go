@@ -37,6 +37,7 @@ func (ctrl *Controller) GetProfile(ctx *fiber.Ctx, input struct{}) (*dtos.Profil
 		Username: user.Username,
 		Email:    user.Email,
 		Avatar:   user.AvatarUrl,
+		Role:     string(user.Role),
 	}, nil
 }
 
@@ -90,4 +91,35 @@ func (ctrl *Controller) ChangePassword(ctx *fiber.Ctx, req dtos.ChangePasswordRe
 		return nil, apierror.From(err, ctrl.Logger)
 	}
 	return &dtos.ChangePasswordResponse{Message: "password changed; other sessions have been ended"}, nil
+}
+
+func (ctrl *Controller) ListTokens(ctx *fiber.Ctx, _ struct{}) (*dtos.ListTokensResponse, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	tokens, err := ctrl.TokenApp.ListUserTokens(authCtx.UserID)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	resp := &dtos.ListTokensResponse{Tokens: []dtos.TokenSummary{}}
+	for _, t := range tokens {
+		scopes := make([]string, len(t.Scopes))
+		for i, s := range t.Scopes {
+			scopes[i] = string(s)
+		}
+		resp.Tokens = append(resp.Tokens, dtos.TokenSummary{Id: t.Id, Name: t.Name, Description: t.Description, Scopes: scopes, ExpiresAt: t.ExpiresAt, CreatedAt: t.CreatedAt})
+	}
+	return resp, nil
+}
+
+func (ctrl *Controller) RevokeToken(ctx *fiber.Ctx, req dtos.RevokeTokenRequest) (*dtos.RevokeTokenResponse, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	if err := ctrl.TokenApp.RevokeUserToken(authCtx.UserID, req.TokenId); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return &dtos.RevokeTokenResponse{Message: "token revoked"}, nil
 }

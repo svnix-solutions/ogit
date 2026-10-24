@@ -26,6 +26,16 @@ func TestNamespaces(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, "%v", body)
 	}
 
+	t.Run("group_list_has_roles", func(t *testing.T) {
+		for as, role := range map[user]string{alice: "owner", bob: "maintainer", carol: "member"} {
+			status, body := srv.get(t, "/api/v1/group", as.session)
+			require.Equal(t, http.StatusOK, status)
+			groups := body["groups"].([]any)
+			require.Len(t, groups, 1)
+			assert.Equal(t, role, groups[0].(map[string]any)["role"], "%s's role, so the UI knows where they can create", as.name)
+		}
+	})
+
 	t.Run("personal_namespace", func(t *testing.T) {
 		repo := srv.createRepo(t, alice.session, "Site", true)
 		assert.Equal(t, "alice", repo["namespace"])
@@ -64,6 +74,12 @@ func TestNamespaces(t *testing.T) {
 		require.NoError(t, commitAndPush(t, r, carol.git), "and push (developer)")
 		_, err = clone(t, infra, dave.git)
 		assert.ErrorIs(t, err, transport.ErrRepositoryNotFound, "outsiders see nothing")
+
+		for as, role := range map[user]string{carol: "developer", bob: "maintainer", alice: "owner"} {
+			status, body := srv.get(t, repoAPI("platform/infra"), as.session)
+			require.Equal(t, http.StatusOK, status)
+			assert.Equal(t, role, body["role"], "%s's effective role, from the group", as.name)
+		}
 
 		status, _ := srv.request(t, http.MethodPatch, repoAPI("platform/infra"), carol.session, map[string]any{"description": "x"})
 		assert.Equal(t, http.StatusForbidden, status, "members are not maintainers")

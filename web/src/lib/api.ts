@@ -61,7 +61,7 @@ export function isUnauthenticated(err: unknown): boolean {
   );
 }
 
-export type Profile = { id: string; username: string; email: string; avatar: string };
+export type Profile = { id: string; username: string; email: string; avatar: string; role: "admin" | "user" };
 export type RepositorySummary = {
   id: string;
   namespace: string;
@@ -71,4 +71,55 @@ export type RepositorySummary = {
   description: string;
   is_private: boolean;
   archived: boolean;
+};
+
+// A repository's API identifier: its id, or its path with the slash encoded.
+export function repoId(fullPath: string): string {
+  return encodeURIComponent(fullPath);
+}
+
+export type Role = "none" | "reporter" | "developer" | "maintainer" | "owner";
+export const roles: Role[] = ["reporter", "developer", "maintainer", "owner"];
+const roleLevel: Record<Role, number> = { none: 0, reporter: 1, developer: 2, maintainer: 3, owner: 4 };
+export function atLeast(role: Role | undefined, min: Role): boolean {
+  return roleLevel[role ?? "none"] >= roleLevel[min];
+}
+
+export type Repository = RepositorySummary & { owner_type: "user" | "group"; role?: Role };
+
+export type Member = { id: string; type: "user" | "group"; username?: string; group?: string; role: Role };
+
+export type Group = { id: string; name: string; description: string; role?: "owner" | "maintainer" | "member" };
+export type GroupMember = { username: string; role: "owner" | "maintainer" | "member" };
+
+export type NamespaceView = {
+  name: string;
+  type: "user" | "group";
+  description?: string;
+  can_create: boolean;
+  repositories: RepositorySummary[];
+};
+
+export type Instance = { version: string; registration_enabled: boolean; ssh_enabled: boolean; ssh_port?: number };
+
+export type Token = { id: string; name: string; description: string; scopes: string[]; expires_at?: string; created_at: string };
+
+export type SSHKey = {
+  id: string;
+  name: string;
+  fingerprint: string;
+  type: string;
+  read_only?: boolean;
+  last_used_at?: string | null;
+  created_at: string;
+};
+
+export type AdminUser = {
+  id: string;
+  username: string;
+  email: string;
+  role: "admin" | "user";
+  active: boolean;
+  email_verified_at: string | null;
+  created_at: string;
 };
