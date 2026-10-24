@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -28,6 +29,7 @@ func init() {
 }
 
 var (
+	pgSeq  atomic.Int64
 	pgOnce sync.Once
 	pgDSN  string // DSN of the server's maintenance database
 	pgErr  error
@@ -54,11 +56,13 @@ func usePostgres(t *testing.T, cfg *config.Config) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = admin.Close() })
 
+	// Unique per server: a test may start several servers, possibly sharing
+	// one database through an option (which must not be dropped by the next).
 	name := "t_" + strings.ToLower(strings.NewReplacer("/", "_", "-", "_").Replace(t.Name()))
 	if len(name) > 50 {
 		name = name[:50]
 	}
-	name = fmt.Sprintf("%s_%d", name, len(t.Name())) // distinct for long, similar names
+	name = fmt.Sprintf("%s_%d", name, pgSeq.Add(1))
 	_, err = admin.Exec(`DROP DATABASE IF EXISTS "` + name + `" WITH (FORCE)`)
 	require.NoError(t, err)
 	_, err = admin.Exec(`CREATE DATABASE "` + name + `"`)
