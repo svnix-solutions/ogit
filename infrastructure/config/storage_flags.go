@@ -84,5 +84,34 @@ func StorageFlags(cfg *Config) []cli.Flag {
 				altsrcyaml.YAML("storage.s3.region", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
 			),
 		},
+		&cli.StringFlag{
+			Name:        "storage.s3.cache.type",
+			Usage:       "Cache for S3 pack blocks and indexes: memory, redis (shared by servers) or none",
+			Value:       "memory",
+			Destination: &cfg.Storage.S3.Cache.Type,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("STORAGE_S3_CACHE_TYPE"),
+				altsrcyaml.YAML("storage.s3.cache.type", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+		&cli.IntFlag{
+			Name:        "storage.s3.cache.max_mb",
+			Usage:       "Memory cache size in MiB",
+			Value:       256,
+			Destination: &cfg.Storage.S3.Cache.MaxMB,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("STORAGE_S3_CACHE_MAX_MB"),
+				altsrcyaml.YAML("storage.s3.cache.max_mb", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+		&cli.StringFlag{
+			Name:        "storage.s3.cache.redis_url",
+			Usage:       "Redis (or Valkey) URL for the redis cache, e.g. redis://localhost:6379/0; set maxmemory with an allkeys-lru policy",
+			Destination: &cfg.Storage.S3.Cache.RedisURL,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("STORAGE_S3_CACHE_REDIS_URL"),
+				altsrcyaml.YAML("storage.s3.cache.redis_url", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
 	}
 }

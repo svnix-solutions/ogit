@@ -209,6 +209,7 @@ override environment variables, and environment variables override the file.
 | `storage.type` | `STORAGE_TYPE` | `local` (or `s3`) |
 | `storage.local.path` | `STORAGE_LOCAL_PATH` | `./repositories` |
 | `storage.s3.bucket`, `.endpoint`, `.accesskey`, `.secretkey`, `.region` | `STORAGE_S3_*` | region `us-east-1` |
+| `storage.s3.cache.type` / `.max_mb` / `.redis_url` | `STORAGE_S3_CACHE_*` | `memory` / `256` / none; see [S3 storage](#s3-storage) |
 
 `./ogit server --help` lists every flag.
 
@@ -225,6 +226,38 @@ The server refuses to start unless `smtp.host`, `smtp.from` and
 - If the email can't be sent at registration, the account is still created and the user can resend later.
 - `registration.verification_url_template` changes the link, e.g. to point at a web UI that calls `POST /api/v1/auth/verify {"token": "…"}`.
 
+### S3 storage
+
+Repositories on S3 are stored as git packs (`objects/pack/pack-<sha>.pack` and
+`.idx`), one per push, read with ranged requests. Several servers can share
+one bucket: ref updates use conditional writes (`If-Match` /
+`If-None-Match`), so concurrent pushes to the same branch can't overwrite
+each other, and each request lists the packs again, so it sees the latest
+push.
+
+Packs never change once written, so their indexes and 4 MiB blocks are
+cached by `storage.s3.cache.type`:
+
+- `memory` (default): an LRU in each server, limited to `max_mb`.
+- `redis`: one cache shared by every server (`redis_url`). If Redis is down, requests go to S3 and Redis is retried after 30 seconds.
+- `none`: every read goes to S3.
+
+On a 300-commit repository, the number of S3 requests went from 1810 to 12
+for a push, from 1513 to 12 for a clone and from 1256 to 14 for a one-commit
+fetch.
+
+Repositories created before packs (one S3 object per git object) still
+work, but stay slow until they are converted:
+
+```bash
+./ogit storage repack -c config.yaml --repository <slug>   # or --all
+```
+
+The command writes one pack, checks that every object is in it, then deletes
+the loose objects. The server can keep running, but a clone or fetch of that
+repository that is in progress when the loose objects are deleted can fail
+and must be retried, so run it when the repository is quiet.
+
 ## Not implemented yet
 
 - SSH key management
@@ -236,12 +269,13 @@ The server refuses to start unless `smtp.host`, `smtp.from` and
 go test -race ./...                            # unit and end-to-end tests (fake S3, no Docker)
 go test -race -tags=integration -run MinIO ./...  # same suites against MinIO (needs Docker)
 go test -race -tags=integration -run Mailpit ./...  # real SMTP delivery through Mailpit (needs Docker)
+go test -race -tags=integration -run Redis ./...    # shared Redis cache (needs Docker)
 OGIT_TEST_DB=postgres go test -race -tags=integration ./interfaces/cli/server/  # end-to-end suite on PostgreSQL (needs Docker)
 air                                            # live reload, see .air.toml and start.sh
 ```
 
 Pull requests into `main` and `refactor` run gofmt, `go vet`, the tests and
-the MinIO, Mailpit and PostgreSQL integration tests in CI.
+the MinIO, Mailpit, Redis and PostgreSQL integration tests in CI.
 
 ## License
 

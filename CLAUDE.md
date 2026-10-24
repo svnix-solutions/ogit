@@ -18,6 +18,7 @@ go test -race ./...                            # everything, including end-to-en
 go test -race -tags=integration -run MinIO ./...   # MinIO variants via testcontainers (Docker must be running)
 OGIT_TEST_DB=postgres go test -race -tags=integration ./interfaces/cli/server/   # whole e2e suite on Postgres
 go test -race -tags=integration -run Mailpit ./...   # real SMTP via a Mailpit container
+go test -race -tags=integration -run Redis ./...     # Redis cache, incl. two servers sharing it
 go test -run 'TestGitHTTPAuthorization/s3_fake/non_member' ./interfaces/cli/server/   # single subtest
 ```
 
@@ -26,7 +27,7 @@ There is no Makefile. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refa
 ## Layout
 
 ```
-cmd/cmd.go                         urfave/cli root: `server` and `migration` subcommands
+cmd/cmd.go                         urfave/cli root: `server`, `migration`, `admin` and `storage repack` subcommands
 interfaces/cli/server/server.go    runServer = setupDeps + cron jobs + routes + Listen
                                    setupDeps wires everything; tests call it directly
 interfaces/http/                   SetupRoutes: /api/health, git routes, /api/v1 (fiber-oapi)
@@ -70,7 +71,12 @@ Startup rules: `session.secret_key` must be ≥ 32 bytes, or empty (a random per
 Repositories are addressed by slug (`slug.Make(name)`, which also prevents path traversal). Git URLs are `/<slug>.git`, and the `/:repo` routes match one path segment only (no nested repos). **Storage is keyed by `repository.storage_key`, not the slug**: the id for new repositories, the original slug for those created before renames existed. Never pass a slug to `storage.Config`. `AuthorizeGit` / `AuthorizeSSH` return the resolved repository, and the HTTP git handlers read its storage key from `ctx.Locals(storageKeyLocal)`. Renames keep the old slug as a `repository_redirect` (resolved inside `RepositoryApp.GetRepository`, so it works for the API, HTTP and SSH); a repository created with that slug, or renamed back, takes it over.
 
 - **local**: `<path>/<storage_key>.git`, created by committing a README in a temp repo and cloning it bare, on `main`.
-- **s3**: keys `repositories/<storage_key>.git/{config,HEAD,refs/...,objects/xx/...}`. The repo exists if `HEAD` exists. `S3Storer` is a hand-written go-git `storer.Storer` storing every object loose (no packfiles), so it is slow on big repos. The client uses path-style addressing and `WHEN_REQUIRED` checksums for non-AWS S3.
+- **s3**: keys `repositories/<storage_key>.git/{config,HEAD,refs/...,objects/pack/pack-<sha>.{pack,idx}}`. The repo exists if `HEAD` exists. The client uses path-style addressing and `WHEN_REQUIRED` checksums for non-AWS S3. `S3Storer` is a hand-written go-git `storer.Storer`:
+  - **Objects** (`s3/packs.go`): `PackfileWriter` stages a pushed pack in a temp file, indexes it, uploads the `.pack` and then the `.idx` (an index means a complete pack). `state()` lists the packs once per storer, i.e. once per request, so servers sharing a bucket see each other's pushes. Packs are read by ranged GETs of 4 MiB blocks (`s3/blockfile.go`). New repositories are packed too (`createInitialCommit`).
+  - **Loose objects** (`objects/xx/...`, the layout before packs) are still read, but only if the listing found some (`hasLoose`). `S3Storage.Repack` / `ogit storage repack` (`interfaces/cli/storage`) packs them, checks every hash is in the new pack, and only then deletes them (a request that listed before the new pack existed can then miss an object).
+  - **Cache** (`infrastructure/storage/cache`, `storage.s3.cache.*`): `memory` LRU (default, 256 MiB), `redis` (shared; 250ms timeouts, no retries, skipped for 30s after an error so an outage costs nothing) or `none`. Keys are `bucket/key#block`. That is safe only because packs are immutable; never cache refs or HEAD.
+  - **Refs are compare-and-swap**: `CheckAndSetReference` uses `If-Match` on the ETag, `CreateReference` uses `If-None-Match: *`. `GuardedReceivePack` (`helpers/git/receive_pack.go`) makes go-git's receive-pack pass the client's old value to them, which it otherwise ignores. MinIO (and gofakes3) ignore `If-Match` on DELETE, so `RemoveReferenceIf` compares first and a concurrent delete race remains there.
+  - `TestS3RequestBudget` fails if a push, clone or fetch of a 300-commit repo needs more than 25 requests (counted by `s3test.StartCountingFake`).
 
 ## Gotchas
 
@@ -92,7 +98,7 @@ Repositories are addressed by slug (`slug.Make(name)`, which also prevents path 
 - `testGitHTTPAuthorization` runs on local storage, fake S3 and MinIO (integration tag). New git behaviour should go in there so it is checked on every backend.
 - S3 test endpoints come from `infrastructure/storage/s3/s3test`: `StartFake` (gofakes3), `StartMinIO` (`//go:build integration`), `Configure(cfg, ep)`, `NewStorage`. Tests in package `s3` must use package `s3_test` (`s3test` imports `s3`).
 - MinIO image: `cgr.dev/chainguard/minio` pinned by digest, because `minio/minio` is no longer pullable from Docker Hub or quay.io.
-- Pinned test deps: gofakes3 v1.0.0, testcontainers-go v0.40.0, grpc-gateway/v2 v2.16.0. Newer ones (or `go mod tidy` resolving @latest) can raise the `go` directive and upgrade the AWS SDK. Check `go.mod` after any `go get`/`tidy`.
+- Pinned test deps: gofakes3 v1.0.0, testcontainers-go v0.40.0 (and its redis module), grpc-gateway/v2 v2.16.0, go-redis v9.22.0 (v9.23 needs Go 1.26). Newer ones (or `go mod tidy` resolving @latest) can raise the `go` directive and upgrade the AWS SDK. Check `go.mod` after any `go get`/`tidy`.
 - For security fixes, check that reverting the fix makes the test fail on an assertion, not on `log.Fatal` or a build error.
 
 ## Docker

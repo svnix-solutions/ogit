@@ -35,8 +35,9 @@ func serveUploadPack(ctx context.Context, srv transport.Transport, ep *transport
 }
 
 // serveReceivePack runs git-receive-pack (push) over one SSH channel.
-func serveReceivePack(ctx context.Context, srv transport.Transport, ep *transport.Endpoint, in *bufio.Reader, out io.Writer) error {
-	sess, err := srv.NewReceivePackSession(ep, nil)
+func serveReceivePack(ctx context.Context, ep *transport.Endpoint, objects storer.Storer, in *bufio.Reader, out io.Writer) error {
+	// Ref updates are checked against the old values in the request.
+	sess, expect, err := helpergit.GuardedReceivePack(objects, ep)
 	if err != nil {
 		return err
 	}
@@ -67,6 +68,7 @@ func serveReceivePack(ctx context.Context, srv transport.Transport, ep *transpor
 	if onlyDeletes(req) {
 		req.Packfile = nil
 	}
+	expect(req)
 	report, err := sess.ReceivePack(ctx, req)
 	if report != nil {
 		if encErr := report.Encode(out); encErr != nil && err == nil {
