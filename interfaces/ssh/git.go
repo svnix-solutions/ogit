@@ -6,12 +6,14 @@ import (
 	"io"
 
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	helpergit "github.com/labbs/ogit/infrastructure/helpers/git"
 )
 
 // serveUploadPack runs git-upload-pack (clone/fetch) over one SSH channel:
-// advertise refs, read the client's request, send the pack.
-func serveUploadPack(ctx context.Context, srv transport.Transport, ep *transport.Endpoint, in *bufio.Reader, out io.Writer) error {
+// advertise refs, negotiate, send the pack.
+func serveUploadPack(ctx context.Context, srv transport.Transport, ep *transport.Endpoint, objects storer.EncodedObjectStorer, in *bufio.Reader, out io.Writer) error {
 	sess, err := srv.NewUploadPackSession(ep, nil)
 	if err != nil {
 		return err
@@ -29,17 +31,7 @@ func serveUploadPack(ctx context.Context, srv transport.Transport, ep *transport
 	if done, err := isFlush(in); err != nil || done {
 		return err // nothing wanted (already up to date)
 	}
-
-	req := packp.NewUploadPackRequest()
-	if err := req.Decode(in); err != nil {
-		return err
-	}
-	resp, err := sess.UploadPack(ctx, req)
-	if err != nil {
-		return err
-	}
-	defer resp.Close()
-	return resp.Encode(out)
+	return helpergit.ServeUploadPack(ctx, sess, objects, in, out, false)
 }
 
 // serveReceivePack runs git-receive-pack (push) over one SSH channel.
@@ -52,6 +44,9 @@ func serveReceivePack(ctx context.Context, srv transport.Transport, ep *transpor
 
 	adv, err := sess.AdvertisedReferences()
 	if err != nil {
+		return err
+	}
+	if err := helpergit.AdvertiseNoThin(adv); err != nil {
 		return err
 	}
 	if err := adv.Encode(out); err != nil {

@@ -177,11 +177,17 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 		return 1
 	}
 
+	objects, err := s.Storage.GetStorer(repo.StorageKey)
+	if err != nil {
+		fmt.Fprintf(ch.Stderr(), "fatal: repository %q not found\n", slug)
+		return 1
+	}
+
 	ctx := context.Background()
 	in := bufio.NewReader(ch)
 	switch service {
 	case "git-upload-pack":
-		err = serveUploadPack(ctx, srv, ep, in, ch)
+		err = serveUploadPack(ctx, srv, ep, objects, in, ch)
 	case "git-receive-pack":
 		err = serveReceivePack(ctx, srv, ep, in, ch)
 	}

@@ -41,6 +41,9 @@ func (ctrl *Controller) InfoRefs(ctx *fiber.Ctx) error {
 		if err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
+		if err := helpergit.AdvertiseUploadPackHTTP(adv); err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
 		if err := helpergit.WriteServiceAdvertisement(ctx.Response().BodyWriter(), service); err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
@@ -55,6 +58,9 @@ func (ctrl *Controller) InfoRefs(ctx *fiber.Ctx) error {
 		}
 		adv, err := sess.AdvertisedReferences()
 		if err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
+		if err := helpergit.AdvertiseNoThin(adv); err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
 		if err := helpergit.WriteServiceAdvertisement(ctx.Response().BodyWriter(), service); err != nil {
@@ -88,25 +94,14 @@ func (ctrl *Controller) HandleUploadPack(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
 
-	// Decode the upload pack request from the client
-	req := packp.NewUploadPackRequest()
-	if err := req.Decode(bytes.NewReader(c.Body())); err != nil {
-		logger.Error().Err(err).Msg("Failed to decode upload pack request")
-		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
-	}
-
-	logger.Debug().Msg("Calling UploadPack")
-	resp, err := sess.UploadPack(context.Background(), req)
+	objects, err := ctrl.StorageConfig.GetStorer(repoPath)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to execute upload pack")
-		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		return c.Status(fiber.StatusNotFound).SendString("repository not found")
 	}
-	defer resp.Close()
 
 	c.Set("Content-Type", "application/x-git-upload-pack-result")
-	logger.Debug().Msg("Encoding response")
-	if err := resp.Encode(c.Response().BodyWriter()); err != nil {
-		logger.Error().Err(err).Msg("Failed to encode upload pack response")
+	if err := helpergit.ServeUploadPack(context.Background(), sess, objects, bytes.NewReader(c.Body()), c.Response().BodyWriter(), true); err != nil {
+		logger.Error().Err(err).Msg("upload pack failed")
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
 
