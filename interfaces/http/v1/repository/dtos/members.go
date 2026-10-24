@@ -5,7 +5,9 @@ package dtos
 
 type RepositorySummary struct {
 	Id          string `json:"id"`
+	Namespace   string `json:"namespace"`
 	Slug        string `json:"slug"`
+	FullPath    string `json:"full_path"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	IsPrivate   bool   `json:"is_private"`

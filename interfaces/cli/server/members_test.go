@@ -25,10 +25,11 @@ func (s *testServer) newUser(t *testing.T, name string) user {
 	return user{name: name, session: session, git: s.createToken(t, session, name+"-git", "read:repository", "write:repository")}
 }
 
-// members returns username-or-group → {id, role} for a repository.
+// members returns username-or-group → {id, role} for a repository, given by
+// id or path ("<namespace>/<slug>").
 func (s *testServer) members(t *testing.T, repo string, as user) map[string]map[string]any {
 	t.Helper()
-	status, body := s.get(t, "/api/v1/repository/"+repo+"/members", as.session)
+	status, body := s.get(t, repoAPI(repo)+"/members", as.session)
 	require.Equal(t, http.StatusOK, status, "list members: %v", body)
 	out := map[string]map[string]any{}
 	for _, raw := range body["members"].([]any) {
@@ -55,8 +56,8 @@ func TestRepositoryMembers(t *testing.T) {
 		srv.newUser(t, "alice"), srv.newUser(t, "bob"), srv.newUser(t, "outsider")
 	srv.createRepo(t, owner.session, "Team Repo", true)
 	srv.createRepo(t, owner.session, "Open Repo", false)
-	const repo = "team-repo"
-	membersURL := "/api/v1/repository/" + repo + "/members"
+	const repo = "owner/team-repo"
+	membersURL := repoAPI(repo) + "/members"
 	add := func(as user, body map[string]any) (int, map[string]any) {
 		return srv.request(t, http.MethodPost, membersURL, as.session, body)
 	}
@@ -79,7 +80,7 @@ func TestRepositoryMembers(t *testing.T) {
 	t.Run("member_list_visibility", func(t *testing.T) {
 		status, _ := srv.get(t, membersURL, outsider.session)
 		assert.Equal(t, http.StatusNotFound, status, "private repo members are hidden")
-		status, _ = srv.get(t, "/api/v1/repository/open-repo/members", outsider.session)
+		status, _ = srv.get(t, repoAPI("owner/open-repo")+"/members", outsider.session)
 		assert.Equal(t, http.StatusOK, status, "public repo members are visible to readers")
 	})
 
@@ -166,7 +167,8 @@ func TestRepositoryMembers(t *testing.T) {
 		require.Equal(t, http.StatusOK, status)
 		repos := body["repositories"].([]any)
 		require.Len(t, repos, 1)
-		assert.Equal(t, repo, repos[0].(map[string]any)["slug"])
+		assert.Equal(t, "team-repo", repos[0].(map[string]any)["slug"])
+		assert.Equal(t, repo, repos[0].(map[string]any)["full_path"])
 
 		status, body = srv.get(t, "/api/v1/repository", outsider.session)
 		require.Equal(t, http.StatusOK, status)
@@ -239,8 +241,8 @@ func TestGroups(t *testing.T) {
 
 	t.Run("group_access_to_repositories", func(t *testing.T) {
 		srv.createRepo(t, owner.session, "Group Repo", true)
-		membersURL := "/api/v1/repository/group-repo/members"
-		repoURL := srv.url + "/group-repo.git"
+		membersURL := repoAPI("owner/group-repo") + "/members"
+		repoURL := srv.url + "/owner/group-repo.git"
 
 		_, err := clone(t, repoURL, alice.git)
 		require.ErrorIs(t, err, transport.ErrRepositoryNotFound, "no access before the group is added")
@@ -260,12 +262,12 @@ func TestGroups(t *testing.T) {
 		require.Equal(t, http.StatusOK, status)
 		assert.Len(t, body["repositories"], 1, "repos via groups are listed")
 
-		groupID := srv.memberID(t, "group-repo", owner, "group:team")
+		groupID := srv.memberID(t, "owner/group-repo", owner, "group:team")
 		status, _ = srv.request(t, http.MethodPatch, membersURL+"/"+groupID, owner.session, map[string]any{"role": "owner"})
 		assert.Equal(t, http.StatusBadRequest, status, "cannot promote a group to owner")
 
 		srv.createRepo(t, outsider.session, "Outsider Repo", true)
-		status, _ = srv.request(t, http.MethodPost, "/api/v1/repository/outsider-repo/members", outsider.session, map[string]any{"group": "team", "role": "reporter"})
+		status, _ = srv.request(t, http.MethodPost, repoAPI("outsider/outsider-repo")+"/members", outsider.session, map[string]any{"group": "team", "role": "reporter"})
 		assert.Equal(t, http.StatusNotFound, status, "only groups you belong to can be added")
 
 		status, _ = srv.request(t, http.MethodDelete, groupURL+"/members/alice", gm.session, nil)
@@ -308,7 +310,7 @@ func TestGroups(t *testing.T) {
 		require.Equal(t, http.StatusOK, status)
 		status, _ = srv.get(t, groupURL, gm.session)
 		assert.Equal(t, http.StatusNotFound, status)
-		_, ok := srv.members(t, "group-repo", owner)["group:team"]
+		_, ok := srv.members(t, "owner/group-repo", owner)["group:team"]
 		assert.False(t, ok, "deleting a group removes its repository access")
 	})
 }
@@ -323,10 +325,11 @@ func TestLastOwnerConcurrentDemotion(t *testing.T) {
 	for i := 0; i < 15; i++ {
 		name := fmt.Sprintf("race-%d", i)
 		srv.createRepo(t, a.session, name, true)
-		membersURL := "/api/v1/repository/" + name + "/members"
+		path := "a/" + name
+		membersURL := repoAPI(path) + "/members"
 		status, _ := srv.request(t, http.MethodPost, membersURL, a.session, map[string]any{"username": "b", "role": "owner"})
 		require.Equal(t, http.StatusOK, status)
-		aID, bID := srv.memberID(t, name, a, "a"), srv.memberID(t, name, a, "b")
+		aID, bID := srv.memberID(t, path, a, "a"), srv.memberID(t, path, a, "b")
 
 		var wg sync.WaitGroup
 		for _, d := range []struct {
@@ -342,7 +345,7 @@ func TestLastOwnerConcurrentDemotion(t *testing.T) {
 		wg.Wait()
 
 		owners := 0
-		for _, m := range srv.members(t, name, a) {
+		for _, m := range srv.members(t, path, a) {
 			if m["role"] == "owner" {
 				owners++
 			}

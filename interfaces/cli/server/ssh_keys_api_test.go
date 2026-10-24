@@ -83,10 +83,10 @@ func TestDeployKeyAPI(t *testing.T) {
 	owner, maint, dev, outsider := srv.newUser(t, "owner"), srv.newUser(t, "maint"), srv.newUser(t, "dev"), srv.newUser(t, "outsider")
 	srv.createRepo(t, owner.session, "App", true)
 	for name, role := range map[string]string{"maint": "maintainer", "dev": "developer"} {
-		status, _ := srv.request(t, http.MethodPost, "/api/v1/repository/app/members", owner.session, map[string]any{"username": name, "role": role})
+		status, _ := srv.request(t, http.MethodPost, repoAPI("owner/app")+"/members", owner.session, map[string]any{"username": name, "role": role})
 		require.Equal(t, http.StatusOK, status)
 	}
-	url := "/api/v1/repository/app/deploy-keys"
+	url := repoAPI("owner/app") + "/deploy-keys"
 
 	status, body := srv.post(t, url, maint.session, map[string]any{"key": newSSHKey(t, "ci").authorized, "read_only": false})
 	require.Equal(t, http.StatusOK, status, "maintainers add deploy keys: %v", body)

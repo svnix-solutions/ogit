@@ -44,7 +44,9 @@ type UserRequest struct {
 
 type RepositoryResponse struct {
 	Id        string    `json:"id"`
+	Namespace string    `json:"namespace"`
 	Slug      string    `json:"slug"`
+	FullPath  string    `json:"full_path"`
 	Name      string    `json:"name"`
 	IsPrivate bool      `json:"is_private"`
 	CreatedAt time.Time `json:"created_at"`
@@ -89,4 +91,9 @@ type GroupResponse struct {
 
 type MessageResponse struct {
 	Message string `json:"message"`
+}
+
+type TransferRepositoryRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	Namespace  string `json:"namespace" validate:"required"`
 }

@@ -24,6 +24,20 @@ func (r *repositoryPers) GetRepository(repo domain.Repository) (*domain.Reposito
 	return &doc, nil
 }
 
+func (r *repositoryPers) GetByPath(namespace, slug string) (*domain.Repository, error) {
+	var doc domain.Repository
+	if err := r.db.Where("namespace = ? AND slug = ?", namespace, slug).First(&doc).Error; err != nil {
+		return nil, err
+	}
+	return &doc, nil
+}
+
+func (r *repositoryPers) InNamespace(ownerType domain.OwnerType, ownerId string) ([]domain.Repository, error) {
+	var repos []domain.Repository
+	err := r.db.Where("owner_type = ? AND owner_id = ?", ownerType, ownerId).Order("namespace, slug").Find(&repos).Error
+	return repos, err
+}
+
 func (r *repositoryPers) Create(repo *domain.Repository) error {
 	return r.db.Create(repo).Error
 }
@@ -54,7 +68,7 @@ func (r *repositoryPers) List(limit, offset int) ([]domain.Repository, int64, er
 		return nil, 0, err
 	}
 	var repos []domain.Repository
-	err := r.db.Order("slug").Limit(limit).Offset(offset).Find(&repos).Error
+	err := r.db.Order("namespace, slug").Limit(limit).Offset(offset).Find(&repos).Error
 	return repos, total, err
 }
 
@@ -64,24 +78,37 @@ func (r *repositoryPers) SoleOwnedBy(userId string) ([]domain.Repository, error)
 	otherOwners := r.db.Model(&domain.RepositoryMember{}).Select("repository_id").
 		Where("access_type = ? AND (user_id IS NULL OR user_id <> ?)", domain.AccessTypeOwner, userId)
 	var repos []domain.Repository
-	err := r.db.Where("id IN (?) AND id NOT IN (?)", owned, otherOwners).Order("slug").Find(&repos).Error
+	err := r.db.Where("id IN (?) AND id NOT IN (?)", owned, otherOwners).Order("namespace, slug").Find(&repos).Error
 	return repos, err
 }
 
-func (r *repositoryPers) Rename(id, name, newSlug, oldSlug string) error {
+func (r *repositoryPers) Rename(id, namespace, name, newSlug, oldSlug string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&domain.Repository{}).Where("id = ?", id).Updates(map[string]any{"name": name, "slug": newSlug}).Error; err != nil {
 			return err
 		}
-		// The new slug belongs to this repository now, including if it was
-		// one of its own former slugs.
-		if err := tx.Where("slug = ?", newSlug).Delete(&domain.RepositoryRedirect{}).Error; err != nil {
+		// The new path belongs to this repository now, including if it was
+		// one of its own former paths.
+		if err := tx.Where("namespace = ? AND slug = ?", namespace, newSlug).Delete(&domain.RepositoryRedirect{}).Error; err != nil {
 			return err
 		}
 		if oldSlug == newSlug {
 			return nil
 		}
-		return tx.Create(&domain.RepositoryRedirect{Slug: oldSlug, RepositoryId: id}).Error
+		return tx.Create(&domain.RepositoryRedirect{Namespace: namespace, Slug: oldSlug, RepositoryId: id}).Error
+	})
+}
+
+func (r *repositoryPers) Move(id, oldNamespace, slug string, to domain.Namespace) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&domain.Repository{}).Where("id = ?", id).
+			Updates(map[string]any{"namespace": to.Path, "owner_type": to.Type, "owner_id": to.Id}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("namespace = ? AND slug = ?", to.Path, slug).Delete(&domain.RepositoryRedirect{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&domain.RepositoryRedirect{Namespace: oldNamespace, Slug: slug, RepositoryId: id}).Error
 	})
 }
 
@@ -89,13 +116,13 @@ func (r *repositoryPers) Update(id string, fields map[string]any) error {
 	return r.db.Model(&domain.Repository{}).Where("id = ?", id).Updates(fields).Error
 }
 
-func (r *repositoryPers) DropRedirect(slug string) error {
-	return r.db.Where("slug = ?", slug).Delete(&domain.RepositoryRedirect{}).Error
+func (r *repositoryPers) DropRedirect(namespace, slug string) error {
+	return r.db.Where("namespace = ? AND slug = ?", namespace, slug).Delete(&domain.RepositoryRedirect{}).Error
 }
 
-func (r *repositoryPers) ResolveRedirect(slug string) (*domain.Repository, error) {
+func (r *repositoryPers) ResolveRedirect(namespace, slug string) (*domain.Repository, error) {
 	var redirect domain.RepositoryRedirect
-	if err := r.db.Where("slug = ?", slug).First(&redirect).Error; err != nil {
+	if err := r.db.Where("namespace = ? AND slug = ?", namespace, slug).First(&redirect).Error; err != nil {
 		return nil, err
 	}
 	var repo domain.Repository
@@ -114,7 +141,7 @@ func (r *repositoryPers) ListPublic(query string, limit, offset int) ([]domain.R
 		return nil, 0, err
 	}
 	var repos []domain.Repository
-	err := q.Order("slug").Limit(limit).Offset(offset).Find(&repos).Error
+	err := q.Order("namespace, slug").Limit(limit).Offset(offset).Find(&repos).Error
 	return repos, total, err
 }
 

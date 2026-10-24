@@ -7,7 +7,8 @@ import (
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/infrastructure/helpers/mapper"
-	"github.com/labbs/ogit/infrastructure/helpers/validator"
+	"github.com/labbs/ogit/interfaces/http/v1/apierror"
+	"github.com/labbs/ogit/interfaces/http/v1/repoid"
 	"github.com/labbs/ogit/interfaces/http/v1/repository/dtos"
 )
 
@@ -15,14 +16,7 @@ func (ctrl *Controller) GetRepository(ctx *fiber.Ctx, req dtos.GetRepositoryRequ
 	requestId := ctx.Locals("requestid").(string)
 	logger := ctrl.Logger.With().Str("request_id", requestId).Str("component", "http.api.v1.repository.get").Logger()
 
-	var id *string
-	var slug *string
-
-	if validator.IsValidUUID(req.Identifier) {
-		id = &req.Identifier
-	} else {
-		slug = &req.Identifier
-	}
+	id, path := repoid.Split(req.Identifier)
 
 	authCtx, err := fiberoapi.GetAuthContext(ctx)
 	if err != nil {
@@ -33,7 +27,7 @@ func (ctrl *Controller) GetRepository(ctx *fiber.Ctx, req dtos.GetRepositoryRequ
 		}
 	}
 
-	repo, err := ctrl.RepositoryApp.GetRepositoryForUser(id, slug, authCtx.UserID)
+	repo, err := ctrl.RepositoryApp.GetRepositoryForUser(id, path, authCtx.UserID)
 	if errors.Is(err, application.ErrRepositoryNotFound) {
 		return nil, &fiberoapi.ErrorResponse{
 			Code:    fiber.StatusNotFound,
@@ -51,6 +45,7 @@ func (ctrl *Controller) GetRepository(ctx *fiber.Ctx, req dtos.GetRepositoryRequ
 
 	var response dtos.GetRepositoryResponse
 	mapper.MapStructByFieldNames(repo, &response)
+	response.FullPath = repo.FullPath()
 
 	return &response, nil
 }
@@ -75,18 +70,14 @@ func (ctrl *Controller) CreateRepository(ctx *fiber.Ctx, req dtos.CreateReposito
 		isPrivate = *req.IsPrivate
 	}
 
-	repo, err := ctrl.RepositoryApp.Create(req.Name, req.Description, authCtx.UserID, isPrivate)
+	repo, err := ctrl.RepositoryApp.Create(req.Namespace, req.Name, req.Description, authCtx.UserID, isPrivate)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to create repository")
-		return nil, &fiberoapi.ErrorResponse{
-			Code:    fiber.StatusInternalServerError,
-			Details: err.Error(),
-			Type:    "CREATE_REPOSITORY_ERROR",
-		}
+		return nil, apierror.From(err, logger)
 	}
 
 	var response dtos.CreateRepositoryResponse
 	mapper.MapStructByFieldNames(repo, &response)
+	response.FullPath = repo.FullPath()
 
 	return &response, nil
 }

@@ -29,9 +29,13 @@ import (
 
 const handshakeTimeout = 15 * time.Second
 
-// slugPattern matches repository slugs (gosimple/slug output); anything else
-// in a command, including path traversal, is rejected.
-var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+// pathPattern matches <namespace>/<slug>: a username or group name (see
+// domain.ValidNamespaceName) and a gosimple/slug slug. Anything else in a
+// command, including path traversal, is rejected.
+var pathPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9-]*$`)
+
+// flatPattern is a repository path from before namespaces (one segment).
+var flatPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 type Server struct {
 	Logger  zerolog.Logger
@@ -148,7 +152,11 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 
 	service, slug, ok := parseCommand(command)
 	if !ok {
-		fmt.Fprintln(ch.Stderr(), "oGit only serves git-upload-pack and git-receive-pack")
+		fmt.Fprintln(ch.Stderr(), "oGit only serves git-upload-pack and git-receive-pack on <owner>/<name>.git")
+		return 1
+	}
+	if flatPattern.MatchString(slug) {
+		fmt.Fprintf(ch.Stderr(), "fatal: repository %q not found: repositories are addressed as <owner>/<name>.git\n", slug)
 		return 1
 	}
 
@@ -198,9 +206,11 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 	return 0
 }
 
-// parseCommand accepts "git-upload-pack 'repo.git'" (also "git upload-pack",
-// "/repo.git", "~/repo.git" or without .git) and returns the service and slug.
-func parseCommand(command string) (service, slug string, ok bool) {
+// parseCommand accepts "git-upload-pack 'owner/repo.git'" (also "git
+// upload-pack", "/owner/repo.git", "~/owner/repo.git" or without .git) and
+// returns the service and the repository path. A flat path ("repo.git") is
+// returned too, so the caller can explain the new form.
+func parseCommand(command string) (service, path string, ok bool) {
 	command = strings.TrimSpace(command)
 	for _, svc := range []string{"git-upload-pack", "git-receive-pack"} {
 		alt := strings.Replace(svc, "-", " ", 1)
@@ -216,7 +226,7 @@ func parseCommand(command string) (service, slug string, ok bool) {
 		arg = strings.Trim(strings.TrimSpace(arg), `'"`)
 		arg = strings.TrimPrefix(strings.TrimPrefix(arg, "~"), "/")
 		arg = strings.TrimSuffix(strings.TrimSuffix(arg, "/"), ".git")
-		if !slugPattern.MatchString(arg) {
+		if !pathPattern.MatchString(arg) && !flatPattern.MatchString(arg) {
 			return "", "", false
 		}
 		return svc, arg, true

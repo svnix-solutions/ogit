@@ -96,7 +96,12 @@ func (r *repositoryMemberPers) ListRepositoriesForMember(userId string, groupIds
 		members = members.Where("member_type = ? AND user_id = ?", domain.MemberTypeUser, userId)
 	}
 
+	// Plus everything in the user's namespace and their groups' namespaces.
+	q := r.db.Where("id IN (?)", members).Or("owner_type = ? AND owner_id = ?", domain.OwnerUser, userId)
+	if len(groupIds) > 0 {
+		q = q.Or("owner_type = ? AND owner_id IN ?", domain.OwnerGroup, groupIds)
+	}
 	var repos []domain.Repository
-	err := r.db.Where("id IN (?)", members).Order("name").Find(&repos).Error
+	err := q.Order("namespace, slug").Find(&repos).Error
 	return repos, err
 }

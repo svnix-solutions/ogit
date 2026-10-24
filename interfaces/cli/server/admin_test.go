@@ -2,8 +2,10 @@ package server
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,14 +104,14 @@ func TestAdminUsers(t *testing.T) {
 		status, body = srv.login(t, "alice@example.com")
 		assert.Equal(t, http.StatusForbidden, status)
 		assert.Equal(t, "ACCOUNT_DISABLED", body["type"])
-		_, err := clone(t, srv.url+"/alice-repo.git", alice.git)
+		_, err := clone(t, srv.url+"/alice/alice-repo.git", alice.git)
 		assert.ErrorIs(t, err, transport.ErrAuthenticationRequired, "git tokens stop working")
 
 		status, _ = srv.request(t, http.MethodPatch, "/api/v1/admin/users/alice", admin.session, map[string]any{"active": true})
 		require.Equal(t, http.StatusOK, status)
 		status, _ = srv.login(t, "alice@example.com")
 		assert.Equal(t, http.StatusOK, status)
-		_, err = clone(t, srv.url+"/alice-repo.git", alice.git)
+		_, err = clone(t, srv.url+"/alice/alice-repo.git", alice.git)
 		assert.NoError(t, err)
 	})
 
@@ -157,9 +159,9 @@ func TestAdminRepositoriesAndDeletion(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 
 	t.Run("no_implicit_access", func(t *testing.T) {
-		status, _ := srv.get(t, "/api/v1/repository/secret", admin.session)
+		status, _ := srv.get(t, repoAPI("alice/secret"), admin.session)
 		assert.Equal(t, http.StatusNotFound, status, "admins do not see private repos")
-		_, err := clone(t, srv.url+"/secret.git", admin.git)
+		_, err := clone(t, srv.url+"/alice/secret.git", admin.git)
 		assert.ErrorIs(t, err, transport.ErrRepositoryNotFound)
 
 		status, body := srv.get(t, "/api/v1/admin/repositories", admin.session)
@@ -171,16 +173,16 @@ func TestAdminRepositoriesAndDeletion(t *testing.T) {
 		status, body := srv.request(t, http.MethodDelete, "/api/v1/admin/users/alice", admin.session, nil)
 		assert.Equal(t, http.StatusConflict, status)
 		assert.Equal(t, "WOULD_ORPHAN", body["type"])
-		assert.Contains(t, body["details"], "repositories: secret")
+		assert.Contains(t, body["details"], "repositories: alice/secret")
 		assert.Contains(t, body["details"], "groups: alices-team")
 	})
 
 	t.Run("recover_repository_and_group", func(t *testing.T) {
-		status, body := srv.request(t, http.MethodPost, "/api/v1/admin/repositories/secret/owner", admin.session, map[string]any{"username": "bob"})
+		status, body := srv.request(t, http.MethodPost, "/api/v1/admin/repositories/"+url.PathEscape("alice/secret")+"/owner", admin.session, map[string]any{"username": "bob"})
 		require.Equal(t, http.StatusOK, status, "%v", body)
 		assert.Equal(t, "owner", body["role"])
-		assert.Equal(t, "owner", srv.members(t, "secret", bob)["bob"]["role"], "the owner shows up in the member list")
-		_, err := clone(t, srv.url+"/secret.git", bob.git)
+		assert.Equal(t, "owner", srv.members(t, "alice/secret", bob)["bob"]["role"], "the owner shows up in the member list")
+		_, err := clone(t, srv.url+"/alice/secret.git", bob.git)
 		assert.NoError(t, err)
 
 		status, body = srv.request(t, http.MethodPost, "/api/v1/admin/groups/alices-team/transfer", admin.session, map[string]any{"username": "bob"})
@@ -193,7 +195,17 @@ func TestAdminRepositoriesAndDeletion(t *testing.T) {
 	t.Run("delete_user", func(t *testing.T) {
 		aliceID := srv.userID(t, "alice")
 		status, body := srv.request(t, http.MethodDelete, "/api/v1/admin/users/alice", admin.session, nil)
+		assert.Equal(t, http.StatusConflict, status, "the repository is still in alice's namespace, even with another owner")
+		assert.Contains(t, body["details"], "repositories: alice/secret")
+
+		status, body = srv.request(t, http.MethodPost, "/api/v1/admin/repositories/"+url.PathEscape("alice/secret")+"/transfer", admin.session, map[string]any{"namespace": "bob"})
 		require.Equal(t, http.StatusOK, status, "%v", body)
+		assert.Equal(t, "bob/secret", body["full_path"])
+
+		status, body = srv.request(t, http.MethodDelete, "/api/v1/admin/users/alice", admin.session, nil)
+		require.Equal(t, http.StatusOK, status, "%v", body)
+		_, err := clone(t, srv.url+"/bob/secret.git", bob.git)
+		assert.NoError(t, err, "the repository survives under bob")
 		for _, table := range []any{&domain.Session{}, &domain.Token{}, &domain.GroupMember{}, &domain.RepositoryMember{}} {
 			assert.EqualValues(t, 0, srv.countRows(t, table, "user_id = ?", aliceID), "%T rows are removed", table)
 		}
@@ -202,26 +214,27 @@ func TestAdminRepositoriesAndDeletion(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, status)
 		status, _ = srv.get(t, "/api/v1/user/profile", alice.session)
 		assert.NotEqual(t, http.StatusOK, status, "sessions are gone")
-		_, err := clone(t, srv.url+"/secret.git", alice.git)
+		_, err = clone(t, srv.url+"/alice/secret.git", alice.git)
 		assert.ErrorIs(t, err, transport.ErrAuthenticationRequired, "tokens are gone")
-		_, ok := srv.members(t, "secret", bob)["alice"]
+		_, ok := srv.members(t, "alice/secret", bob)["alice"]
 		assert.False(t, ok, "memberships are gone")
 	})
 
 	t.Run("delete_repository", func(t *testing.T) {
-		repoDir := srv.repoDir(t, "secret")
+		adminRepo := "/api/v1/admin/repositories/" + url.PathEscape("bob/secret")
+		repoDir := srv.repoDir(t, "bob/secret")
 		require.DirExists(t, repoDir)
 
-		status, _ := srv.request(t, http.MethodDelete, "/api/v1/admin/repositories/secret", admin.session, nil)
+		status, _ := srv.request(t, http.MethodDelete, adminRepo, admin.session, nil)
 		assert.Equal(t, http.StatusBadRequest, status, "confirmation required")
-		status, _ = srv.request(t, http.MethodDelete, "/api/v1/admin/repositories/secret?confirm=other", admin.session, nil)
+		status, _ = srv.request(t, http.MethodDelete, adminRepo+"?confirm=other", admin.session, nil)
 		assert.Equal(t, http.StatusBadRequest, status)
 
-		status, body := srv.request(t, http.MethodDelete, "/api/v1/admin/repositories/secret?confirm=secret", admin.session, nil)
+		status, body := srv.request(t, http.MethodDelete, adminRepo+"?confirm=secret", admin.session, nil)
 		require.Equal(t, http.StatusOK, status, "%v", body)
-		status, _ = srv.get(t, "/api/v1/repository/secret", bob.session)
+		status, _ = srv.get(t, repoAPI("bob/secret"), bob.session)
 		assert.Equal(t, http.StatusNotFound, status)
-		_, err := clone(t, srv.url+"/secret.git", bob.git)
+		_, err := clone(t, srv.url+"/bob/secret.git", bob.git)
 		assert.ErrorIs(t, err, transport.ErrRepositoryNotFound)
 		_, statErr := os.Stat(repoDir)
 		assert.True(t, os.IsNotExist(statErr), "git data is removed")
@@ -310,11 +323,13 @@ func (s *testServer) countRows(t *testing.T, model any, where string, args ...an
 }
 
 // repoDir is where local storage keeps the repository's git data (its
-// storage key, not its slug).
-func (s *testServer) repoDir(t *testing.T, slug string) string {
+// storage key, not its path). path is "<namespace>/<slug>".
+func (s *testServer) repoDir(t *testing.T, path string) string {
 	t.Helper()
+	namespace, slug, ok := strings.Cut(path, "/")
+	require.True(t, ok, "repository path %q", path)
 	var repo domain.Repository
-	require.NoError(t, s.deps.Database.Db.Where("slug = ?", slug).First(&repo).Error)
+	require.NoError(t, s.deps.Database.Db.Where("namespace = ? AND slug = ?", namespace, slug).First(&repo).Error)
 	require.NotEmpty(t, repo.StorageKey)
 	return filepath.Join(s.deps.Config.Storage.Local.Path, repo.StorageKey+".git")
 }

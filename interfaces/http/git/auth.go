@@ -35,16 +35,16 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 		if repoPath == "" {
 			return ctx.SendStatus(fiber.StatusNotFound)
 		}
-		slug := strings.TrimSuffix(repoPath, ".git")
+		path := strings.TrimSuffix(repoPath, ".git") // <namespace>/<repo>
 
 		// Missing or malformed credentials are treated as anonymous.
 		creds := basicCredentials(ctx.Get(fiber.HeaderAuthorization))
 
-		repo, err := ctrl.AuthApp.AuthorizeGit(slug, op, creds)
+		repo, err := ctrl.AuthApp.AuthorizeGit(path, op, creds)
 		switch {
 		case err == nil:
 			// The handlers serve the repository that was authorized (also when
-			// reached through a former slug), from its storage key.
+			// reached through a former path), from its storage key.
 			ctx.Locals(storageKeyLocal, repo.StorageKey)
 			return ctx.Next()
 		case errors.Is(err, application.ErrGitArchived):
@@ -57,7 +57,7 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 		case errors.Is(err, application.ErrGitForbidden):
 			return ctx.Status(fiber.StatusForbidden).SendString(err.Error())
 		default:
-			logger.Error().Err(err).Str("repo", slug).Str("service", op).Msg("git authorization failed")
+			logger.Error().Err(err).Str("repo", path).Str("service", op).Msg("git authorization failed")
 			return ctx.Status(fiber.StatusInternalServerError).SendString("authorization failed")
 		}
 	}

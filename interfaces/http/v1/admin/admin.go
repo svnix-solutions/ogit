@@ -3,6 +3,8 @@
 package admin
 
 import (
+	"net/url"
+
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
@@ -96,7 +98,7 @@ func (ctrl *Controller) ListRepositories(ctx *fiber.Ctx, req dtos.ListRepositori
 	}
 	resp := &dtos.ListRepositoriesResponse{Repositories: make([]dtos.RepositoryResponse, 0, len(repos)), Total: total}
 	for _, r := range repos {
-		resp.Repositories = append(resp.Repositories, dtos.RepositoryResponse{Id: r.Id, Slug: r.Slug, Name: r.Name, IsPrivate: r.IsPrivate, CreatedAt: r.CreatedAt})
+		resp.Repositories = append(resp.Repositories, dtos.RepositoryResponse{Id: r.Id, Namespace: r.Namespace, Slug: r.Slug, FullPath: r.FullPath(), Name: r.Name, IsPrivate: r.IsPrivate, CreatedAt: r.CreatedAt})
 	}
 	return resp, nil
 }
@@ -106,11 +108,23 @@ func (ctrl *Controller) SetRepositoryOwner(ctx *fiber.Ctx, req dtos.SetOwnerRequ
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
-	member, err := ctrl.AdminApp.SetRepositoryOwner(auth.UserID, req.Identifier, req.Username)
+	member, err := ctrl.AdminApp.SetRepositoryOwner(auth.UserID, decoded(req.Identifier), req.Username)
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
 	return &dtos.SetOwnerResponse{MemberId: member.Id, Username: member.User.Username, Role: string(member.AccessType)}, nil
+}
+
+func (ctrl *Controller) TransferRepository(ctx *fiber.Ctx, req dtos.TransferRepositoryRequest) (*dtos.RepositoryResponse, *fiberoapi.ErrorResponse) {
+	auth, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	r, err := ctrl.AdminApp.TransferRepository(auth.UserID, decoded(req.Identifier), req.Namespace)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return &dtos.RepositoryResponse{Id: r.Id, Namespace: r.Namespace, Slug: r.Slug, FullPath: r.FullPath(), Name: r.Name, IsPrivate: r.IsPrivate, CreatedAt: r.CreatedAt}, nil
 }
 
 func (ctrl *Controller) DeleteRepository(ctx *fiber.Ctx, req dtos.DeleteRepositoryRequest) (*dtos.MessageResponse, *fiberoapi.ErrorResponse) {
@@ -118,7 +132,7 @@ func (ctrl *Controller) DeleteRepository(ctx *fiber.Ctx, req dtos.DeleteReposito
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
-	if err := ctrl.AdminApp.DeleteRepository(auth.UserID, req.Identifier, req.Confirm); err != nil {
+	if err := ctrl.AdminApp.DeleteRepository(auth.UserID, decoded(req.Identifier), req.Confirm); err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
 	return &dtos.MessageResponse{Message: "repository deleted"}, nil
@@ -152,7 +166,7 @@ func SetupAdminRouter(c Controller) {
 	})
 	fiberoapi.Delete(c.FiberOapi, "/users/:username", c.DeleteUser, fiberoapi.OpenAPIOptions{
 		Summary: "Delete user", OperationID: "admin.users.delete", Tags: tags,
-		Description: "Admins only. Refused while the user is the sole owner of a repository or owns a group (the response lists them), or is the last active admin.",
+		Description: "Admins only. Refused while the user is the sole owner of a repository, has repositories in their namespace, or owns a group (the response lists them), or is the last active admin.",
 	})
 	fiberoapi.Get(c.FiberOapi, "/repositories", c.ListRepositories, fiberoapi.OpenAPIOptions{
 		Summary: "List all repositories", OperationID: "admin.repositories.list", Tags: tags,
@@ -160,6 +174,10 @@ func SetupAdminRouter(c Controller) {
 	fiberoapi.Post(c.FiberOapi, "/repositories/:identifier/owner", c.SetRepositoryOwner, fiberoapi.OpenAPIOptions{
 		Summary: "Make a user owner of a repository", OperationID: "admin.repositories.owner", Tags: tags,
 		Description: "Admins only. Adds the user as owner, or upgrades their membership. Use it to recover repositories whose owners are gone.",
+	})
+	fiberoapi.Post(c.FiberOapi, "/repositories/:identifier/transfer", c.TransferRepository, fiberoapi.OpenAPIOptions{
+		Summary: "Move a repository to another namespace", OperationID: "admin.repositories.transfer", Tags: tags,
+		Description: "Admins only. Moves the repository to any user's or group's namespace; the old path redirects. Use it before deleting a user whose namespace holds repositories.",
 	})
 	fiberoapi.Delete(c.FiberOapi, "/repositories/:identifier", c.DeleteRepository, fiberoapi.OpenAPIOptions{
 		Summary: "Delete a repository", OperationID: "admin.repositories.delete", Tags: tags,
@@ -169,4 +187,12 @@ func SetupAdminRouter(c Controller) {
 		Summary: "Transfer group ownership", OperationID: "admin.groups.transfer", Tags: tags,
 		Description: "Admins only. Makes the user the group owner (adding them if needed); the previous owner becomes a maintainer.",
 	})
+}
+
+// decoded undoes the URL-encoding of a repository path (alice%2Fsite).
+func decoded(identifier string) string {
+	if d, err := url.PathUnescape(identifier); err == nil {
+		return d
+	}
+	return identifier
 }

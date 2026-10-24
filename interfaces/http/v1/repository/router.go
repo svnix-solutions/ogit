@@ -72,6 +72,13 @@ func SetupRepositoryRouter(controller Controller) {
 		Tags:        []string{"Repository"},
 	})
 
+	fiberoapi.Post(controller.FiberOapi, "/:identifier/transfer", controller.TransferRepository, fiberoapi.OpenAPIOptions{
+		Summary:     "Move repository to another namespace",
+		Description: "Owners only, into their own namespace or a group they maintain or own. The old path keeps working through a redirect until another repository takes it.",
+		OperationID: "repository.transfer",
+		Tags:        []string{"Repository"},
+	})
+
 	fiberoapi.Delete(controller.FiberOapi, "/:identifier", controller.DeleteRepository, fiberoapi.OpenAPIOptions{
 		Summary:     "Delete repository",
 		Description: "Owners only. Permanently deletes the repository and its git data. Requires ?confirm=<slug>.",

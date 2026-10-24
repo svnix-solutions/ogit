@@ -149,7 +149,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.SessionApp = application.NewSessionApp(deps.Config, deps.Logger, sessionPers, deps.UserApp)
 	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
-	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers)
+	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
 	deps.AdminApp = &application.AdminApp{
 		Config: deps.Config, Logger: deps.Logger, UserPers: userPers, SessionPers: sessionPers,
 		RepoPers: repoPers, RepositoryMemberPers: repositoryMemberPers, GroupPers: groupPers, Storage: deps.Storage,

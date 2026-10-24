@@ -42,7 +42,7 @@ func TestS3RequestBudget(t *testing.T) {
 			g := newGitCLI(t, key, port)
 
 			writer := t.TempDir()
-			g.mustRun(writer, "clone", "-q", g.url("big"), ".")
+			g.mustRun(writer, "clone", "-q", g.url("owner/big"), ".")
 			for i := 0; i < 300; i++ {
 				require.NoError(t, os.WriteFile(filepath.Join(writer, fmt.Sprintf("f%d.txt", i%20)), []byte(fmt.Sprintf("content %d\n", i)), 0o644))
 				g.mustRun(writer, "add", "-A")
@@ -58,12 +58,12 @@ func TestS3RequestBudget(t *testing.T) {
 			}
 			reader := t.TempDir()
 			measure("push 300 commits", func() { g.mustRun(writer, "push", "-q", "origin", "HEAD") })
-			measure("clone", func() { g.mustRun(reader, "clone", "-q", g.url("big"), ".") })
+			measure("clone", func() { g.mustRun(reader, "clone", "-q", g.url("owner/big"), ".") })
 			assert.Positive(t, counter.Get("RANGE"), "objects are read from packs with ranged GETs")
 			commitFile(t, g, writer, "x.txt", "x")
 			measure("push 1 commit", func() { g.mustRun(writer, "push", "-q", "origin", "HEAD") })
 			measure("fetch 1 commit", func() { g.mustRun(reader, "fetch", "-q", "origin") })
-			measure("clone over HTTP", func() { g.mustRun(t.TempDir(), "clone", "-q", srv.url+"/big.git", ".") })
+			measure("clone over HTTP", func() { g.mustRun(t.TempDir(), "clone", "-q", srv.url+"/owner/big.git", ".") })
 		})
 	}
 }
@@ -89,7 +89,7 @@ func TestLegacyS3RepositoryOverGit(t *testing.T) {
 	g := newGitCLI(t, key, port)
 
 	dir := t.TempDir()
-	g.mustRun(dir, "clone", "-q", g.url("old"), ".")
+	g.mustRun(dir, "clone", "-q", g.url("owner/old"), ".")
 	content, err := os.ReadFile(filepath.Join(dir, "README.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "from the old layout\n", string(content))
@@ -104,7 +104,7 @@ func TestLegacyS3RepositoryOverGit(t *testing.T) {
 
 	counter.Reset()
 	check := t.TempDir()
-	g.mustRun(check, "clone", "-q", g.url("old"), ".")
+	g.mustRun(check, "clone", "-q", g.url("owner/old"), ".")
 	assert.FileExists(t, filepath.Join(check, "new.txt"), "both the old and the pushed history survive")
 	assert.LessOrEqual(t, counter.Total(), requestBudget, "and the clone costs a handful of requests: %v", counter)
 }
@@ -128,7 +128,7 @@ func TestS3GCOverGit(t *testing.T) {
 	g := newGitCLI(t, key, port)
 
 	writer := t.TempDir()
-	g.mustRun(writer, "clone", "-q", g.url("busy"), ".")
+	g.mustRun(writer, "clone", "-q", g.url("owner/busy"), ".")
 	for i := 0; i < 40; i++ {
 		commitFile(t, g, writer, fmt.Sprintf("f%d.txt", i%5), fmt.Sprintf("push %d\n", i))
 		g.mustRun(writer, "push", "-q", "origin", "HEAD")
@@ -136,7 +136,7 @@ func TestS3GCOverGit(t *testing.T) {
 
 	clone := func() int {
 		counter.Reset()
-		g.mustRun(t.TempDir(), "clone", "-q", g.url("busy"), ".")
+		g.mustRun(t.TempDir(), "clone", "-q", g.url("owner/busy"), ".")
 		return counter.Total()
 	}
 	before := clone()
@@ -153,7 +153,7 @@ func TestS3GCOverGit(t *testing.T) {
 	// The repository keeps working: fetch, push, and a second gc deletes
 	// the replaced packs.
 	reader := t.TempDir()
-	g.mustRun(reader, "clone", "-q", g.url("busy"), ".")
+	g.mustRun(reader, "clone", "-q", g.url("owner/busy"), ".")
 	commitFile(t, g, writer, "late.txt", "after gc")
 	g.mustRun(writer, "push", "-q", "origin", "HEAD")
 	g.mustRun(reader, "pull", "-q", "origin", "main")
@@ -161,7 +161,7 @@ func TestS3GCOverGit(t *testing.T) {
 	res, err = s3store.GC(repo.StorageKey, 0)
 	require.NoError(t, err)
 	assert.Equal(t, 41, res.Deleted)
-	g.mustRun(t.TempDir(), "clone", "-q", g.url("busy"), ".")
+	g.mustRun(t.TempDir(), "clone", "-q", g.url("owner/busy"), ".")
 	assert.Equal(t, "42", strings.TrimSpace(g.mustRun(reader, "rev-list", "--count", "HEAD")), "initial commit, 40 pushes and one after gc")
 }
 
@@ -180,7 +180,7 @@ func TestS3PruneOverGit(t *testing.T) {
 	g := newGitCLI(t, key, port)
 
 	dir := t.TempDir()
-	g.mustRun(dir, "clone", "-q", g.url("forced"), ".")
+	g.mustRun(dir, "clone", "-q", g.url("owner/forced"), ".")
 	for i := 0; i < 3; i++ {
 		commitFile(t, g, dir, "f.txt", fmt.Sprintf("v%d\n", i))
 		g.mustRun(dir, "push", "-q", "origin", "HEAD")
@@ -206,9 +206,9 @@ func TestS3PruneOverGit(t *testing.T) {
 	assert.Error(t, st.HasEncodedObject(plumbing.NewHash(feature)))
 
 	check := t.TempDir()
-	g.mustRun(check, "clone", "-q", g.url("forced"), ".")
+	g.mustRun(check, "clone", "-q", g.url("owner/forced"), ".")
 	assert.Equal(t, "3", strings.TrimSpace(g.mustRun(check, "rev-list", "--count", "HEAD")), "initial commit and two pushes")
 	commitFile(t, g, check, "after.txt", "after prune")
 	g.mustRun(check, "push", "-q", "origin", "HEAD")
-	g.mustRun(t.TempDir(), "clone", "-q", g.url("forced"), ".")
+	g.mustRun(t.TempDir(), "clone", "-q", g.url("owner/forced"), ".")
 }

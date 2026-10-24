@@ -81,8 +81,9 @@ func newGitCLI(t *testing.T, key sshKey, port int) *gitCLI {
 	return &gitCLI{t: t, key: key, port: port, home: t.TempDir()}
 }
 
-func (g *gitCLI) url(slug string) string {
-	return fmt.Sprintf("ssh://git@127.0.0.1:%d/%s.git", g.port, slug)
+// url is the SSH URL of a repository path ("<namespace>/<slug>").
+func (g *gitCLI) url(path string) string {
+	return fmt.Sprintf("ssh://git@127.0.0.1:%d/%s.git", g.port, path)
 }
 
 // run executes git in dir and returns combined output and the error.
@@ -158,7 +159,7 @@ func testGitOverSSH(t *testing.T, opts ...func(*config.Config)) {
 	g := newGitCLI(t, key, port)
 	a, b := t.TempDir(), t.TempDir()
 
-	out := g.mustRun(a, "clone", g.url("over-ssh"), ".")
+	out := g.mustRun(a, "clone", g.url("owner/over-ssh"), ".")
 	assert.NotContains(t, out, "hung up")
 	assert.FileExists(t, filepath.Join(a, "README.md"))
 
@@ -167,7 +168,7 @@ func testGitOverSSH(t *testing.T, opts ...func(*config.Config)) {
 	assert.NotContains(t, out, "hung up")
 	assert.Contains(t, g.mustRun(a, "push", "origin", "HEAD"), "Everything up-to-date")
 
-	g.mustRun(b, "clone", g.url("over-ssh"), ".")
+	g.mustRun(b, "clone", g.url("owner/over-ssh"), ".")
 	commitFile(t, g, a, "f.txt", "2\n")
 	g.mustRun(a, "push", "origin", "HEAD")
 	g.mustRun(b, "pull", "--ff-only", "origin", "main")
@@ -189,7 +190,7 @@ func TestSSHAccessRules(t *testing.T) {
 	owner, reporter, outsider := srv.newUser(t, "owner"), srv.newUser(t, "reporter"), srv.newUser(t, "outsider")
 	srv.createRepo(t, owner.session, "Private Repo", true)
 	srv.createRepo(t, owner.session, "Other Repo", true)
-	status, _ := srv.request(t, http.MethodPost, "/api/v1/repository/private-repo/members", owner.session, map[string]any{"username": "reporter", "role": "reporter"})
+	status, _ := srv.request(t, http.MethodPost, repoAPI("owner/private-repo")+"/members", owner.session, map[string]any{"username": "reporter", "role": "reporter"})
 	require.Equal(t, http.StatusOK, status)
 	port := srv.startSSH(t)
 
@@ -200,11 +201,11 @@ func TestSSHAccessRules(t *testing.T) {
 		return newGitCLI(t, key, port)
 	}
 	ownerGit, reporterGit, outsiderGit := addKey(owner, "owner@x"), addKey(reporter, "reporter@x"), addKey(outsider, "outsider@x")
-	push := func(g *gitCLI, slug string) (string, error) {
+	push := func(g *gitCLI, path string) (string, error) {
 		dir := t.TempDir()
-		ownerGit.mustRun(dir, "clone", ownerGit.url(slug), ".")
+		ownerGit.mustRun(dir, "clone", ownerGit.url(path), ".")
 		commitFile(t, ownerGit, dir, "x.txt", time.Now().String())
-		return g.run(dir, "push", g.url(slug), "HEAD:main")
+		return g.run(dir, "push", g.url(path), "HEAD:main")
 	}
 
 	t.Run("greeting_instead_of_shell", func(t *testing.T) {
@@ -221,56 +222,66 @@ func TestSSHAccessRules(t *testing.T) {
 
 	t.Run("unknown_key", func(t *testing.T) {
 		g := newGitCLI(t, newSSHKey(t, "stranger"), port)
-		out, err := g.run(t.TempDir(), "ls-remote", g.url("private-repo"))
+		out, err := g.run(t.TempDir(), "ls-remote", g.url("owner/private-repo"))
 		assert.Error(t, err)
 		assert.Contains(t, out, "Permission denied (publickey)")
 	})
 
 	t.Run("roles", func(t *testing.T) {
-		_, err := reporterGit.run(t.TempDir(), "ls-remote", reporterGit.url("private-repo"))
+		_, err := reporterGit.run(t.TempDir(), "ls-remote", reporterGit.url("owner/private-repo"))
 		assert.NoError(t, err, "reporters read")
-		out, err := push(reporterGit, "private-repo")
+		out, err := push(reporterGit, "owner/private-repo")
 		assert.Error(t, err)
-		assert.Contains(t, out, "permission to private-repo denied to reporter", "reporters cannot push")
+		assert.Contains(t, out, "permission to owner/private-repo denied to reporter", "reporters cannot push")
 
-		out, err = outsiderGit.run(t.TempDir(), "ls-remote", outsiderGit.url("private-repo"))
+		out, err = outsiderGit.run(t.TempDir(), "ls-remote", outsiderGit.url("owner/private-repo"))
 		assert.Error(t, err)
-		assert.Contains(t, out, `repository "private-repo" not found`, "private repos are hidden")
-		out, _ = outsiderGit.run(t.TempDir(), "ls-remote", outsiderGit.url("missing-repo"))
-		assert.Contains(t, out, `repository "missing-repo" not found`, "same answer as a missing repo")
+		assert.Contains(t, out, `repository "owner/private-repo" not found`, "private repos are hidden")
+		out, _ = outsiderGit.run(t.TempDir(), "ls-remote", outsiderGit.url("owner/missing-repo"))
+		assert.Contains(t, out, `repository "owner/missing-repo" not found`, "same answer as a missing repo")
 
-		_, err = push(ownerGit, "private-repo")
+		_, err = push(ownerGit, "owner/private-repo")
 		assert.NoError(t, err)
 	})
 
 	t.Run("bad_commands", func(t *testing.T) {
-		for _, cmd := range []string{"git-upload-pack '../etc'", "git-upload-pack 'a/b.git'", "ls -la", "git-upload-archive 'private-repo.git'"} {
+		for _, cmd := range []string{"git-upload-pack '../etc'", "git-upload-pack 'owner/../etc.git'", "git-upload-pack '../owner/private-repo.git'", "git-upload-pack 'owner/private-repo/x.git'", "ls -la", "git-upload-archive 'owner/private-repo.git'"} {
 			out, err := ownerGit.ssh("git", cmd)
 			assert.Error(t, err, cmd)
 			assert.Contains(t, out, "oGit only serves git-upload-pack and git-receive-pack", cmd)
 		}
+
+		// Flat paths are the pre-namespace form: rejected with a hint.
+		out, err := ownerGit.ssh("git", "git-upload-pack 'private-repo.git'")
+		assert.Error(t, err)
+		assert.Contains(t, out, "<owner>/<name>", "flat paths point to the new form")
+
+		// Two segments are valid syntax now; an unknown one still fails.
+		out, err = ownerGit.ssh("git", "git-upload-pack 'a/b.git'")
+		assert.Error(t, err)
+		assert.Contains(t, out, `not found`)
 	})
 
 	t.Run("deploy_keys", func(t *testing.T) {
 		ro, rw := newSSHKey(t, "ci-read"), newSSHKey(t, "ci-write")
-		status, body := srv.post(t, "/api/v1/repository/private-repo/deploy-keys", owner.session, map[string]any{"key": ro.authorized})
+		status, body := srv.post(t, repoAPI("owner/private-repo")+"/deploy-keys", owner.session, map[string]any{"key": ro.authorized})
 		require.Equal(t, http.StatusOK, status, "%v", body)
 		assert.Equal(t, true, body["read_only"], "read-only by default")
-		status, _ = srv.post(t, "/api/v1/repository/private-repo/deploy-keys", owner.session, map[string]any{"key": rw.authorized, "read_only": false})
+		status, _ = srv.post(t, repoAPI("owner/private-repo")+"/deploy-keys", owner.session, map[string]any{"key": rw.authorized, "read_only": false})
 		require.Equal(t, http.StatusOK, status)
 
 		roGit, rwGit := newGitCLI(t, ro, port), newGitCLI(t, rw, port)
-		_, err := roGit.run(t.TempDir(), "ls-remote", roGit.url("private-repo"))
+		_, err := roGit.run(t.TempDir(), "ls-remote", roGit.url("owner/private-repo"))
 		assert.NoError(t, err)
-		out, err := push(roGit, "private-repo")
+		out, err := push(roGit, "owner/private-repo")
 		assert.Error(t, err)
 		assert.Contains(t, out, "denied to deploy key ci-read")
-		_, err = push(rwGit, "private-repo")
+		_, err = push(rwGit, "owner/private-repo")
 		assert.NoError(t, err, "read/write deploy keys push")
 
-		out, err = roGit.run(t.TempDir(), "ls-remote", roGit.url("other-repo"))
+		out, err = roGit.run(t.TempDir(), "ls-remote", roGit.url("owner/other-repo"))
 		assert.Error(t, err)
-		assert.Contains(t, out, `repository "other-repo" not found`, "deploy keys are limited to their repository")
+		assert.Contains(t, out, `repository "owner/other-repo" not found`, "deploy keys are limited to their repository")
 
 		greeting, _ := roGit.ssh("git")
 		assert.Contains(t, greeting, "Hi deploy key ci-read!")
@@ -284,7 +295,7 @@ func TestSSHAccessRules(t *testing.T) {
 
 	t.Run("disabled_user_rejected", func(t *testing.T) {
 		require.NoError(t, srv.deps.Database.Db.Model(&domain.User{}).Where("username = ?", "reporter").Update("active", false).Error)
-		out, err := reporterGit.run(t.TempDir(), "ls-remote", reporterGit.url("private-repo"))
+		out, err := reporterGit.run(t.TempDir(), "ls-remote", reporterGit.url("owner/private-repo"))
 		assert.Error(t, err)
 		assert.Contains(t, out, "Permission denied (publickey)")
 	})
@@ -295,7 +306,7 @@ func TestSSHAccessRules(t *testing.T) {
 		id := body["keys"].([]any)[0].(map[string]any)["id"].(string)
 		status, _ = srv.request(t, http.MethodDelete, "/api/v1/user/ssh-keys/"+id, owner.session, nil)
 		require.Equal(t, http.StatusOK, status)
-		out, err := ownerGit.run(t.TempDir(), "ls-remote", ownerGit.url("private-repo"))
+		out, err := ownerGit.run(t.TempDir(), "ls-remote", ownerGit.url("owner/private-repo"))
 		assert.Error(t, err)
 		assert.Contains(t, out, "Permission denied (publickey)")
 	})

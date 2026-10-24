@@ -9,8 +9,8 @@ import (
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/domain"
-	"github.com/labbs/ogit/infrastructure/helpers/validator"
 	"github.com/labbs/ogit/interfaces/http/v1/apierror"
+	"github.com/labbs/ogit/interfaces/http/v1/repoid"
 	"github.com/labbs/ogit/interfaces/http/v1/sshkey/dtos"
 	"github.com/rs/zerolog"
 )
@@ -35,13 +35,6 @@ func listResponse(keys []domain.SSHKey) *dtos.ListSSHKeysResponse {
 		resp.Keys = append(resp.Keys, keyResponse(&keys[i]))
 	}
 	return resp
-}
-
-func splitIdentifier(identifier string) (id, slug *string) {
-	if validator.IsValidUUID(identifier) {
-		return &identifier, nil
-	}
-	return nil, &identifier
 }
 
 func (ctrl *Controller) ListUserKeys(ctx *fiber.Ctx, _ struct{}) (*dtos.ListSSHKeysResponse, *fiberoapi.ErrorResponse) {
@@ -85,7 +78,7 @@ func (ctrl *Controller) ListDeployKeys(ctx *fiber.Ctx, req dtos.RepositoryReques
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
-	id, slug := splitIdentifier(req.Identifier)
+	id, slug := repoid.Split(req.Identifier)
 	keys, err := ctrl.SSHKeyApp.ListDeployKeys(id, slug, auth.UserID)
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
@@ -102,7 +95,7 @@ func (ctrl *Controller) AddDeployKey(ctx *fiber.Ctx, req dtos.AddDeployKeyReques
 	if req.ReadOnly != nil {
 		readOnly = *req.ReadOnly
 	}
-	id, slug := splitIdentifier(req.Identifier)
+	id, slug := repoid.Split(req.Identifier)
 	key, err := ctrl.SSHKeyApp.AddDeployKey(id, slug, auth.UserID, req.Name, req.Key, readOnly)
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
@@ -116,7 +109,7 @@ func (ctrl *Controller) DeleteDeployKey(ctx *fiber.Ctx, req dtos.DeleteDeployKey
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
-	id, slug := splitIdentifier(req.Identifier)
+	id, slug := repoid.Split(req.Identifier)
 	if err := ctrl.SSHKeyApp.DeleteDeployKey(id, slug, auth.UserID, req.KeyId); err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}

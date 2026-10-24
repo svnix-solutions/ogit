@@ -7,6 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
+	"github.com/labbs/ogit/domain"
 	"github.com/rs/zerolog"
 )
 
@@ -34,6 +35,9 @@ var mapping = []struct {
 	{application.ErrRegistrationRejected, fiber.StatusBadRequest, "PASSWORD_REJECTED"},
 	{application.ErrInvalidCredentials, fiber.StatusBadRequest, "INVALID_PASSWORD"},
 	{application.ErrRepositoryNameTaken, fiber.StatusConflict, "REPOSITORY_NAME_TAKEN"},
+	{application.ErrNamespaceNotFound, fiber.StatusNotFound, "NAMESPACE_NOT_FOUND"},
+	{application.ErrNamespaceNotEmpty, fiber.StatusConflict, "NAMESPACE_NOT_EMPTY"},
+	{domain.ErrInvalidNamespaceName, fiber.StatusBadRequest, "INVALID_NAMESPACE_NAME"},
 	{application.ErrInvalidName, fiber.StatusBadRequest, "INVALID_NAME"},
 	{application.ErrInvalidSSHKey, fiber.StatusBadRequest, "INVALID_SSH_KEY"},
 	{application.ErrSSHKeyInUse, fiber.StatusConflict, "SSH_KEY_IN_USE"},

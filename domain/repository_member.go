@@ -39,6 +39,6 @@ type RepositoryMemberPers interface {
 	// Delete removes a member, with the same last-owner protection.
 	Delete(member *RepositoryMember) error
 	// ListRepositoriesForMember returns the repositories where userId, or one
-	// of groupIds, is a member.
+	// of groupIds, is a member, plus those owned by userId or one of groupIds.
 	ListRepositoriesForMember(userId string, groupIds []string) ([]Repository, error)
 }

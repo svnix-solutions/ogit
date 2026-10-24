@@ -38,7 +38,7 @@ var (
 
 // OrphanError details ErrWouldOrphan.
 type OrphanError struct {
-	Repositories []string // slugs of repositories the user solely owns
+	Repositories []string // paths of repositories the user solely owns or that are in their namespace
 	Groups       []string // names of groups the user owns
 }
 
@@ -97,6 +97,13 @@ func (c *AdminApp) CreateUser(actorId, username, email, password string) (*domai
 		return nil, err
 	}
 	if err := checkPasswordPolicy(c.Config, password); err != nil {
+		return nil, err
+	}
+	switch err := checkNewNamespace(c.UserPers, c.GroupPers, username); err {
+	case nil:
+	case ErrNamespaceTaken:
+		return nil, ErrAccountTaken
+	default:
 		return nil, err
 	}
 
@@ -192,14 +199,24 @@ func (c *AdminApp) DeleteUser(actorId, username string) error {
 	if err != nil {
 		return err
 	}
+	// Repositories in the user's namespace would lose their path even if
+	// someone else also owns them.
+	inNamespace, err := c.RepoPers.InNamespace(domain.OwnerUser, user.Id)
+	if err != nil {
+		return err
+	}
 	groups, err := c.GroupPers.OwnedBy(user.Id)
 	if err != nil {
 		return err
 	}
-	if len(repos) > 0 || len(groups) > 0 {
+	if len(repos) > 0 || len(inNamespace) > 0 || len(groups) > 0 {
 		orphan := &OrphanError{}
-		for _, r := range repos {
-			orphan.Repositories = append(orphan.Repositories, r.Slug)
+		seen := map[string]bool{}
+		for _, r := range append(inNamespace, repos...) {
+			if !seen[r.Id] {
+				seen[r.Id] = true
+				orphan.Repositories = append(orphan.Repositories, r.FullPath())
+			}
 		}
 		for _, g := range groups {
 			orphan.Groups = append(orphan.Groups, g.Name)
@@ -278,7 +295,7 @@ func (c *AdminApp) DeleteRepository(actorId, identifier, confirm string) error {
 	if err := purgeRepository(c.RepoPers, c.Storage, c.Logger, repo); err != nil {
 		return err
 	}
-	c.audit(actorId, "repository.delete").Str("repository_id", repo.Id).Str("slug", repo.Slug).Send()
+	c.audit(actorId, "repository.delete").Str("repository_id", repo.Id).Str("path", repo.FullPath()).Send()
 	return nil
 }
 
@@ -346,14 +363,40 @@ func (c *AdminApp) userByUsername(username string) (*domain.User, error) {
 	return &u, nil
 }
 
-func (c *AdminApp) repository(identifier string) (*domain.Repository, error) {
-	var lookup domain.Repository
-	if validator.IsValidUUID(identifier) {
-		lookup.Id = identifier
-	} else {
-		lookup.Slug = identifier
+// TransferRepository moves a repository to another user's or group's
+// namespace, without the permission checks of RepositoryApp.Transfer.
+func (c *AdminApp) TransferRepository(actorId, identifier, namespace string) (*domain.Repository, error) {
+	if err := c.RequireAdmin(actorId); err != nil {
+		return nil, err
 	}
-	repo, err := c.RepoPers.GetRepository(lookup)
+	repo, err := c.repository(identifier)
+	if err != nil {
+		return nil, err
+	}
+	ns, err := resolveNamespace(c.UserPers, c.GroupPers, namespace)
+	if err != nil {
+		return nil, err
+	}
+	from := repo.FullPath()
+	if repo, err = moveRepository(c.RepoPers, repo, ns); err != nil {
+		return nil, err
+	}
+	c.audit(actorId, "repository.transfer").Str("repository_id", repo.Id).Str("from", from).Str("to", repo.FullPath()).Send()
+	return repo, nil
+}
+
+// repository finds a repository by id or current path (<namespace>/<slug>;
+// redirects are not followed, so an admin acts on what they named).
+func (c *AdminApp) repository(identifier string) (*domain.Repository, error) {
+	var repo *domain.Repository
+	var err error
+	if validator.IsValidUUID(identifier) {
+		repo, err = c.RepoPers.GetRepository(domain.Repository{Id: identifier})
+	} else if namespace, slug, ok := SplitPath(identifier); ok {
+		repo, err = c.RepoPers.GetByPath(namespace, slug)
+	} else {
+		return nil, ErrRepositoryNotFound
+	}
 	if isNotFound(err) {
 		return nil, ErrRepositoryNotFound
 	} else if err != nil {
