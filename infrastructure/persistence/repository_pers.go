@@ -23,7 +23,7 @@ func (r *repositoryPers) GetRepository(repo domain.Repository) (*domain.Reposito
 }
 
 func (r *repositoryPers) Create(repo *domain.Repository) error {
-	return r.db.Debug().Create(repo).Error
+	return r.db.Create(repo).Error
 }
 
 func (r *repositoryPers) Delete(repo domain.Repository) error {
