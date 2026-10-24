@@ -149,6 +149,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.SessionApp = application.NewSessionApp(deps.Config, deps.Logger, sessionPers, deps.UserApp)
 	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.BrowseApp = &application.BrowseApp{Repositories: deps.RepoApp, Storage: deps.Storage}
+	deps.PullApp = &application.PullRequestApp{Logger: deps.Logger, Repositories: deps.RepoApp, Pulls: persistence.NewPullRequestPers(deps.Database.Db), Users: userPers}
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
 	deps.AdminApp = &application.AdminApp{

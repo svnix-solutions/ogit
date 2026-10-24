@@ -91,6 +91,28 @@ slash URL-encoded: `/api/v1/repository/me%2Fmy-project`.
 
 Private repositories that the caller can't read are reported as not found.
 
+### Pull requests
+
+Developers propose merging one branch into another of the same
+repository; maintainers and owners merge them.
+
+```bash
+R=localhost:8080/api/v1/repository/me%2Fmy-project
+curl -X POST $R/pulls -H "Authorization: Bearer $SESSION" -H 'Content-Type: application/json' \
+  -d '{"title": "Add login", "source": "feature/login", "draft": false}'      # into the default branch
+curl "$R/pulls?state=open"                                                   # also merged, closed, all
+curl "$R/pulls/1"                                                            # mergeable? conflicting files
+curl -X POST $R/pulls/1/merge -H "Authorization: Bearer $SESSION" -H 'Content-Type: application/json' \
+  -d '{"method": "squash", "delete_branch": true}'                          # or merge, rebase
+```
+
+The server merges without a git binary, file by file: if both branches
+changed the same file since they diverged, the pull request shows the
+conflicting files and the author merges the target into their branch
+locally. The target branch only moves if nobody pushed to it during the
+merge. Drafts can't be merged until marked ready (`PATCH {"draft": false}`).
+Anyone who can read the repository can read its pull requests.
+
 ### Raw files and archives
 
 ```bash

@@ -75,6 +75,12 @@ func (u *userPers) CountActiveAdmins() (int64, error) {
 // foreign key cascades.
 func (u *userPers) Purge(userId string) error {
 	return u.db.Transaction(func(tx *gorm.DB) error {
+		// Their pull requests stay, shown as by a deleted user.
+		for _, column := range []string{"author_id", "merged_by_id"} {
+			if err := tx.Model(&domain.PullRequest{}).Where(column+" = ?", userId).Update(column, nil).Error; err != nil {
+				return err
+			}
+		}
 		for _, q := range []struct {
 			model any
 			where string

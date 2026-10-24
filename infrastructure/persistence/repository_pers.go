@@ -52,6 +52,7 @@ func (r *repositoryPers) Purge(id string) error {
 			{&domain.Token{}, "repository_id = ?"},
 			{&domain.SSHKey{}, "repository_id = ?"},
 			{&domain.RepositoryRedirect{}, "repository_id = ?"},
+			{&domain.PullRequest{}, "repository_id = ?"},
 			{&domain.Repository{}, "id = ?"},
 		} {
 			if err := tx.Where(q.where, id).Delete(q.model).Error; err != nil {
