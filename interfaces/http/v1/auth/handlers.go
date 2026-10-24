@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"errors"
+
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
+	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/interfaces/http/v1/auth/dtos"
 )
 
@@ -40,7 +43,21 @@ func (ctrl Controller) Register(ctx *fiber.Ctx, req dtos.RegisterRequest) (*dtos
 	logger := ctrl.Logger.With().Str("request_id", requestId).Str("component", "http.api.v1.auth.register").Logger()
 
 	err := ctrl.AuthApp.Register(req.Username, req.Email, req.Password)
-	if err != nil {
+	switch {
+	case err == nil:
+	case errors.Is(err, application.ErrRegistrationDisabled):
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusForbidden,
+			Details: err.Error(),
+			Type:    "REGISTRATION_DISABLED",
+		}
+	case errors.Is(err, application.ErrRegistrationRejected):
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusBadRequest,
+			Details: err.Error(),
+			Type:    "REGISTRATION_REJECTED",
+		}
+	default:
 		logger.Error().Err(err).Str("email", req.Email).Msg("failed to register user")
 		return nil, &fiberoapi.ErrorResponse{
 			Code:    fiber.StatusInternalServerError,

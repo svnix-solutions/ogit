@@ -180,6 +180,10 @@ func (c *AuthApp) AuthorizeGit(repoSlug, operation string, creds *GitCredentials
 func (c *AuthApp) Register(username, email, password string) error {
 	logger := c.Logger.With().Str("component", "application.auth.register").Logger()
 
+	if err := checkRegistrationPolicy(c.Config, email, password); err != nil {
+		return err
+	}
+
 	// check if the email is already in use
 	_, err := c.UserApp.GetByEmail(email)
 	if err == nil {
