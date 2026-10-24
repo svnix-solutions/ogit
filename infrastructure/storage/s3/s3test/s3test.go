@@ -145,3 +145,39 @@ func createBucket(t testing.TB, ep Endpoint) {
 	_, err := client.CreateBucket(context.Background(), &awss3.CreateBucketInput{Bucket: aws.String(Bucket)})
 	require.NoError(t, err)
 }
+
+// Keys lists the bucket's keys under prefix.
+func Keys(t testing.TB, ep Endpoint, prefix string) []string {
+	t.Helper()
+
+	client := awss3.New(awss3.Options{
+		Region:       Region,
+		BaseEndpoint: aws.String(ep.URL),
+		UsePathStyle: true,
+		Credentials:  credentials.NewStaticCredentialsProvider(ep.AccessKey, ep.SecretKey, ""),
+	})
+	var keys []string
+	pager := awss3.NewListObjectsV2Paginator(client, &awss3.ListObjectsV2Input{Bucket: aws.String(Bucket), Prefix: aws.String(prefix)})
+	for pager.HasMorePages() {
+		page, err := pager.NextPage(context.Background())
+		require.NoError(t, err)
+		for _, o := range page.Contents {
+			keys = append(keys, aws.ToString(o.Key))
+		}
+	}
+	return keys
+}
+
+// DeleteKey deletes one object from the bucket.
+func DeleteKey(t testing.TB, ep Endpoint, key string) {
+	t.Helper()
+
+	client := awss3.New(awss3.Options{
+		Region:       Region,
+		BaseEndpoint: aws.String(ep.URL),
+		UsePathStyle: true,
+		Credentials:  credentials.NewStaticCredentialsProvider(ep.AccessKey, ep.SecretKey, ""),
+	})
+	_, err := client.DeleteObject(context.Background(), &awss3.DeleteObjectInput{Bucket: aws.String(Bucket), Key: aws.String(key)})
+	require.NoError(t, err)
+}
