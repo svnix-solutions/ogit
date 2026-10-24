@@ -36,6 +36,7 @@ var mapping = []struct {
 	{application.ErrInvalidCredentials, fiber.StatusBadRequest, "INVALID_PASSWORD"},
 	{application.ErrRepositoryNameTaken, fiber.StatusConflict, "REPOSITORY_NAME_TAKEN"},
 	{application.ErrNamespaceNotFound, fiber.StatusNotFound, "NAMESPACE_NOT_FOUND"},
+	{application.ErrTokenNotFound, fiber.StatusNotFound, "TOKEN_NOT_FOUND"},
 	{application.ErrNamespaceNotEmpty, fiber.StatusConflict, "NAMESPACE_NOT_EMPTY"},
 	{domain.ErrInvalidNamespaceName, fiber.StatusBadRequest, "INVALID_NAMESPACE_NAME"},
 	{application.ErrInvalidName, fiber.StatusBadRequest, "INVALID_NAME"},

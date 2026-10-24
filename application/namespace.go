@@ -167,3 +167,61 @@ func moveRepository(pers domain.RepositoryPers, repo *domain.Repository, ns *dom
 	repo.Namespace, repo.OwnerType, repo.OwnerId = ns.Path, ns.Type, ns.Id
 	return repo, nil
 }
+
+// NamespaceView is a namespace as userId may see it.
+type NamespaceView struct {
+	domain.Namespace
+	Description  string // groups only
+	Repositories []domain.Repository
+	// CanCreate: userId may create repositories here.
+	CanCreate bool
+}
+
+// ViewNamespace returns the repositories of namespace path that userId (""
+// for anonymous) may read. A group is only reported to its members or when
+// it has a repository the caller can see, so private groups stay hidden.
+func (c *RepositoryApp) ViewNamespace(path, userId string) (*NamespaceView, error) {
+	ns, err := c.ResolveNamespace(path)
+	if err != nil {
+		return nil, err
+	}
+	view := &NamespaceView{Namespace: *ns}
+	repos, err := c.RepoPres.InNamespace(ns.Type, ns.Id)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range repos {
+		ok := !r.IsPrivate
+		if !ok && userId != "" {
+			if ok, err = c.CanUserAccess(r.Id, userId, "read"); err != nil {
+				return nil, err
+			}
+		}
+		if ok {
+			view.Repositories = append(view.Repositories, r)
+		}
+	}
+
+	member := false
+	if ns.Type == domain.OwnerGroup {
+		group, err := c.GroupPers.GetById(ns.Id)
+		if err != nil {
+			return nil, err
+		}
+		view.Description = group.Description
+		if userId != "" {
+			m, err := c.GroupPers.GetMember(ns.Id, userId)
+			if err != nil && !isNotFound(err) {
+				return nil, err
+			}
+			member = err == nil
+			view.CanCreate = member && (m.Role == domain.GroupRoleOwner || m.Role == domain.GroupRoleMaintainer)
+		}
+		if !member && len(view.Repositories) == 0 {
+			return nil, ErrNamespaceNotFound
+		}
+	} else {
+		view.CanCreate = userId != "" && ns.Id == userId
+	}
+	return view, nil
+}

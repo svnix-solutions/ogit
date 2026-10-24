@@ -31,6 +31,20 @@ func SetupUserRouter(controller Controller) {
 		Tags:        []string{"User"},
 	})
 
+	fiberoapi.Get(controller.FiberOapi, "/tokens", controller.ListTokens, fiberoapi.OpenAPIOptions{
+		Summary:     "List access tokens",
+		Description: "Your personal access tokens. The secrets are never shown again.",
+		OperationID: "user.listTokens",
+		Tags:        []string{"User"},
+	})
+
+	fiberoapi.Delete(controller.FiberOapi, "/tokens/:token_id", controller.RevokeToken, fiberoapi.OpenAPIOptions{
+		Summary:     "Revoke access token",
+		Description: "The token stops working immediately.",
+		OperationID: "user.revokeToken",
+		Tags:        []string{"User"},
+	})
+
 	fiberoapi.Post(controller.FiberOapi, "/password", controller.ChangePassword, fiberoapi.OpenAPIOptions{
 		Summary:     "Change password",
 		Description: "Requires the current password. The password policy applies. All other sessions of the user end.",
