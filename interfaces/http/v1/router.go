@@ -24,6 +24,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		Logger:    deps.Logger,
 		FiberOapi: grp.Group("/user"),
 		UserApp:   deps.UserApp,
+		TokenApp:  deps.TokenApp,
 	}
 	user.SetupUserRouter(userCtrl)
 

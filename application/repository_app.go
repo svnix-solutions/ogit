@@ -91,9 +91,12 @@ func (c *RepositoryApp) GetRepository(id, slug *string) (*domain.Repository, err
 		return nil, fmt.Errorf("either id or slug must be provided")
 	}
 
-	repo := domain.Repository{
-		Id:   *id,
-		Slug: *slug,
+	var repo domain.Repository
+	if id != nil {
+		repo.Id = *id
+	}
+	if slug != nil {
+		repo.Slug = *slug
 	}
 
 	repository, err := c.RepoPres.GetRepository(repo)

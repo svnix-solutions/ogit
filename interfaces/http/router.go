@@ -19,6 +19,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 		Logger:        deps.Logger,
 		Fiber:         deps.Http.Fiber,
 		StorageConfig: deps.Storage,
+		AuthApp:       deps.AuthApp,
 	}
 	git.SetupGitRouter(gitCtrl)
 

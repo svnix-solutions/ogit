@@ -2,6 +2,7 @@ package domain
 
 import (
 	"database/sql/driver"
+	"fmt"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -67,8 +68,16 @@ func (t TokenScopes) Value() (driver.Value, error) {
 	return string(valueString), err
 }
 
+// Scan accepts both string (sqlite TEXT) and []byte (postgres JSONB).
 func (t *TokenScopes) Scan(value any) error {
-	return json.Unmarshal([]byte(value.(string)), t)
+	switch v := value.(type) {
+	case string:
+		return json.Unmarshal([]byte(v), t)
+	case []byte:
+		return json.Unmarshal(v, t)
+	default:
+		return fmt.Errorf("unsupported type for TokenScopes: %T", value)
+	}
 }
 
 type TokenPers interface {

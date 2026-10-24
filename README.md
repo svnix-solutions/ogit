@@ -65,13 +65,25 @@ make build
 ### Git Operations
 
 **HTTP Access:**
-```bash
-# Clone via HTTP
-git clone http://localhost:8080/your-repo.git
 
-# Push to HTTP
+Anonymous users can clone public repositories. Everything else (cloning private
+repositories, pushing) needs a personal access token. Git sends the token name
+as the username and the token as the password.
+
+```bash
+# Create a token (SESSION is the JWT returned by /api/v1/auth/login).
+# Scopes: read:repository (clone/fetch), write:repository (push).
+curl -X POST http://localhost:8080/api/v1/user/token \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{"name": "laptop", "scopes": ["read:repository", "write:repository"]}'
+# The "token" field is shown only once.
+
+# Clone and push; git prompts for credentials (username: laptop, password: the token)
+git clone http://localhost:8080/your-repo.git
 git push origin main
 ```
+
+Repositories are private unless created with `"is_private": false`.
 
 **SSH Access:**
 **Not stable**

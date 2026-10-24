@@ -13,7 +13,10 @@ type Repository struct {
 	IsArchived bool `gorm:"default:false"`
 	ArchivedAt time.Time
 
-	IsPrivate bool `gorm:"default:true"`
+	// No gorm default here: with one, GORM omits false on insert and the
+	// column default (true) wins, so public repositories could not be created.
+	// Private-by-default is applied by the API when is_private is omitted.
+	IsPrivate bool
 
 	// DeployKeys DeployKeys `gorm:"foreignKey:RepositoryId"`
 	// WebHooks   WebHooks   `gorm:"foreignKey:RepositoryId"`
