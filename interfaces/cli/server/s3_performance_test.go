@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/labbs/ogit/domain"
@@ -104,4 +105,60 @@ func TestLegacyS3RepositoryOverGit(t *testing.T) {
 	g.mustRun(check, "clone", "-q", g.url("old"), ".")
 	assert.FileExists(t, filepath.Join(check, "new.txt"), "both the old and the pushed history survive")
 	assert.LessOrEqual(t, counter.Total(), requestBudget, "and the clone costs a handful of requests: %v", counter)
+}
+
+// Every push adds a pack, and every request lists and loads them all, so
+// many pushes slow a repository down until `ogit storage gc` merges them.
+func TestS3GCOverGit(t *testing.T) {
+	ep, counter := s3test.StartCountingFake(t)
+	srv := startTestServer(t, func(c *config.Config) {
+		s3test.Configure(c, ep)
+		c.Storage.S3.Cache.Type = "none" // count every index load
+	})
+	owner := srv.newUser(t, "owner")
+	srv.createRepo(t, owner.session, "Busy", false)
+	var repo domain.Repository
+	require.NoError(t, srv.deps.Database.Db.Where("slug = ?", "busy").First(&repo).Error)
+	port := srv.startSSH(t)
+	key := newSSHKey(t, "o")
+	status, _ := srv.post(t, "/api/v1/user/ssh-keys", owner.session, map[string]any{"key": key.authorized})
+	require.Equal(t, http.StatusOK, status)
+	g := newGitCLI(t, key, port)
+
+	writer := t.TempDir()
+	g.mustRun(writer, "clone", "-q", g.url("busy"), ".")
+	for i := 0; i < 40; i++ {
+		commitFile(t, g, writer, fmt.Sprintf("f%d.txt", i%5), fmt.Sprintf("push %d\n", i))
+		g.mustRun(writer, "push", "-q", "origin", "HEAD")
+	}
+
+	clone := func() int {
+		counter.Reset()
+		g.mustRun(t.TempDir(), "clone", "-q", g.url("busy"), ".")
+		return counter.Total()
+	}
+	before := clone()
+
+	s3store := srv.deps.Storage.(*s3.S3Storage)
+	res, err := s3store.GC(repo.StorageKey, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 41, res.Merged, "the initial pack and one per push")
+	after := clone()
+	t.Logf("clone: %d requests with 41 packs, %d after gc", before, after)
+	assert.Greater(t, before, 2*after)
+	assert.LessOrEqual(t, after, requestBudget)
+
+	// The repository keeps working: fetch, push, and a second gc deletes
+	// the replaced packs.
+	reader := t.TempDir()
+	g.mustRun(reader, "clone", "-q", g.url("busy"), ".")
+	commitFile(t, g, writer, "late.txt", "after gc")
+	g.mustRun(writer, "push", "-q", "origin", "HEAD")
+	g.mustRun(reader, "pull", "-q", "origin", "main")
+	assert.FileExists(t, filepath.Join(reader, "late.txt"))
+	res, err = s3store.GC(repo.StorageKey, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 41, res.Deleted)
+	g.mustRun(t.TempDir(), "clone", "-q", g.url("busy"), ".")
+	assert.Equal(t, "42", strings.TrimSpace(g.mustRun(reader, "rev-list", "--count", "HEAD")), "initial commit, 40 pushes and one after gc")
 }

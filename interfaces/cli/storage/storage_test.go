@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
@@ -51,5 +52,44 @@ func TestRepackCommand(t *testing.T) {
 	cfg.Storage.Local.Path = t.TempDir()
 	out.Reset()
 	require.NoError(t, repack(cfg, "", true, &out))
+	assert.Contains(t, out.String(), "nothing to do")
+}
+
+func TestGCCommand(t *testing.T) {
+	ep := s3test.StartFake(t)
+	var cfg config.Config
+	cfg.Logger.Level = "error"
+	cfg.Database.Dialect = "sqlite"
+	cfg.Database.DSN = filepath.Join(t.TempDir(), "ogit.sqlite")
+	s3test.Configure(&cfg, ep)
+
+	db, err := database.Configure(cfg, zerolog.Nop())
+	require.NoError(t, err)
+	require.NoError(t, migration.RunMigration(zerolog.Nop(), db.Db))
+	repo := domain.Repository{Id: "33333333-3333-4333-8333-333333333333", Name: "Busy", Slug: "busy", StorageKey: "busy-key"}
+	require.NoError(t, db.Db.Create(&repo).Error)
+	// One pack (the initial commit) plus loose objects from an old server.
+	require.NoError(t, s3test.NewStorage(t, ep).CreateRepository(repo.StorageKey))
+	s3test.CreateLegacyRepository(t, ep, repo.StorageKey, map[string]string{"README.md": "old"})
+
+	var out bytes.Buffer
+	assert.Error(t, gc(cfg, "", false, time.Hour, &out), "needs --repository or --all")
+	assert.Error(t, gc(cfg, "busy", false, -time.Second, &out))
+
+	require.NoError(t, gc(cfg, "busy", false, time.Hour, &out))
+	assert.Equal(t, "busy: packed 3 loose objects, merged 2 packs (6 objects)\n", out.String(), "uses the storage key")
+
+	out.Reset()
+	require.NoError(t, gc(cfg, "", true, 0, &out))
+	assert.Equal(t, "busy: deleted 2 replaced packs\n", out.String())
+
+	out.Reset()
+	require.NoError(t, gc(cfg, "", true, 0, &out))
+	assert.Equal(t, "busy: nothing to do\n", out.String())
+
+	cfg.Storage.Type = "local"
+	cfg.Storage.Local.Path = t.TempDir()
+	out.Reset()
+	require.NoError(t, gc(cfg, "", true, 0, &out))
 	assert.Contains(t, out.String(), "nothing to do")
 }

@@ -27,7 +27,7 @@ There is no Makefile. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refa
 ## Layout
 
 ```
-cmd/cmd.go                         urfave/cli root: `server`, `migration`, `admin` and `storage repack` subcommands
+cmd/cmd.go                         urfave/cli root: `server`, `migration`, `admin` and `storage repack|gc` subcommands
 interfaces/cli/server/server.go    runServer = setupDeps + cron jobs + routes + Listen
                                    setupDeps wires everything; tests call it directly
 interfaces/http/                   SetupRoutes: /api/health, git routes, /api/v1 (fiber-oapi)
@@ -74,6 +74,7 @@ Repositories are addressed by slug (`slug.Make(name)`, which also prevents path 
 - **s3**: keys `repositories/<storage_key>.git/{config,HEAD,refs/...,objects/pack/pack-<sha>.{pack,idx}}`. The repo exists if `HEAD` exists. The client uses path-style addressing and `WHEN_REQUIRED` checksums for non-AWS S3. `S3Storer` is a hand-written go-git `storer.Storer`:
   - **Objects** (`s3/packs.go`): `PackfileWriter` stages a pushed pack in a temp file, indexes it, uploads the `.pack` and then the `.idx` (an index means a complete pack). `state()` lists the packs once per storer, i.e. once per request, so servers sharing a bucket see each other's pushes. Packs are read by ranged GETs of 4 MiB blocks (`s3/blockfile.go`). New repositories are packed too (`createInitialCommit`).
   - **Loose objects** (`objects/xx/...`, the layout before packs) are still read, but only if the listing found some (`hasLoose`). `S3Storage.Repack` / `ogit storage repack` (`interfaces/cli/storage`) packs them, checks every hash is in the new pack, and only then deletes them (a request that listed before the new pack existed can then miss an object).
+  - **GC** (`s3/gc.go`, `ogit storage gc`, command only): merges small packs geometrically (`mergeSplit`, factor 2, like `git repack --geometric`) and never prunes. Replaced packs get `pack-<sha>.drop`, which `state()` skips; a later run deletes `.idx`, `.pack`, then `.drop` once the marker is older than `--grace`. Indexless packs are deleted only after 24h (`unindexedAge`), whatever the grace, because a push in flight has its `.pack` before its `.idx`. No lock: each run drops packs only after its merged pack is uploaded and verified (`TestConcurrentGC`).
   - **Cache** (`infrastructure/storage/cache`, `storage.s3.cache.*`): `memory` LRU (default, 256 MiB), `redis` (shared; 250ms timeouts, no retries, skipped for 30s after an error so an outage costs nothing) or `none`. Keys are `bucket/key#block`. That is safe only because packs are immutable; never cache refs or HEAD.
   - **Refs are compare-and-swap**: `CheckAndSetReference` uses `If-Match` on the ETag, `CreateReference` uses `If-None-Match: *`. `GuardedReceivePack` (`helpers/git/receive_pack.go`) makes go-git's receive-pack pass the client's old value to them, which it otherwise ignores. MinIO (and gofakes3) ignore `If-Match` on DELETE, so `RemoveReferenceIf` compares first and a concurrent delete race remains there.
   - `TestS3RequestBudget` fails if a push, clone or fetch of a 300-commit repo needs more than 25 requests (counted by `s3test.StartCountingFake`).

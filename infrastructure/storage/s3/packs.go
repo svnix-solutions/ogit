@@ -23,6 +23,10 @@ import (
 // and lets several servers share a bucket: each request lists the packs
 // again (one LIST), so it always sees the latest pushes.
 //
+// `ogit storage gc` merges small packs; the packs it replaced get a .drop
+// marker and are ignored from then on, then deleted after a grace period
+// (see gc.go).
+//
 // Repositories written before packs existed keep their objects loose
 // (<repo>/objects/xx/yyyy...); those are still read as a fallback, and
 // `ogit storage repack` converts them.
@@ -69,6 +73,7 @@ func (s *S3Storer) state() (*objectsState, error) {
 	}
 
 	sizes := map[string]int64{}
+	dropped := map[string]bool{}
 	var idxKeys []string
 	pager := awss3.NewListObjectsV2Paginator(s.client, &awss3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),
@@ -86,6 +91,8 @@ func (s *S3Storer) state() (*objectsState, error) {
 				sizes[key] = aws.ToInt64(o.Size)
 			case strings.HasSuffix(key, ".idx"):
 				idxKeys = append(idxKeys, key)
+			case strings.HasSuffix(key, dropSuffix):
+				dropped[strings.TrimSuffix(key, dropSuffix)+".pack"] = true
 			}
 		}
 	}
@@ -93,8 +100,8 @@ func (s *S3Storer) state() (*objectsState, error) {
 	for _, idxKey := range idxKeys {
 		packKey := strings.TrimSuffix(idxKey, ".idx") + ".pack"
 		size, ok := sizes[packKey]
-		if !ok {
-			continue // index without pack: not usable
+		if !ok || dropped[packKey] {
+			continue // index without pack: not usable; dropped: merged by gc
 		}
 		idx, err := s.loadIndex(ctx, idxKey)
 		if err != nil {
@@ -158,16 +165,19 @@ func (s *S3Storer) findInPacks(h plumbing.Hash) (*pack, bool, error) {
 // one S3 object per git object. The pack is staged in a temporary file
 // (needed to build its index) and removed after the upload.
 func (s *S3Storer) PackfileWriter() (io.WriteCloser, error) {
-	f, err := os.CreateTemp("", "ogit-pack-*")
+	f, err := createTemp()
 	if err != nil {
 		return nil, err
 	}
 	return &packWriter{s: s, f: f}, nil
 }
 
+func createTemp() (*os.File, error) { return os.CreateTemp("", "ogit-pack-*") }
+
 type packWriter struct {
-	s *S3Storer
-	f *os.File
+	s   *S3Storer
+	f   *os.File
+	key string // the uploaded .pack, once Close succeeded
 }
 
 func (w *packWriter) Write(p []byte) (int, error) { return w.f.Write(p) }
@@ -223,6 +233,7 @@ func (w *packWriter) Close() error {
 		return fmt.Errorf("upload pack index: %w", err)
 	}
 
+	w.key = base + ".pack"
 	w.s.objects = nil // list again: the new pack is visible right away
 	return nil
 }

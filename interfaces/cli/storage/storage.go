@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"time"
 
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
@@ -22,6 +24,7 @@ func NewInstance(version string) *cli.Command {
 	cfg.Version = version
 	var slug string
 	var all bool
+	var grace time.Duration
 
 	flags := func() (list []cli.Flag) {
 		list = append(list, config.GenericFlags(cfg)...)
@@ -29,8 +32,8 @@ func NewInstance(version string) *cli.Command {
 		list = append(list, config.DatabaseFlags(cfg)...)
 		list = append(list, config.StorageFlags(cfg)...)
 		list = append(list,
-			&cli.StringFlag{Name: "repository", Usage: "slug of the repository to repack", Destination: &slug},
-			&cli.BoolFlag{Name: "all", Usage: "repack every repository", Destination: &all},
+			&cli.StringFlag{Name: "repository", Usage: "slug of the repository", Destination: &slug},
+			&cli.BoolFlag{Name: "all", Usage: "every repository", Destination: &all},
 		)
 		return
 	}
@@ -41,34 +44,48 @@ func NewInstance(version string) *cli.Command {
 		Commands: []*cli.Command{{
 			Name: "repack",
 			Usage: "Convert S3 repositories stored as loose objects (before packs were introduced) into one pack each. " +
-				"Safe to run while the server is up; loose objects are deleted only after the pack is verified.",
+				"Loose objects are deleted only after the pack is verified.",
 			Flags: flags(),
 			Action: func(ctx context.Context, cmd *cli.Command) error {
 				return repack(*cfg, slug, all, cmd.Root().Writer)
+			},
+		}, {
+			Name: "gc",
+			Usage: "Merge the small packs of S3 repositories (each push adds one), and delete the packs replaced " +
+				"by an earlier run more than --grace ago. Objects are never pruned. Safe to run while the server is up.",
+			Flags: append(flags(), &cli.DurationFlag{
+				Name:        "grace",
+				Usage:       "how long replaced packs stay readable for requests that started before the merge",
+				Value:       time.Hour,
+				Destination: &grace,
+			}),
+			Action: func(ctx context.Context, cmd *cli.Command) error {
+				return gc(*cfg, slug, all, grace, cmd.Root().Writer)
 			},
 		}},
 	}
 }
 
-func repack(cfg config.Config, slug string, all bool, out io.Writer) error {
+// s3Targets returns the S3 storage and the repositories selected by
+// --repository or --all; a nil storage means another storage type.
+func s3Targets(cfg config.Config, slug string, all bool) (*s3.S3Storage, []domain.Repository, error) {
 	if (slug == "") == !all {
-		return errors.New("specify --repository <slug> or --all")
+		return nil, nil, errors.New("specify --repository <slug> or --all")
 	}
 
 	l := logger.NewLogger(cfg.Logger.Level, cfg.Logger.Pretty, cfg.Version)
 	store, err := gitstorage.Configure(cfg, l)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	s3store, ok := store.(*s3.S3Storage)
 	if !ok {
-		_, _ = fmt.Fprintf(out, "storage type %q already stores packs; nothing to do\n", cfg.Storage.Type)
-		return nil
+		return nil, nil, nil
 	}
 
 	db, err := database.Configure(cfg, l)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	repos := persistence.NewRepositoryPers(db.Db)
 
@@ -77,7 +94,7 @@ func repack(cfg config.Config, slug string, all bool, out io.Writer) error {
 		for offset := 0; ; offset += 200 {
 			page, _, err := repos.List(200, offset)
 			if err != nil {
-				return err
+				return nil, nil, err
 			}
 			targets = append(targets, page...)
 			if len(page) < 200 {
@@ -87,9 +104,21 @@ func repack(cfg config.Config, slug string, all bool, out io.Writer) error {
 	} else {
 		repo, err := repos.GetRepository(domain.Repository{Slug: slug})
 		if err != nil {
-			return fmt.Errorf("repository %q not found: %w", slug, err)
+			return nil, nil, fmt.Errorf("repository %q not found: %w", slug, err)
 		}
 		targets = append(targets, *repo)
+	}
+	return s3store, targets, nil
+}
+
+func repack(cfg config.Config, slug string, all bool, out io.Writer) error {
+	s3store, targets, err := s3Targets(cfg, slug, all)
+	if err != nil {
+		return err
+	}
+	if s3store == nil {
+		_, _ = fmt.Fprintf(out, "storage type %q already stores packs; nothing to do\n", cfg.Storage.Type)
+		return nil
 	}
 
 	for _, repo := range targets {
@@ -102,6 +131,49 @@ func repack(cfg config.Config, slug string, all bool, out io.Writer) error {
 		} else {
 			_, _ = fmt.Fprintf(out, "%s: packed %d loose objects\n", repo.Slug, n)
 		}
+	}
+	return nil
+}
+
+func gc(cfg config.Config, slug string, all bool, grace time.Duration, out io.Writer) error {
+	if grace < 0 {
+		return errors.New("--grace must not be negative")
+	}
+	s3store, targets, err := s3Targets(cfg, slug, all)
+	if err != nil {
+		return err
+	}
+	if s3store == nil {
+		_, _ = fmt.Fprintf(out, "storage type %q: use git gc on the repositories; nothing to do\n", cfg.Storage.Type)
+		return nil
+	}
+
+	var failed []string
+	for _, repo := range targets {
+		res, err := s3store.GC(repo.StorageKey, grace)
+		if err != nil {
+			// Keep going: one broken repository must not block the others.
+			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.Slug, err)
+			failed = append(failed, repo.Slug)
+			continue
+		}
+		var done []string
+		if res.Loose > 0 {
+			done = append(done, fmt.Sprintf("packed %d loose objects", res.Loose))
+		}
+		if res.Merged > 0 {
+			done = append(done, fmt.Sprintf("merged %d packs (%d objects)", res.Merged, res.Objects))
+		}
+		if res.Deleted > 0 {
+			done = append(done, fmt.Sprintf("deleted %d replaced packs", res.Deleted))
+		}
+		if len(done) == 0 {
+			done = append(done, "nothing to do")
+		}
+		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.Slug, strings.Join(done, ", "))
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("gc failed for %s", strings.Join(failed, ", "))
 	}
 	return nil
 }

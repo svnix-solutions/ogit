@@ -246,6 +246,21 @@ On a 300-commit repository, the number of S3 requests went from 1810 to 12
 for a push, from 1513 to 12 for a clone and from 1256 to 14 for a one-commit
 fetch.
 
+Each push adds a pack, and each request lists and loads every pack, so a
+repository gets slower with every push (a clone after 40 pushes takes 92
+requests instead of 12). Merge them regularly, e.g. from a nightly cron job:
+
+```bash
+./ogit storage gc -c config.yaml --all             # or --repository <slug>
+```
+
+It merges the small packs and leaves the big old ones alone, so each run
+costs about the size of the recent pushes. Objects are only moved, never
+pruned, so it cannot lose data, and it is safe while the server is running
+and pushes are arriving. The packs it replaces are hidden at once, but kept
+for `--grace` (default 1h) for requests that were already reading them, and
+deleted by the next run after that. It also packs loose objects (see below).
+
 Repositories created before packs (one S3 object per git object) still
 work, but stay slow until they are converted:
 
