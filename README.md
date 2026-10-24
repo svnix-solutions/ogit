@@ -319,6 +319,15 @@ and must be retried, so run it when the repository is quiet.
 
 ### Web UI
 
+The web UI covers what the API does:
+
+- **Repositories:** `/explore` (public, no account needed), `/<owner>` (a user's or group's repositories), `/<owner>/<repo>` (clone URLs for HTTPS and SSH), and `/<owner>/<repo>/settings` (rename, visibility, archive, members, deploy keys, transfer, delete). `/new` creates one in your namespace or a group you maintain.
+- **Groups:** `/groups` and `/groups/<name>` (members, roles, ownership, deletion).
+- **Your account:** `/settings` (password, access tokens, SSH keys).
+- **Admins:** `/admin` (users, every repository, group ownership).
+
+Browsing code and pull requests come next.
+
 The UI signs in with `POST /api/v1/auth/session`, which keeps the session in
 an HttpOnly cookie (`ogit_session`) that page scripts can't read. Writes
 authenticated by that cookie must also send the `ogit_csrf` cookie's value in

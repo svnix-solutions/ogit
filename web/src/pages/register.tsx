@@ -44,6 +44,7 @@ export function RegisterPage() {
           <div className="space-y-1.5">
             <Label htmlFor="username">Username</Label>
             <Input id="username" autoComplete="username" required value={form.username} onChange={set("username")} />
+            <p className="text-xs text-muted-foreground">Lowercase letters, digits, '.', '_' or '-'. It's part of your repositories' URLs.</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>

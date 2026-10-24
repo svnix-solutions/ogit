@@ -1,49 +1,58 @@
 import { useQuery } from "@tanstack/react-query";
-import { Archive, Globe, Lock } from "lucide-react";
+import { Plus, Users } from "lucide-react";
+import { Link } from "react-router";
+import { RepoList } from "@/components/repo-list";
 import { Alert } from "@/components/ui/alert";
+import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api, type RepositorySummary } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
+import { useMyGroups } from "@/lib/queries";
 
 export function HomePage() {
   const { data: profile } = useProfile();
   const repos = useQuery({
     queryKey: ["repositories", "mine"],
-    queryFn: () => api<{ repositories: RepositorySummary[] }>("GET", "/repository"),
+    queryFn: async () => (await api<{ repositories: RepositorySummary[] | null }>("GET", "/repository")).repositories ?? [],
   });
+  const groups = useMyGroups();
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Welcome, {profile?.username}</h1>
-      <section>
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">Your repositories</h2>
+    <div className="grid gap-8 md:grid-cols-[1fr_16rem]">
+      <section className="min-w-0 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="text-xl font-semibold">Repositories</h1>
+          <ButtonLink size="sm" to="/new">
+            <Plus className="h-4 w-4" /> New
+          </ButtonLink>
+        </div>
         {repos.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
         {repos.isError && <Alert variant="destructive">Couldn't load repositories: {repos.error.message}</Alert>}
-        {repos.data && repos.data.repositories.length === 0 && (
-          <Card className="p-8 text-center text-sm text-muted-foreground">No repositories yet.</Card>
-        )}
-        {repos.data && repos.data.repositories.length > 0 && (
-          <Card className="divide-y">
-            {repos.data.repositories.map((r) => (
-              <div key={r.id} className="flex items-start gap-3 px-4 py-3">
-                {r.is_private ? <Lock className="mt-0.5 h-4 w-4 text-muted-foreground" /> : <Globe className="mt-0.5 h-4 w-4 text-muted-foreground" />}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 font-medium">
-                    <span className="text-muted-foreground">{r.namespace} /</span> {r.name}
-                    {r.archived && (
-                      <span className="inline-flex items-center gap-1 rounded-full border px-2 text-xs text-muted-foreground">
-                        <Archive className="h-3 w-3" /> archived
-                      </span>
-                    )}
-                  </div>
-                  {r.description && <p className="truncate text-sm text-muted-foreground">{r.description}</p>}
-                </div>
-                <code className="hidden text-xs text-muted-foreground sm:block">/{r.full_path}.git</code>
-              </div>
-            ))}
-          </Card>
-        )}
+        {repos.data && <RepoList repos={repos.data} empty="No repositories yet. Create one, or ask to be added to one." />}
       </section>
+      <aside className="space-y-3">
+        <h2 className="text-sm font-medium text-muted-foreground">Signed in as {profile?.username}</h2>
+        <Card className="p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-sm font-medium">
+              <Users className="h-4 w-4" /> Your groups
+            </h3>
+            <Link to="/groups" className="text-xs text-primary hover:underline">
+              Manage
+            </Link>
+          </div>
+          {groups.data && groups.data.length === 0 && <p className="text-sm text-muted-foreground">None yet.</p>}
+          <ul className="space-y-1 text-sm">
+            {groups.data?.map((g) => (
+              <li key={g.id}>
+                <Link to={`/${g.name}`} className="hover:underline">
+                  {g.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      </aside>
     </div>
   );
 }
