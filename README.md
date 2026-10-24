@@ -343,7 +343,9 @@ The web UI covers what the API does:
 - **Your account:** `/settings` (password, access tokens, SSH keys).
 - **Admins:** `/admin` (users, every repository, group ownership).
 
-Browsing code and pull requests come next.
+- **Code:** `/<owner>/<repo>` shows the files and README of the default branch (signed out too, for public repositories), with `tree/`, `blob/` (syntax highlighting, rendered Markdown, raw), `blame/`, `commits/`, `commit/<sha>`, `branches` (with zip and tar.gz downloads) and `compare/<base>...<head>`.
+
+Pull requests come next. README images are shown only from the repository itself: the page's security policy blocks images from other sites (e.g. badges).
 
 The UI signs in with `POST /api/v1/auth/session`, which keeps the session in
 an HttpOnly cookie (`ogit_session`) that page scripts can't read. Writes

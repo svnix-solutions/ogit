@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createBrowserRouter, RouterProvider, type RouteObject } from "react-router";
 import { Layout } from "@/components/layout";
+import { RepoLayout } from "@/components/repo-layout";
 import { RequireAuth } from "@/components/require-auth";
 import { AdminPage } from "@/pages/admin";
 import { ExplorePage } from "@/pages/explore";
@@ -11,7 +12,8 @@ import { NamespacePage } from "@/pages/namespace";
 import { NewRepoPage } from "@/pages/new-repo";
 import { NotFoundPage } from "@/pages/not-found";
 import { RegisterPage } from "@/pages/register";
-import { RepoPage } from "@/pages/repo";
+import { BlamePage, BlobPage, TreePage } from "@/pages/repo-code";
+import { BranchesPage, CommitPage, CommitsPage, ComparePage } from "@/pages/repo-history";
 import { RepoSettingsPage } from "@/pages/repo-settings";
 import { SettingsPage } from "@/pages/settings";
 
@@ -25,6 +27,22 @@ export const routes: RouteObject[] = [
       { path: "/register", element: <RegisterPage /> },
       { path: "/explore", element: <ExplorePage /> },
       { path: "/:owner", element: <NamespacePage /> },
+      // Public repositories are browsable signed out; settings need a session.
+      {
+        path: "/:owner/:repo",
+        element: <RepoLayout />,
+        children: [
+          { index: true, element: <TreePage /> },
+          { path: "tree/*", element: <TreePage /> },
+          { path: "blob/*", element: <BlobPage /> },
+          { path: "blame/*", element: <BlamePage /> },
+          { path: "commits/*", element: <CommitsPage /> },
+          { path: "commit/:sha", element: <CommitPage /> },
+          { path: "branches", element: <BranchesPage /> },
+          { path: "compare/*", element: <ComparePage /> },
+          { element: <RequireAuth />, children: [{ path: "settings", element: <RepoSettingsPage /> }] },
+        ],
+      },
       {
         element: <RequireAuth />,
         children: [
@@ -34,8 +52,6 @@ export const routes: RouteObject[] = [
           { path: "/groups/:name", element: <GroupPage /> },
           { path: "/settings", element: <SettingsPage /> },
           { path: "/admin", element: <AdminPage /> },
-          { path: "/:owner/:repo", element: <RepoPage /> },
-          { path: "/:owner/:repo/settings", element: <RepoSettingsPage /> },
         ],
       },
       { path: "*", element: <NotFoundPage /> },

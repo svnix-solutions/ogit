@@ -45,7 +45,9 @@ infrastructure/persistence/        GORM implementations of the domain interfaces
 infrastructure/migration/files/    goose migrations (Go files, one per table)
 web/                               React 19 + Vite + TS + Tailwind 4 app; web/embed.go embeds
                                    web/dist (only .gitkeep is committed)
-                                   pages in web/src/pages, routes in web/src/app.tsx (fixed
+                                   pages in web/src/pages (repository views: repo-code.tsx,
+                                   repo-history.tsx, under components/repo-layout.tsx),
+                                   routes in web/src/app.tsx (fixed
                                    paths before /:owner, which the server reserves as names)
 interfaces/http/v1/site/           public routes with an optional session (shared helper: v1/optauth): /instance,
                                    /explore, /namespace/:name
