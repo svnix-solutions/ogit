@@ -30,6 +30,21 @@ func SetupAuthRouter(controller Controller) {
 		Tags:        []string{"Auth"},
 	})
 
+	fiberoapi.Post(controller.FiberOapi, "/session", controller.CreateSession, fiberoapi.OpenAPIOptions{
+		Summary:     "Log in the web UI",
+		Description: "Like /auth/login, but the token goes into an HttpOnly cookie (ogit_session) and is not returned. Also sets ogit_csrf: cookie-authenticated writes must send its value in X-CSRF-Token.",
+		OperationID: "auth.createSession",
+		Tags:        []string{"Auth"},
+		Security:    "disabled",
+	})
+
+	fiberoapi.Delete(controller.FiberOapi, "/session", controller.DeleteSession, fiberoapi.OpenAPIOptions{
+		Summary:     "Log out of the web UI",
+		Description: "Ends the session and deletes the cookies",
+		OperationID: "auth.deleteSession",
+		Tags:        []string{"Auth"},
+	})
+
 	fiberoapi.Post(controller.FiberOapi, "/register", controller.Register, fiberoapi.OpenAPIOptions{
 		Summary:     "Register user",
 		Description: "Register a new user",

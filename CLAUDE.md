@@ -20,9 +20,13 @@ OGIT_TEST_DB=postgres go test -race -tags=integration ./interfaces/cli/server/  
 go test -race -tags=integration -run Mailpit ./...   # real SMTP via a Mailpit container
 go test -race -tags=integration -run Redis ./...     # Redis cache, incl. two servers sharing it
 go test -run 'TestGitHTTPAuthorization/s3_fake/non_member' ./interfaces/cli/server/   # single subtest
+
+npm --prefix web ci && npm --prefix web run build   # web UI into web/dist (embedded by go build)
+npm --prefix web run dev                       # Vite on :5173, proxies /api to a server on :8080
+npm --prefix web run typecheck && npm --prefix web test
 ```
 
-There is no Makefile. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs gofmt, `go vet`, `go test -race`, a static Linux build, and a separate job running the MinIO and Mailpit tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
+There is no Makefile. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs a web job (npm ci, typecheck, vitest), then gofmt, `go vet`, `go test -race`, the UI build and a static Linux build that embeds it, and a separate job running the MinIO and Mailpit tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
 
 ## Layout
 
@@ -39,6 +43,10 @@ domain/                            entities and persistence interfaces
 infrastructure/config/             config.Config struct + one *_flags.go per section
 infrastructure/persistence/        GORM implementations of the domain interfaces
 infrastructure/migration/files/    goose migrations (Go files, one per table)
+web/                               React 19 + Vite + TS + Tailwind 4 app; web/embed.go embeds
+                                   web/dist (only .gitkeep is committed)
+interfaces/http/webui.go           serves web/dist, index.html for unmatched GETs (registered last)
+interfaces/http/websession/        cookie sessions + CSRF for the web UI
 infrastructure/storage/            storage.Config interface (GetStorer, CreateRepository, ...)
   local/  s3/                      backends; s3/s3test = test endpoints (fake + MinIO)
 ```
@@ -55,6 +63,7 @@ Startup rules: `session.secret_key` must be ≥ 32 bytes, or empty (a random per
 
 - **API sessions**: login returns a JWT (HS256 only) that references a `session` row. fiber-oapi validates it on every `/api/v1` route unless `Security: "disabled"` is set (login, register, health). `SessionApp.ValidateToken` puts the session ID into `AuthContext.Claims[application.SessionIDClaim]`. `POST /api/v1/auth/logout` deletes that row, so the JWT stops validating although it has not expired. A cron job (`infrastructure/jobs`) deletes expired sessions every minute.
 - **Email verification** (`application/email_verification.go`, off by default): when `registration.require_email_verification` is on, `Authenticate` refuses unverified users (after the password check) with `ErrEmailNotVerified` (403). `setupDeps` refuses to start without `smtp.host`, `smtp.from` and `http.public_url`. Links are single-use and stored hashed, one pending per user (`email_verification`). Resend always answers 200 and is rate-limited. The link is a plain Fiber GET (HTML page), next to the `POST /api/v1/auth/verify` JSON endpoint. Mail goes through `mail.Sender`: `SMTPSender` in production; tests set `srv.deps.AuthApp.Mailer` to a `mailtest.Recorder` or use `mailtest.StartMailpit` (integration tag).
+- **Web UI sessions** (`interfaces/http/websession`): `POST /api/v1/auth/session` is login with the JWT in an HttpOnly `ogit_session` cookie (never in the body) plus a readable `ogit_csrf` cookie; `DELETE` logs out. `websession.Middleware`, registered on `/api/v1` before the routes, turns the cookie into an `Authorization` header when there is none, so fiber-oapi and handlers need no change. Cookie-authenticated non-GET requests must send `X-CSRF-Token` = `ogit_csrf` (403 `CSRF_FAILED`). The public auth POSTs (login, register, verify) ignore cookies, so a stale one never blocks logging in. Bearer requests are never CSRF-checked.
 - **Git over HTTP**: HTTP Basic, username = token name, password = personal access token (`POST /api/v1/user/token`). Tokens are `ogit_<64 hex>`. Only `application.HashToken` (SHA-256) is stored; lookups hash the presented value. Token types: `user` (scoped by repository roles) and `repository` (bound to one repo).
 - `AuthApp.AuthorizeGit` decides, and `interfaces/http/git/auth.go` maps the result: `ErrGitUnauthenticated` → 401 + `WWW-Authenticate` (git prompts), `ErrGitNotFound` → 404, `ErrGitForbidden` → 403. Anonymous callers may only read public repos.
 - **Login never reveals whether an account exists**: an unknown email and a wrong password both return 401 `INVALID_CREDENTIALS` and both pay for one bcrypt comparison (`dummyPasswordHash`). Account state (disabled, unverified) is only reported after a correct password. Keep this for any new credential check. `TestLoginDoesNotRevealAccounts` checks the answer and the timing.
@@ -82,6 +91,7 @@ Repositories are addressed by slug (`slug.Make(name)`, which also prevents path 
 
 ## Gotchas
 
+- **The web UI catch-all** (`setupWebUI`) answers every GET/HEAD that no earlier route matched with `index.html` (200), except `/api/...` (JSON 404) and missing `/assets/...` (404). Register new routes before it, in `SetupRoutes`. It sets a strict CSP (`default-src 'self'`): the app must not use inline scripts or third-party origins.
 - **fiber-oapi**: unauthenticated `/api/v1` requests get **400** `"authentication required"`, not 401. Its validator is a private global, so custom tags such as `slug` cannot be registered (an unknown tag makes every request 500).
 - **GORM `default:` tags** drop zero values on insert, so the column default wins. This made every repo private (`IsPrivate` had `default:true`). Don't put defaults on booleans that callers set to false; apply defaults in the API layer instead (`is_private` is `*bool`, defaulting to true).
 - **IDs** are set in application code (`utils.UUIDv4()`) or in `BeforeCreate`. An empty string ID inserts fine on SQLite and then breaks the next insert.

@@ -14,15 +14,20 @@ storage (local filesystem or any S3-compatible object store).
 
 ## Quick start
 
-Building needs Go (see `go.mod`) and a C toolchain, because the SQLite driver uses CGO.
+Building needs Go (see `go.mod`) and a C toolchain, because the SQLite driver
+uses CGO, and Node.js (see `web/.nvmrc`) for the web UI.
 
 ```bash
+npm --prefix web ci && npm --prefix web run build   # the web UI, embedded in the binary
 go build -o ogit ./cmd/cmd.go
 
 cp config-example.yaml config.yaml   # then edit it
 ./ogit migration -c config.yaml      # create or upgrade the database schema
 ./ogit server -c config.yaml         # listens on :8080 by default
 ```
+
+The web UI is at `http://localhost:8080/`. A binary built without the UI
+step still works and shows how to build it there.
 
 Run `migration` before the first start and after every upgrade. The server
 starts without it, but API calls then fail with missing tables.
@@ -290,6 +295,16 @@ the loose objects. The server can keep running, but a clone or fetch of that
 repository that is in progress when the loose objects are deleted can fail
 and must be retried, so run it when the repository is quiet.
 
+### Web UI
+
+The UI signs in with `POST /api/v1/auth/session`, which keeps the session in
+an HttpOnly cookie (`ogit_session`) that page scripts can't read. Writes
+authenticated by that cookie must also send the `ogit_csrf` cookie's value in
+an `X-CSRF-Token` header. API clients keep using bearer tokens, which need
+neither. Set `http.public_url` to an `https://` URL behind a TLS proxy so the
+cookies get the `Secure` flag (it is also set when the request arrives over
+HTTPS or with `X-Forwarded-Proto: https`).
+
 ## Not implemented yet
 
 - SSH key management
@@ -304,6 +319,8 @@ go test -race -tags=integration -run Mailpit ./...  # real SMTP delivery through
 go test -race -tags=integration -run Redis ./...    # shared Redis cache (needs Docker)
 OGIT_TEST_DB=postgres go test -race -tags=integration ./interfaces/cli/server/  # end-to-end suite on PostgreSQL (needs Docker)
 air                                            # live reload, see .air.toml and start.sh
+npm --prefix web run dev                       # UI on :5173 with hot reload; proxies /api to :8080
+npm --prefix web test                          # UI unit tests (vitest)
 ```
 
 Pull requests into `main` and `refactor` run gofmt, `go vet`, the tests and
