@@ -43,6 +43,13 @@ func TestMergeSplit(t *testing.T) {
 // pack, like a push, and moves main to it.
 func pushCommit(t *testing.T, st *s3.S3Storer, parent plumbing.Hash, n int) plumbing.Hash {
 	t.Helper()
+	return pushCommitTo(t, st, "refs/heads/main", parent, n)
+}
+
+// pushCommitTo is pushCommit onto ref; an empty ref leaves the refs alone,
+// like a push whose pack is uploaded but whose ref update has not happened.
+func pushCommitTo(t *testing.T, st *s3.S3Storer, ref plumbing.ReferenceName, parent plumbing.Hash, n int) plumbing.Hash {
+	t.Helper()
 	mem := memory.NewStorage()
 	put := func(o interface {
 		Encode(plumbing.EncodedObject) error
@@ -73,7 +80,9 @@ func pushCommit(t *testing.T, st *s3.S3Storer, parent plumbing.Hash, n int) plum
 	_, err = packfile.NewEncoder(pw, mem, false).Encode([]plumbing.Hash{blobHash, tree, h}, 10)
 	require.NoError(t, err)
 	require.NoError(t, pw.Close())
-	require.NoError(t, st.SetReference(plumbing.NewHashReference("refs/heads/main", h)))
+	if ref != "" {
+		require.NoError(t, st.SetReference(plumbing.NewHashReference(ref, h)))
+	}
 	return h
 }
 

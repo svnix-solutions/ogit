@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -33,10 +34,11 @@ import (
 
 // pack is one pack in the repository, with its index loaded.
 type pack struct {
-	key  string // object key of the .pack
-	size int64
-	idx  *idxfile.MemoryIndex
-	pf   *packfile.Packfile // opened on first use
+	key      string // object key of the .pack
+	size     int64
+	modified time.Time // upload time: every object in it is at least this recent
+	idx      *idxfile.MemoryIndex
+	pf       *packfile.Packfile // opened on first use
 }
 
 // objectsState is what one listing found.
@@ -73,6 +75,7 @@ func (s *S3Storer) state() (*objectsState, error) {
 	}
 
 	sizes := map[string]int64{}
+	modified := map[string]time.Time{}
 	dropped := map[string]bool{}
 	var idxKeys []string
 	pager := awss3.NewListObjectsV2Paginator(s.client, &awss3.ListObjectsV2Input{
@@ -89,6 +92,7 @@ func (s *S3Storer) state() (*objectsState, error) {
 			switch {
 			case strings.HasSuffix(key, ".pack"):
 				sizes[key] = aws.ToInt64(o.Size)
+				modified[key] = aws.ToTime(o.LastModified)
 			case strings.HasSuffix(key, ".idx"):
 				idxKeys = append(idxKeys, key)
 			case strings.HasSuffix(key, dropSuffix):
@@ -107,7 +111,7 @@ func (s *S3Storer) state() (*objectsState, error) {
 		if err != nil {
 			return nil, err
 		}
-		st.packs = append(st.packs, &pack{key: packKey, size: size, idx: idx})
+		st.packs = append(st.packs, &pack{key: packKey, size: size, modified: modified[packKey], idx: idx})
 	}
 
 	s.objects = st

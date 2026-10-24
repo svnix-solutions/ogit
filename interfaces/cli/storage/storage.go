@@ -24,7 +24,16 @@ func NewInstance(version string) *cli.Command {
 	cfg.Version = version
 	var slug string
 	var all bool
-	var grace time.Duration
+	var grace, expire time.Duration
+	var dryRun bool
+	graceFlag := func() cli.Flag {
+		return &cli.DurationFlag{
+			Name:        "grace",
+			Usage:       "how long replaced packs stay readable for requests that started before the rewrite",
+			Value:       time.Hour,
+			Destination: &grace,
+		}
+	}
 
 	flags := func() (list []cli.Flag) {
 		list = append(list, config.GenericFlags(cfg)...)
@@ -53,14 +62,26 @@ func NewInstance(version string) *cli.Command {
 			Name: "gc",
 			Usage: "Merge the small packs of S3 repositories (each push adds one), and delete the packs replaced " +
 				"by an earlier run more than --grace ago. Objects are never pruned. Safe to run while the server is up.",
-			Flags: append(flags(), &cli.DurationFlag{
-				Name:        "grace",
-				Usage:       "how long replaced packs stay readable for requests that started before the merge",
-				Value:       time.Hour,
-				Destination: &grace,
-			}),
+			Flags: append(flags(), graceFlag()),
 			Action: func(ctx context.Context, cmd *cli.Command) error {
 				return gc(*cfg, slug, all, grace, cmd.Root().Writer)
+			},
+		}, {
+			Name: "prune",
+			Usage: "Delete objects of S3 repositories that no ref reaches any more (force-pushes, deleted branches), " +
+				"once they are older than --expire. Rewrites the old packs: run it rarely (e.g. weekly). " +
+				"Safe to run while the server is up.",
+			Flags: append(flags(), graceFlag(),
+				&cli.DurationFlag{
+					Name:        "expire",
+					Usage:       "only prune objects older than this, so force-pushed work can still be recovered by its hash",
+					Value:       14 * 24 * time.Hour,
+					Destination: &expire,
+				},
+				&cli.BoolFlag{Name: "dry-run", Usage: "report what would be pruned, change nothing", Destination: &dryRun},
+			),
+			Action: func(ctx context.Context, cmd *cli.Command) error {
+				return prune(*cfg, slug, all, expire, grace, dryRun, cmd.Root().Writer)
 			},
 		}},
 	}
@@ -174,6 +195,51 @@ func gc(cfg config.Config, slug string, all bool, grace time.Duration, out io.Wr
 	}
 	if len(failed) > 0 {
 		return fmt.Errorf("gc failed for %s", strings.Join(failed, ", "))
+	}
+	return nil
+}
+
+func prune(cfg config.Config, slug string, all bool, expire, grace time.Duration, dryRun bool, out io.Writer) error {
+	if grace < 0 || expire < 0 {
+		return errors.New("--grace and --expire must not be negative")
+	}
+	s3store, targets, err := s3Targets(cfg, slug, all)
+	if err != nil {
+		return err
+	}
+	if s3store == nil {
+		_, _ = fmt.Fprintf(out, "storage type %q: use git gc --prune on the repositories; nothing to do\n", cfg.Storage.Type)
+		return nil
+	}
+
+	var failed []string
+	for _, repo := range targets {
+		res, err := s3store.Prune(repo.StorageKey, expire, grace, dryRun)
+		if err != nil {
+			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.Slug, err)
+			failed = append(failed, repo.Slug)
+			continue
+		}
+		var done []string
+		if res.Loose > 0 {
+			done = append(done, fmt.Sprintf("packed %d loose objects", res.Loose))
+		}
+		switch {
+		case res.Pruned > 0 && dryRun:
+			done = append(done, fmt.Sprintf("would prune %d unreachable objects (from %d old packs, %d objects kept)", res.Pruned, res.Packs, res.Kept))
+		case res.Pruned > 0:
+			done = append(done, fmt.Sprintf("pruned %d unreachable objects (from %d old packs, %d objects kept)", res.Pruned, res.Packs, res.Kept))
+		}
+		if res.Deleted > 0 {
+			done = append(done, fmt.Sprintf("deleted %d replaced packs", res.Deleted))
+		}
+		if len(done) == 0 {
+			done = append(done, "nothing to prune")
+		}
+		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.Slug, strings.Join(done, ", "))
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("prune failed for %s", strings.Join(failed, ", "))
 	}
 	return nil
 }
