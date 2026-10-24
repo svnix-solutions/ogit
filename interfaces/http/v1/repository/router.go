@@ -12,14 +12,16 @@ type Controller struct {
 	Logger        zerolog.Logger
 	FiberOapi     *fiberoapi.OApiGroup
 	RepositoryApp *application.RepositoryApp
+	SessionApp    *application.SessionApp // optional sessions on public routes
 }
 
 func SetupRepositoryRouter(controller Controller) {
 	fiberoapi.Get(controller.FiberOapi, "/:identifier", controller.GetRepository, fiberoapi.OpenAPIOptions{
 		Summary:     "Get repository",
-		Description: "Retrieve the details of a specific repository",
+		Description: "Retrieve the details of a specific repository, with the caller's role. Public repositories need no session.",
 		OperationID: "repository.get",
 		Tags:        []string{"Repository"},
+		Security:    "disabled",
 	})
 
 	fiberoapi.Post(controller.FiberOapi, "", controller.CreateRepository, fiberoapi.OpenAPIOptions{

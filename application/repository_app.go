@@ -191,6 +191,12 @@ func (c *RepositoryApp) GetRepository(id, path *string) (*domain.Repository, err
 func (c *RepositoryApp) GetUserEffectiveRole(repositoryId, userId string) (domain.AccessType, error) {
 	logger := c.Logger.With().Str("component", "application.repository.get_user_effective_role").Logger()
 
+	// Anonymous callers have no role. (Postgres also rejects '' as a UUID,
+	// so the queries below would fail instead of finding nothing.)
+	if userId == "" {
+		return domain.AccessTypeNone, nil
+	}
+
 	repo, err := c.GetRepository(&repositoryId, nil)
 	if err != nil {
 		return domain.AccessTypeNone, err

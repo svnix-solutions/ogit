@@ -4,14 +4,13 @@
 package site
 
 import (
-	"strings"
-
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/interfaces/http/v1/apierror"
+	"github.com/labbs/ogit/interfaces/http/v1/optauth"
 	"github.com/rs/zerolog"
 )
 
@@ -79,18 +78,7 @@ func Setup(c Controller, grp *fiberoapi.OApiGroup) {
 	})
 }
 
-// userId returns the caller's user id, or "" without a valid session.
-func (c Controller) userId(ctx *fiber.Ctx) string {
-	token, ok := strings.CutPrefix(ctx.Get(fiber.HeaderAuthorization), "Bearer ")
-	if !ok || token == "" {
-		return ""
-	}
-	auth, err := c.SessionApp.ValidateToken(token)
-	if err != nil {
-		return ""
-	}
-	return auth.UserID
-}
+func (c Controller) userId(ctx *fiber.Ctx) string { return optauth.UserID(ctx, c.SessionApp) }
 
 func (c Controller) Instance(ctx *fiber.Ctx, _ struct{}) (*InstanceResponse, *fiberoapi.ErrorResponse) {
 	resp := &InstanceResponse{

@@ -38,7 +38,7 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 		path := strings.TrimSuffix(repoPath, ".git") // <namespace>/<repo>
 
 		// Missing or malformed credentials are treated as anonymous.
-		creds := basicCredentials(ctx.Get(fiber.HeaderAuthorization))
+		creds := BasicCredentials(ctx.Get(fiber.HeaderAuthorization))
 
 		repo, err := ctrl.AuthApp.AuthorizeGit(path, op, creds)
 		switch {
@@ -65,7 +65,8 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 
 // basicCredentials parses an HTTP Basic Authorization header, returning nil
 // if it is absent or malformed.
-func basicCredentials(header string) *application.GitCredentials {
+// BasicCredentials parses "Authorization: Basic" (token name and token), or nil.
+func BasicCredentials(header string) *application.GitCredentials {
 	const prefix = "Basic "
 	if len(header) < len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
 		return nil

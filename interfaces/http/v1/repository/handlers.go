@@ -8,6 +8,7 @@ import (
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/infrastructure/helpers/mapper"
 	"github.com/labbs/ogit/interfaces/http/v1/apierror"
+	"github.com/labbs/ogit/interfaces/http/v1/optauth"
 	"github.com/labbs/ogit/interfaces/http/v1/repoid"
 	"github.com/labbs/ogit/interfaces/http/v1/repository/dtos"
 )
@@ -18,16 +19,8 @@ func (ctrl *Controller) GetRepository(ctx *fiber.Ctx, req dtos.GetRepositoryRequ
 
 	id, path := repoid.Split(req.Identifier)
 
-	authCtx, err := fiberoapi.GetAuthContext(ctx)
-	if err != nil {
-		return nil, &fiberoapi.ErrorResponse{
-			Code:    fiber.StatusUnauthorized,
-			Details: "Authentication required",
-			Type:    "AUTHENTICATION_REQUIRED",
-		}
-	}
-
-	repo, err := ctrl.RepositoryApp.GetRepositoryForUser(id, path, authCtx.UserID)
+	userId := optauth.UserID(ctx, ctrl.SessionApp)
+	repo, err := ctrl.RepositoryApp.GetRepositoryForUser(id, path, userId)
 	if errors.Is(err, application.ErrRepositoryNotFound) {
 		return nil, &fiberoapi.ErrorResponse{
 			Code:    fiber.StatusNotFound,
@@ -46,7 +39,7 @@ func (ctrl *Controller) GetRepository(ctx *fiber.Ctx, req dtos.GetRepositoryRequ
 	var response dtos.GetRepositoryResponse
 	mapper.MapStructByFieldNames(repo, &response)
 	response.FullPath = repo.FullPath()
-	role, err := ctrl.RepositoryApp.GetUserEffectiveRole(repo.Id, authCtx.UserID)
+	role, err := ctrl.RepositoryApp.GetUserEffectiveRole(repo.Id, userId)
 	if err != nil {
 		return nil, apierror.From(err, logger)
 	}
