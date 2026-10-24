@@ -14,22 +14,24 @@ func (ctrl Controller) Login(ctx *fiber.Ctx, req dtos.LoginRequest) (*dtos.Login
 	logger := ctrl.Logger.With().Str("request_id", requestId).Str("component", "http.api.v1.auth.login").Logger()
 
 	resp, err := ctrl.AuthApp.Authenticate(req.Email, req.Password, ctx)
-	if errors.Is(err, application.ErrEmailNotVerified) {
+	switch {
+	case err == nil:
+		return resp, nil
+	case errors.Is(err, application.ErrInvalidCredentials):
+		// Same answer for an unknown email and a wrong password.
+		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusUnauthorized, Details: err.Error(), Type: "INVALID_CREDENTIALS"}
+	case errors.Is(err, application.ErrAccountDisabled):
+		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusForbidden, Details: err.Error(), Type: "ACCOUNT_DISABLED"}
+	case errors.Is(err, application.ErrEmailNotVerified):
 		return nil, &fiberoapi.ErrorResponse{
 			Code:    fiber.StatusForbidden,
 			Details: "verify your email address first; POST /api/v1/auth/verify/resend sends a new link",
 			Type:    "EMAIL_NOT_VERIFIED",
 		}
+	default:
+		logger.Error().Err(err).Msg("failed to authenticate user")
+		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusInternalServerError, Details: "internal error", Type: "INTERNAL_ERROR"}
 	}
-	if err != nil {
-		logger.Error().Err(err).Str("email", req.Email).Msg("failed to authenticate user")
-		return nil, &fiberoapi.ErrorResponse{
-			Code:    fiber.StatusUnauthorized,
-			Details: err.Error(),
-			Type:    "AUTHENTICATION_FAILED",
-		}
-	}
-	return resp, nil
 }
 
 func (ctrl Controller) Logout(ctx *fiber.Ctx, input struct{}) (*dtos.LogoutResponse, *fiberoapi.ErrorResponse) {

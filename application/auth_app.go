@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -16,6 +17,27 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
 )
+
+var (
+	// ErrInvalidCredentials is returned for an unknown email and for a
+	// wrong password alike.
+	ErrInvalidCredentials = errors.New("invalid email or password")
+	ErrAccountDisabled    = errors.New("account is disabled")
+)
+
+var (
+	dummyHashOnce sync.Once
+	dummyHash     []byte
+)
+
+// dummyPasswordHash is a bcrypt hash (same cost as real ones) to compare
+// against when no user matches, so that the response takes as long.
+func dummyPasswordHash() []byte {
+	dummyHashOnce.Do(func() {
+		dummyHash, _ = bcrypt.GenerateFromPassword([]byte("ogit-dummy-password"), bcrypt.DefaultCost)
+	})
+	return dummyHash
+}
 
 type AuthApp struct {
 	Config        config.Config
@@ -46,23 +68,29 @@ func NewAuthApp(config config.Config, logger zerolog.Logger, userApp UserApp, se
 func (c *AuthApp) Authenticate(email, password string, ctx *fiber.Ctx) (*dtos.LoginResponse, error) {
 	logger := c.Logger.With().Str("component", "application.auth.authenticate").Logger()
 
+	// An unknown email and a wrong password must be indistinguishable, in
+	// the answer and in timing: compare against a dummy hash when there is no
+	// user, so both paths pay for one bcrypt comparison.
 	user, err := c.UserApp.GetByEmail(email)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user by email: %w", err)
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash(), []byte(password))
+		if errors.Is(err, ErrUserNotFound) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
 	}
 
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		logger.Warn().Str("user_id", user.Id).Msg("invalid password attempt")
+		return nil, ErrInvalidCredentials
+	}
+
+	// Account state is checked after the password, so only the account
+	// holder learns it.
 	if !user.Active {
-		logger.Warn().Str("email", email).Msg("attempt to authenticate inactive user")
-		return nil, fmt.Errorf("user is not active")
+		logger.Warn().Str("user_id", user.Id).Msg("login attempt on disabled account")
+		return nil, ErrAccountDisabled
 	}
-
-	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
-	if err != nil {
-		logger.Warn().Str("email", email).Msg("invalid password attempt")
-		return nil, fmt.Errorf("invalid credentials")
-	}
-
-	// Checked after the password, so only the account holder learns it.
 	if c.Config.Registration.RequireEmailVerification && user.EmailVerifiedAt == nil {
 		return nil, ErrEmailNotVerified
 	}
