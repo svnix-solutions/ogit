@@ -4,6 +4,7 @@ import (
 	"github.com/labbs/ogit/infrastructure"
 	"github.com/labbs/ogit/interfaces/http/v1/admin"
 	"github.com/labbs/ogit/interfaces/http/v1/auth"
+	"github.com/labbs/ogit/interfaces/http/v1/browse"
 	"github.com/labbs/ogit/interfaces/http/v1/group"
 	"github.com/labbs/ogit/interfaces/http/v1/repository"
 	"github.com/labbs/ogit/interfaces/http/v1/site"
@@ -42,6 +43,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		Logger:        deps.Logger,
 		FiberOapi:     repoGrp,
 		RepositoryApp: deps.RepoApp,
+		SessionApp:    deps.SessionApp,
 	}
 	repository.SetupRepositoryRouter(repoCtrl)
 
@@ -59,6 +61,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	})
 
 	sshkey.Setup(sshkey.Controller{Logger: deps.Logger, SSHKeyApp: deps.SSHKeyApp}, userGrp, repoGrp, adminGrp)
+
+	browse.Setup(browse.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp}, repoGrp)
 
 	site.Setup(site.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, RepositoryApp: deps.RepoApp}, grp)
 }

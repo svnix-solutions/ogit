@@ -51,9 +51,12 @@ func TestGetRepository(t *testing.T) {
 		assert.Equal(t, http.StatusOK, status, "%v", body)
 	})
 
-	t.Run("requires_session", func(t *testing.T) {
-		status, _ := srv.get(t, repoAPI("owner/public-repo"), "")
-		assert.NotEqual(t, http.StatusOK, status)
+	t.Run("anonymous_sees_public_only", func(t *testing.T) {
+		status, body := srv.get(t, repoAPI("owner/public-repo"), "")
+		assert.Equal(t, http.StatusOK, status, "public repositories are browsable signed out")
+		assert.Equal(t, "none", body["role"])
+		status, _ = srv.get(t, repoAPI("owner/private-repo"), "")
+		assert.Equal(t, http.StatusNotFound, status)
 	})
 }
 

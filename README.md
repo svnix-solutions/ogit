@@ -91,6 +91,23 @@ slash URL-encoded: `/api/v1/repository/me%2Fmy-project`.
 
 Private repositories that the caller can't read are reported as not found.
 
+### Raw files and archives
+
+```bash
+curl -O http://localhost:8080/me/my-project/raw/main/docs/guide.md           # a file at a branch, tag or commit
+curl -O http://localhost:8080/me/my-project/archive/v1.0.tar.gz              # or .zip
+curl -u laptop:$TOKEN -O http://localhost:8080/me/private-project/raw/main/x # private: an access token, like git
+```
+
+Public repositories need no credentials. Branch names may contain slashes
+(`raw/feature/x/README.md`). Files are served as plain text or as
+downloads, never as web pages, so a file in a repository can't run scripts
+on the server's site.
+
+The read API behind the web UI (`/api/v1/repository/<id>/refs`, `tree`,
+`blob`, `commits`, `commits/<sha>`, `compare`, `blame`) also works without a
+session for public repositories; `/documentation` describes it.
+
 ### Git over SSH
 
 Enable it with `ssh.enabled: true`. It listens on `ssh.port` (default 2222).
