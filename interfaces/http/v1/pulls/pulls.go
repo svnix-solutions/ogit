@@ -27,6 +27,7 @@ type Controller struct {
 type ListRequest struct {
 	Identifier string `path:"identifier" json:"-" validate:"required"`
 	State      string `query:"state" json:"-"` // open (default), closed, merged or all
+	Label      string `query:"label" json:"-"` // only pull requests with this label
 	Offset     int    `query:"offset" json:"-"`
 	Limit      int    `query:"limit" json:"-"`
 }
@@ -43,6 +44,22 @@ type Summary struct {
 	UpdatedAt    time.Time  `json:"updated_at"`
 	MergedAt     *time.Time `json:"merged_at,omitempty"`
 	ClosedAt     *time.Time `json:"closed_at,omitempty"`
+	Labels       []Label    `json:"labels"`
+}
+
+type Label struct {
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+	Color       string `json:"color"`
+	Description string `json:"description"`
+}
+
+func labels(ls []domain.Label) []Label {
+	out := []Label{}
+	for _, l := range ls {
+		out = append(out, Label{Id: l.Id, Name: l.Name, Color: l.Color, Description: l.Description})
+	}
+	return out
 }
 
 type ListResponse struct {
@@ -93,6 +110,12 @@ type Detail struct {
 	BranchesExist bool     `json:"branches_exist"`
 	CanEdit       bool     `json:"can_edit"`
 	CanMerge      bool     `json:"can_merge"`
+	CanReview     bool     `json:"can_review"` // approve or request changes (not the author)
+	// Approved and ChangesRequested list the reviews that count: by
+	// developers and up, not the author, each reviewer's latest.
+	Approved          []string `json:"approved"`
+	ChangesRequested  []string `json:"changes_requested"`
+	RequiredApprovals int      `json:"required_approvals"`
 }
 
 func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
@@ -110,6 +133,7 @@ func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/close", c.Close, private("Close a pull request", "pulls.close", "The author and maintainers."))
 	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/reopen", c.Reopen, private("Reopen a pull request", "pulls.reopen", "The author and maintainers, while both branches exist."))
 	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/merge", c.Merge, private("Merge a pull request", "pulls.merge", "Maintainers and owners. method: merge, squash or rebase. Refused for drafts, conflicts, archived repositories, or if the target branch moves meanwhile."))
+	setupReviews(c, repoGrp)
 	fiberoapi.Get(repoGrp, "/:identifier/pulls/:number/compare", c.Compare, public("Commits and diff", "pulls.compare", "The source's commits since the merge base and the diff, as for compare; recorded tips once merged or closed."))
 }
 
@@ -133,6 +157,7 @@ func summary(pr *domain.PullRequest) Summary {
 	if pr.Author != nil {
 		s.Author = pr.Author.Username
 	}
+	s.Labels = []Label{}
 	return s
 }
 
@@ -141,7 +166,11 @@ func detail(v *application.PullRequestView) *Detail {
 		Summary: summary(v.PullRequest), Body: v.Body, BaseCommit: v.BaseCommit, HeadCommit: v.HeadCommit,
 		MergeCommit: v.MergeCommit, MergeMethod: v.MergeMethod, Mergeable: v.Mergeable, Conflicts: v.Conflicts,
 		BranchesExist: v.BranchesExist, CanEdit: v.CanEdit, CanMerge: v.CanMerge,
+		Approved: v.Approvals.Approved, ChangesRequested: v.Approvals.ChangesRequested, RequiredApprovals: v.Repository.RequiredApprovals,
 	}
+	d.Labels = labels(v.Labels)
+	d.CanReview = v.Role.CanRead() && v.State == domain.PullRequestOpen && !v.Repository.IsArchived && v.Viewer() != "" &&
+		(v.AuthorId == nil || *v.AuthorId != v.Viewer())
 	if d.Conflicts == nil {
 		d.Conflicts = []string{}
 	}
@@ -163,13 +192,15 @@ func (c Controller) List(ctx *fiber.Ctx, req ListRequest) (*ListResponse, *fiber
 		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusBadRequest, Details: "state must be open, closed, merged or all", Type: "INVALID_STATE"}
 	}
 	id, path := repoid.Split(req.Identifier)
-	prs, counts, err := c.Pulls.List(id, path, c.userId(ctx), state, req.Offset, req.Limit)
+	prs, counts, prLabels, err := c.Pulls.List(id, path, c.userId(ctx), state, req.Label, req.Offset, req.Limit)
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
 	resp := &ListResponse{PullRequests: []Summary{}, Counts: map[string]int64{"open": 0, "closed": 0, "merged": 0}}
 	for i := range prs {
-		resp.PullRequests = append(resp.PullRequests, summary(&prs[i]))
+		s := summary(&prs[i])
+		s.Labels = labels(prLabels[prs[i].Id])
+		resp.PullRequests = append(resp.PullRequests, s)
 	}
 	for s, n := range counts {
 		resp.Counts[string(s)] = n

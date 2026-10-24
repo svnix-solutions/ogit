@@ -53,6 +53,7 @@ func (ctrl *Controller) UpdateRepository(ctx *fiber.Ctx, req dtos.UpdateReposito
 	id, slug := repoid.Split(req.Identifier)
 	repo, err := ctrl.RepositoryApp.Update(id, slug, authCtx.UserID, application.RepositoryUpdate{
 		Name: req.Name, Description: req.Description, IsPrivate: req.IsPrivate, Archived: req.Archived,
+		RequiredApprovals: req.RequiredApprovals,
 	})
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
@@ -62,7 +63,8 @@ func (ctrl *Controller) UpdateRepository(ctx *fiber.Ctx, req dtos.UpdateReposito
 
 func repositoryResponse(repo *domain.Repository) *dtos.GetRepositoryResponse {
 	return &dtos.GetRepositoryResponse{Id: repo.Id, Namespace: repo.Namespace, OwnerType: string(repo.OwnerType), Slug: repo.Slug,
-		FullPath: repo.FullPath(), Name: repo.Name, Description: repo.Description, IsPrivate: repo.IsPrivate, IsArchived: repo.IsArchived}
+		FullPath: repo.FullPath(), Name: repo.Name, Description: repo.Description, IsPrivate: repo.IsPrivate, IsArchived: repo.IsArchived,
+		RequiredApprovals: repo.RequiredApprovals}
 }
 
 func (ctrl *Controller) DeleteRepository(ctx *fiber.Ctx, req dtos.DeleteRepositoryRequest) (*dtos.DeleteRepositoryResponse, *fiberoapi.ErrorResponse) {

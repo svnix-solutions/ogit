@@ -16,6 +16,8 @@ type GetRepositoryResponse struct {
 	Description string `json:"description"`
 	IsPrivate   bool   `json:"is_private"`
 	IsArchived  bool   `json:"archived"`
+	// RequiredApprovals before pull requests can be merged.
+	RequiredApprovals int `json:"required_approvals"`
 	// Role is the caller's effective role (none, reporter, developer,
 	// maintainer, owner); only on GET.
 	Role string `json:"role,omitempty"`
@@ -27,6 +29,8 @@ type UpdateRepositoryRequest struct {
 	Description *string `json:"description"` // maintainers and owners
 	IsPrivate   *bool   `json:"is_private"`  // owners
 	Archived    *bool   `json:"archived"`    // owners; archived repositories refuse pushes
+	// RequiredApprovals: owners; approvals a pull request needs (0-10).
+	RequiredApprovals *int `json:"required_approvals"`
 }
 
 type DeleteRepositoryRequest struct {

@@ -76,8 +76,14 @@ func (u *userPers) CountActiveAdmins() (int64, error) {
 func (u *userPers) Purge(userId string) error {
 	return u.db.Transaction(func(tx *gorm.DB) error {
 		// Their pull requests stay, shown as by a deleted user.
-		for _, column := range []string{"author_id", "merged_by_id"} {
-			if err := tx.Model(&domain.PullRequest{}).Where(column+" = ?", userId).Update(column, nil).Error; err != nil {
+		for _, c := range []struct {
+			model  any
+			column string
+		}{
+			{&domain.PullRequest{}, "author_id"}, {&domain.PullRequest{}, "merged_by_id"},
+			{&domain.Review{}, "author_id"}, {&domain.Comment{}, "author_id"},
+		} {
+			if err := tx.Model(c.model).Where(c.column+" = ?", userId).Update(c.column, nil).Error; err != nil {
 				return err
 			}
 		}

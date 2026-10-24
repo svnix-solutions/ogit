@@ -46,7 +46,7 @@ func (p *pullRequestPers) Get(repositoryId string, number int) (*domain.PullRequ
 	return &pr, nil
 }
 
-func (p *pullRequestPers) List(repositoryId string, state domain.PullRequestState, offset, limit int) ([]domain.PullRequest, map[domain.PullRequestState]int64, error) {
+func (p *pullRequestPers) List(repositoryId string, state domain.PullRequestState, labelId string, offset, limit int) ([]domain.PullRequest, map[domain.PullRequestState]int64, error) {
 	counts := map[domain.PullRequestState]int64{}
 	var rows []struct {
 		State domain.PullRequestState
@@ -62,6 +62,9 @@ func (p *pullRequestPers) List(repositoryId string, state domain.PullRequestStat
 	q := p.db.Preload("Author").Where("repository_id = ?", repositoryId)
 	if state != "" {
 		q = q.Where("state = ?", state)
+	}
+	if labelId != "" {
+		q = q.Where("id IN (SELECT pull_request_id FROM pull_request_label WHERE label_id = ?)", labelId)
 	}
 	var prs []domain.PullRequest
 	err := q.Order("number DESC").Offset(offset).Limit(limit).Find(&prs).Error

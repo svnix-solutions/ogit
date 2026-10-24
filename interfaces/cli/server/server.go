@@ -145,11 +145,18 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	tokenPers := persistence.NewTokenPers(deps.Database.Db)
 	repositoryMemberPers := persistence.NewRepositoryMemberPers(deps.Database.Db)
 
+	// Before the services that send mail (SSHKeyApp got nil before).
+	deps.Mailer = mail.NewSMTPSender(deps.Config)
+
 	deps.UserApp = application.NewUserApp(deps.Config, deps.Logger, userPers, groupPers)
 	deps.SessionApp = application.NewSessionApp(deps.Config, deps.Logger, sessionPers, deps.UserApp)
 	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.BrowseApp = &application.BrowseApp{Repositories: deps.RepoApp, Storage: deps.Storage}
-	deps.PullApp = &application.PullRequestApp{Logger: deps.Logger, Repositories: deps.RepoApp, Pulls: persistence.NewPullRequestPers(deps.Database.Db), Users: userPers}
+	deps.PullApp = &application.PullRequestApp{
+		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Users: userPers, Mailer: deps.Mailer,
+		Pulls: persistence.NewPullRequestPers(deps.Database.Db), Reviews: persistence.NewReviewPers(deps.Database.Db),
+		Labels: persistence.NewLabelPers(deps.Database.Db),
+	}
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
 	deps.AdminApp = &application.AdminApp{
@@ -160,7 +167,6 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Config: deps.Config, Logger: deps.Logger, SSHKeyPers: persistence.NewSSHKeyPers(deps.Database.Db), UserPers: userPers,
 		RepositoryApp: deps.RepoApp, AdminApp: deps.AdminApp, Mailer: deps.Mailer,
 	}
-	deps.Mailer = mail.NewSMTPSender(deps.Config)
 	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp,
 		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))
 

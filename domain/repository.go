@@ -29,6 +29,10 @@ type Repository struct {
 	// Private-by-default is applied by the API when is_private is omitted.
 	IsPrivate bool
 
+	// RequiredApprovals is how many approvals (from developers and up, not
+	// the author) a pull request needs before it can be merged.
+	RequiredApprovals int
+
 	// DeployKeys DeployKeys `gorm:"foreignKey:RepositoryId"`
 	// WebHooks   WebHooks   `gorm:"foreignKey:RepositoryId"`
 
