@@ -47,7 +47,7 @@ type TokenType string
 
 const (
 	TokenUser TokenType = "user"
-	TokenRepo TokenType = "repo"
+	TokenRepo TokenType = "repository" // must match the token.type constraint in the migration
 )
 
 type TokenScopes []TokenScope

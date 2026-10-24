@@ -4,8 +4,13 @@ import (
 	"net/http"
 	"testing"
 
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/labbs/ogit/application"
+	"github.com/labbs/ogit/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 func TestGetRepository(t *testing.T) {
@@ -50,4 +55,32 @@ func TestGetRepository(t *testing.T) {
 		status, _ := srv.get(t, "/api/v1/repository/public-repo", "")
 		assert.NotEqual(t, http.StatusOK, status)
 	})
+}
+
+// Repository-scoped tokens (type "repository") could not be stored before:
+// the code used "repo", which the token.type constraint rejects.
+func TestRepositoryToken(t *testing.T) {
+	srv := startTestServer(t)
+	owner := srv.registerAndLogin(t, "owner@example.com", "owner")
+	repo := srv.createRepo(t, owner, "Deploy Target", true)
+	srv.createRepo(t, owner, "Other Repo", true)
+
+	repoID := repo["id"].(string)
+	const plaintext = "ogit_repository-token-for-tests"
+	token := &domain.Token{
+		Name:         "deploy",
+		Token:        application.HashToken(plaintext),
+		Type:         domain.TokenRepo,
+		RepositoryId: &repoID,
+		Active:       true,
+		Scopes:       domain.TokenScopes{domain.ScopeReadRepository},
+	}
+	require.NoError(t, srv.deps.TokenApp.Create(token))
+
+	auth := &githttp.BasicAuth{Username: "deploy", Password: plaintext}
+	_, err := clone(t, srv.url+"/deploy-target.git", auth)
+	assert.NoError(t, err, "token works on its repository")
+
+	_, err = clone(t, srv.url+"/other-repo.git", auth)
+	assert.ErrorIs(t, err, transport.ErrRepositoryNotFound, "token is limited to its repository")
 }
