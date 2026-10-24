@@ -6,6 +6,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/v1/auth"
 	"github.com/labbs/ogit/interfaces/http/v1/group"
 	"github.com/labbs/ogit/interfaces/http/v1/repository"
+	"github.com/labbs/ogit/interfaces/http/v1/sshkey"
 	"github.com/labbs/ogit/interfaces/http/v1/user"
 )
 
@@ -23,10 +24,12 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	// The link in verification emails: a plain page, not an OpenAPI operation.
 	deps.Http.Fiber.Get("/api/v1/auth/verify", authCtrl.VerifyEmailPage)
 
+	userGrp, repoGrp, adminGrp := grp.Group("/user"), grp.Group("/repository"), grp.Group("/admin")
+
 	userCtrl := user.Controller{
 		Config:    deps.Config,
 		Logger:    deps.Logger,
-		FiberOapi: grp.Group("/user"),
+		FiberOapi: userGrp,
 		UserApp:   deps.UserApp,
 		TokenApp:  deps.TokenApp,
 		AuthApp:   deps.AuthApp,
@@ -36,7 +39,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	repoCtrl := repository.Controller{
 		Config:        deps.Config,
 		Logger:        deps.Logger,
-		FiberOapi:     grp.Group("/repository"),
+		FiberOapi:     repoGrp,
 		RepositoryApp: deps.RepoApp,
 	}
 	repository.SetupRepositoryRouter(repoCtrl)
@@ -50,7 +53,9 @@ func SetupRouterV1(deps infrastructure.Deps) {
 
 	admin.SetupAdminRouter(admin.Controller{
 		Logger:    deps.Logger,
-		FiberOapi: grp.Group("/admin"),
+		FiberOapi: adminGrp,
 		AdminApp:  deps.AdminApp,
 	})
+
+	sshkey.Setup(sshkey.Controller{Logger: deps.Logger, SSHKeyApp: deps.SSHKeyApp}, userGrp, repoGrp, adminGrp)
 }

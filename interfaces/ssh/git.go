@@ -1,0 +1,91 @@
+package ssh
+
+import (
+	"bufio"
+	"context"
+	"io"
+
+	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+)
+
+// serveUploadPack runs git-upload-pack (clone/fetch) over one SSH channel:
+// advertise refs, read the client's request, send the pack.
+func serveUploadPack(ctx context.Context, srv transport.Transport, ep *transport.Endpoint, in *bufio.Reader, out io.Writer) error {
+	sess, err := srv.NewUploadPackSession(ep, nil)
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+
+	adv, err := sess.AdvertisedReferences()
+	if err != nil {
+		return err
+	}
+	if err := adv.Encode(out); err != nil {
+		return err
+	}
+
+	if done, err := isFlush(in); err != nil || done {
+		return err // nothing wanted (already up to date)
+	}
+
+	req := packp.NewUploadPackRequest()
+	if err := req.Decode(in); err != nil {
+		return err
+	}
+	resp, err := sess.UploadPack(ctx, req)
+	if err != nil {
+		return err
+	}
+	defer resp.Close()
+	return resp.Encode(out)
+}
+
+// serveReceivePack runs git-receive-pack (push) over one SSH channel.
+func serveReceivePack(ctx context.Context, srv transport.Transport, ep *transport.Endpoint, in *bufio.Reader, out io.Writer) error {
+	sess, err := srv.NewReceivePackSession(ep, nil)
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+
+	adv, err := sess.AdvertisedReferences()
+	if err != nil {
+		return err
+	}
+	if err := adv.Encode(out); err != nil {
+		return err
+	}
+
+	if done, err := isFlush(in); err != nil || done {
+		return err // nothing to push
+	}
+
+	req := packp.NewReferenceUpdateRequest()
+	if err := req.Decode(in); err != nil {
+		return err
+	}
+	// The decoder always treats the rest of the stream as the packfile. A
+	// push that only deletes refs sends none and then waits for the report,
+	// so reading a pack would block forever (over HTTP the body just ends).
+	if onlyDeletes(req) {
+		req.Packfile = nil
+	}
+	report, err := sess.ReceivePack(ctx, req)
+	if report != nil {
+		if encErr := report.Encode(out); encErr != nil && err == nil {
+			err = encErr
+		}
+	}
+	return err
+}
+
+func onlyDeletes(req *packp.ReferenceUpdateRequest) bool {
+	for _, cmd := range req.Commands {
+		if cmd.Action() != packp.Delete {
+			return false
+		}
+	}
+	return len(req.Commands) > 0
+}

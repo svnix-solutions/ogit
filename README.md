@@ -82,6 +82,27 @@ git clone http://localhost:8080/my-project.git
 
 Private repositories that the caller can't read are reported as not found.
 
+### Git over SSH
+
+Enable it with `ssh.enabled: true`. It listens on `ssh.port` (default 2222).
+Everyone connects as `git`, and the key identifies the account:
+
+```bash
+# Add your public key (ed25519, ECDSA, or RSA with at least 3072 bits)
+curl -X POST localhost:8080/api/v1/user/ssh-keys -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d "{\"key\": \"$(cat ~/.ssh/id_ed25519.pub)\"}"
+
+git clone ssh://git@localhost:2222/my-project.git
+ssh -T -p 2222 git@localhost      # "Hi <username>! ..."
+```
+
+- **Same access rules as HTTP:** private repositories return "not found" to non-members, reporters can't push, and disabled or unverified accounts are rejected.
+- **Deploy keys** belong to one repository and are read-only unless `"read_only": false`. Its maintainers and owners manage them at `/api/v1/repository/<slug>/deploy-keys`; use them for CI.
+- **One place per key:** a key can be used once, on one account or as one deploy key. When SMTP is configured, users are emailed when a key is added to their account.
+- **Admins** can list and revoke a user's keys at `/api/v1/admin/users/<username>/ssh-keys`.
+- **Host key:** an ed25519 key is generated at `ssh.host_key_path` on first start. Keep that file; in Docker, put it on a volume and publish the port (`-p 2222:2222`). If it changes, clients warn about a changed host key.
+- **Known limitation:** the go-git server doesn't negotiate common commits, so `git fetch` re-sends history the client already has (`warning: no common commits`). It works, just with more data than needed.
+
 ### Members and groups
 
 The creator of a repository is its owner. Owners and maintainers share it
@@ -167,6 +188,7 @@ override environment variables, and environment variables override the file.
 | `registration.require_email_verification` | `REGISTRATION_REQUIRE_EMAIL_VERIFICATION` | `false`; see [Email verification](#email-verification) |
 | `http.public_url` | `HTTP_PUBLIC_URL` | none; needed for email links |
 | `smtp.host`, `.port`, `.username`, `.password`, `.from`, `.tls` | `SMTP_*` | port `587`, tls `starttls` |
+| `ssh.enabled` / `ssh.port` / `ssh.host_key_path` | `SSH_ENABLED` / `SSH_PORT` / `SSH_HOST_KEY_PATH` | `false` / `2222` / `./ssh_host_ed25519_key` |
 | `storage.type` | `STORAGE_TYPE` | `local` (or `s3`) |
 | `storage.local.path` | `STORAGE_LOCAL_PATH` | `./repositories` |
 | `storage.s3.bucket`, `.endpoint`, `.accesskey`, `.secretkey`, `.region` | `STORAGE_S3_*` | region `us-east-1` |
@@ -188,7 +210,6 @@ The server refuses to start unless `smtp.host`, `smtp.from` and
 
 ## Not implemented yet
 
-- SSH access
 - SSH key management
 - Repositories in nested paths (`org/project.git`)
 

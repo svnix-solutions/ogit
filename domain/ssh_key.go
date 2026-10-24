@@ -4,20 +4,27 @@ import (
 	"time"
 )
 
+// SSHKey is a public key that can authenticate git over SSH: a user key
+// (acts as the user) or a deploy key (one repository, possibly read-only).
+// Each key (by fingerprint) is used in exactly one place.
 type SSHKey struct {
-	Id        string
-	UserId    string
-	RepoId    string
-	PublicKey string
-	Type      SSHType
+	Id          string
+	Name        string
+	Fingerprint string // SHA256:..., unique
+	PublicKey   string // authorized_keys format, without comment
+	KeyType     SSHType
+	OwnerType   SSHKeyOwnerType
 
-	Repository Repository `gorm:"foreignKey:RepoId"`
-	User       User       `gorm:"foreignKey:UserId"`
+	UserId *string
+	User   User `gorm:"foreignKey:UserId"`
 
-	OwnerType SSHKeyOwnerType
+	RepositoryId *string
+	Repository   Repository `gorm:"foreignKey:RepositoryId"`
+	ReadOnly     bool       // deploy keys only
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedBy  *string // user who added the key
+	LastUsedAt *time.Time
+	CreatedAt  time.Time
 }
 
 func (SSHKey) TableName() string {
@@ -26,12 +33,10 @@ func (SSHKey) TableName() string {
 
 type SSHType string
 
-// ed25519, rsa, ecdsa, dsa
 const (
 	SSHTypeED25519 SSHType = "ed25519"
 	SSHTypeRSA     SSHType = "rsa"
 	SSHTypeECDSA   SSHType = "ecdsa"
-	SSHTypeDSA     SSHType = "dsa"
 )
 
 type SSHKeyOwnerType string
@@ -41,4 +46,13 @@ const (
 	SSHKeyTypeRepository SSHKeyOwnerType = "repository"
 )
 
-type SSHKeyPers interface{}
+type SSHKeyPers interface {
+	Create(key *SSHKey) error
+	// GetByFingerprint loads the key with its User or Repository.
+	GetByFingerprint(fingerprint string) (*SSHKey, error)
+	ListForUser(userId string) ([]SSHKey, error)
+	ListForRepository(repositoryId string) ([]SSHKey, error)
+	DeleteForUser(userId, keyId string) error
+	DeleteForRepository(repositoryId, keyId string) error
+	TouchLastUsed(keyId string, at time.Time) error
+}

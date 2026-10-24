@@ -34,7 +34,7 @@ func (r *repositoryPers) Purge(id string) error {
 		}{
 			{&domain.RepositoryMember{}, "repository_id = ?"},
 			{&domain.Token{}, "repository_id = ?"},
-			// ssh_key has no repository column yet (deploy keys are not implemented).
+			{&domain.SSHKey{}, "repository_id = ?"},
 			{&domain.Repository{}, "id = ?"},
 		} {
 			if err := tx.Where(q.where, id).Delete(q.model).Error; err != nil {
