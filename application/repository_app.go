@@ -1,6 +1,7 @@
 package application
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/gofiber/fiber/v2/utils"
@@ -83,6 +84,29 @@ func (c *RepositoryApp) Create(name, description, creator string, isPrivate bool
 	return repo, nil
 }
 
+// ErrRepositoryNotFound is returned when a repository does not exist or,
+// from GetRepositoryForUser, when the user may not see it.
+var ErrRepositoryNotFound = errors.New("repository not found")
+
+// GetRepositoryForUser returns the repository identified by id or slug if
+// userId may read it. Private repositories the user cannot read are reported
+// as ErrRepositoryNotFound so that their existence is not disclosed.
+func (c *RepositoryApp) GetRepositoryForUser(id, slug *string, userId string) (*domain.Repository, error) {
+	repo, err := c.GetRepository(id, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	canRead, err := c.CanUserAccess(repo.Id, userId, "read")
+	if err != nil {
+		return nil, err
+	}
+	if !canRead {
+		return nil, ErrRepositoryNotFound
+	}
+	return repo, nil
+}
+
 func (c *RepositoryApp) GetRepository(id, slug *string) (*domain.Repository, error) {
 	logger := c.Logger.With().Str("component", "application.repository.get").Logger()
 
@@ -104,7 +128,7 @@ func (c *RepositoryApp) GetRepository(id, slug *string) (*domain.Repository, err
 	case nil:
 	case gorm.ErrRecordNotFound:
 		logger.Warn().Str("repo_id", repo.Id).Str("repo_slug", repo.Slug).Msg("repository not found")
-		return nil, fmt.Errorf("repository not found")
+		return nil, ErrRepositoryNotFound
 	default:
 		logger.Error().Err(err).Str("repo_id", repo.Id).Str("repo_slug", repo.Slug).Msg("failed to get repository")
 		return nil, err

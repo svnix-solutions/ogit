@@ -1,7 +1,9 @@
 package dtos
 
 type GetRepositoryRequest struct {
-	Identifier string `path:"identifier" validate:"required,uuid4|slug"`
+	// UUID or slug; the handler tells them apart. ("slug" is not a validator
+	// tag, and fiber-oapi does not allow registering custom ones.)
+	Identifier string `path:"identifier" validate:"required"`
 }
 
 type GetRepositoryResponse struct {

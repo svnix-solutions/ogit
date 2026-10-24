@@ -1,8 +1,11 @@
 package repository
 
 import (
+	"errors"
+
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
+	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/infrastructure/helpers/mapper"
 	"github.com/labbs/ogit/infrastructure/helpers/validator"
 	"github.com/labbs/ogit/interfaces/http/v1/repository/dtos"
@@ -21,8 +24,23 @@ func (ctrl *Controller) GetRepository(ctx *fiber.Ctx, req dtos.GetRepositoryRequ
 		slug = &req.Identifier
 	}
 
-	repo, err := ctrl.RepositoryApp.GetRepository(id, slug)
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
 	if err != nil {
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusUnauthorized,
+			Details: "Authentication required",
+			Type:    "AUTHENTICATION_REQUIRED",
+		}
+	}
+
+	repo, err := ctrl.RepositoryApp.GetRepositoryForUser(id, slug, authCtx.UserID)
+	if errors.Is(err, application.ErrRepositoryNotFound) {
+		return nil, &fiberoapi.ErrorResponse{
+			Code:    fiber.StatusNotFound,
+			Details: err.Error(),
+			Type:    "REPOSITORY_NOT_FOUND",
+		}
+	} else if err != nil {
 		logger.Error().Err(err).Str("identifier", req.Identifier).Msg("failed to get repository")
 		return nil, &fiberoapi.ErrorResponse{
 			Code:    fiber.StatusInternalServerError,

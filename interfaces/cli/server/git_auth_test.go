@@ -228,10 +228,26 @@ func (s *testServer) registerAndLogin(t *testing.T, email, username string) stri
 	return body["token"].(string)
 }
 
-func (s *testServer) createRepo(t *testing.T, bearer, name string, private bool) {
+func (s *testServer) createRepo(t *testing.T, bearer, name string, private bool) map[string]any {
 	t.Helper()
 	status, body := s.post(t, "/api/v1/repository", bearer, map[string]any{"name": name, "is_private": private})
 	require.Equal(t, http.StatusOK, status, "create repo: %v", body)
+	return body
+}
+
+func (s *testServer) get(t *testing.T, path, bearer string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, s.url+path, nil)
+	require.NoError(t, err)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
 }
 
 func (s *testServer) createToken(t *testing.T, bearer, name string, scopes ...string) *githttp.BasicAuth {
