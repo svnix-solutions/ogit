@@ -26,14 +26,10 @@ test-coverage: ## Run tests with coverage
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
-# Integration tests (requires S3_TEST_*)
-test-integration: ## Run integration tests (requires S3_TEST_* variables)
-	@if [ -z "$(S3_TEST_BUCKET)" ]; then \
-		echo "❌ S3_TEST_* variables not defined. Example:"; \
-		echo "export S3_TEST_BUCKET=your-test-bucket"; \
-		echo "export S3_TEST_REGION=us-east-1"; \
-		echo "export S3_TEST_ENDPOINT=https://s3.us-east-1.amazonaws.com"; \
-		echo "make test-integration"; \
+# Integration tests (MinIO via testcontainers)
+test-integration: ## Run integration tests against MinIO (requires Docker)
+	@if ! docker info >/dev/null 2>&1; then \
+		echo "❌ Docker is not running. The integration tests start a MinIO container."; \
 		exit 1; \
 	fi
 	go test -v -tags=integration -timeout 5m ./...
@@ -123,23 +119,6 @@ install-tools: ## Install development tools
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	go install github.com/cosmtrek/air@latest
 	go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
-
-# Test configuration example
-setup-test-env: ## Display test configuration example
-	@echo "Configuration for integration tests:"
-	@echo ""
-	@echo "# Local MinIO (for testing)"
-	@echo "export S3_TEST_BUCKET=git-server-test"
-	@echo "export S3_TEST_REGION=us-east-1"
-	@echo "export S3_TEST_ENDPOINT=http://localhost:9000"
-	@echo "export AWS_ACCESS_KEY_ID=minio"
-	@echo "export AWS_SECRET_ACCESS_KEY=minio123"
-	@echo ""
-	@echo "# Real AWS S3 (for cloud testing)"
-	@echo "export S3_TEST_BUCKET=your-test-bucket"
-	@echo "export S3_TEST_REGION=us-east-1"
-	@echo "export S3_TEST_ENDPOINT=https://s3.us-east-1.amazonaws.com"
-	@echo "# + your AWS credentials via AWS CLI or environment variables"
 
 # Tests with different log levels
 test-debug: ## Run tests with debug logs
