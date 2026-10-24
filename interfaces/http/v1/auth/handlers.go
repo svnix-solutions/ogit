@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
@@ -13,11 +14,17 @@ func (ctrl Controller) Login(ctx *fiber.Ctx, req dtos.LoginRequest) (*dtos.Login
 	requestId := ctx.Locals("requestid").(string)
 	logger := ctrl.Logger.With().Str("request_id", requestId).Str("component", "http.api.v1.auth.login").Logger()
 
+	// Failed attempts are limited per IP and per account (any IP).
+	ip := ctrl.Limits.ClientIP(ctx)
+	if r, blocked := ctrl.Limits.LoginBlocked(ctx.UserContext(), ip, req.Email); blocked {
+		return nil, ratelimit.Refused(ctx, r)
+	}
 	resp, err := ctrl.AuthApp.Authenticate(req.Email, req.Password, ctx)
 	switch {
 	case err == nil:
 		return resp, nil
 	case errors.Is(err, application.ErrInvalidCredentials):
+		ctrl.Limits.LoginFailed(ctx.UserContext(), ip, req.Email)
 		// Same answer for an unknown email and a wrong password.
 		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusUnauthorized, Details: err.Error(), Type: "INVALID_CREDENTIALS"}
 	case errors.Is(err, application.ErrAccountDisabled):
@@ -74,6 +81,9 @@ func (ctrl Controller) Register(ctx *fiber.Ctx, req dtos.RegisterRequest) (*dtos
 	requestId := ctx.Locals("requestid").(string)
 	logger := ctrl.Logger.With().Str("request_id", requestId).Str("component", "http.api.v1.auth.register").Logger()
 
+	if r := ctrl.Limits.Allow(ctx.UserContext(), ctrl.Limits.Rules.RegisterIP, "register:ip:"+ctrl.Limits.ClientIP(ctx)); !r.Allowed {
+		return nil, ratelimit.Refused(ctx, r)
+	}
 	err := ctrl.AuthApp.Register(req.Username, req.Email, req.Password)
 	switch {
 	case err == nil:

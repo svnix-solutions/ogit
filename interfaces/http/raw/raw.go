@@ -12,6 +12,7 @@ package raw
 import (
 	"bufio"
 	"errors"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"io"
 	"mime"
 	"path"
@@ -32,6 +33,7 @@ type Controller struct {
 	AuthApp    *application.AuthApp
 	SessionApp *application.SessionApp
 	BrowseApp  *application.BrowseApp
+	Limits     *ratelimit.Guard
 }
 
 func Setup(c Controller, app *fiber.App) {
@@ -39,13 +41,29 @@ func Setup(c Controller, app *fiber.App) {
 	app.Get("/:owner/:repo/archive/*", c.Archive)
 }
 
-// open authorizes the caller like git does and returns the storer.
+// errLimited: the caller used up their git budget (see ratelimit).
+type errLimited struct{ r ratelimit.Result }
+
+func (e errLimited) Error() string { return "too many requests" }
+
+// open authorizes the caller like git does and returns the storer. Raw
+// files and archives count as git operations.
 func (c Controller) open(ctx *fiber.Ctx) (*domain.Repository, storer.Storer, error) {
 	repoPath := ctx.Params("owner") + "/" + strings.TrimSuffix(ctx.Params("repo"), ".git")
+	ip := c.Limits.ClientIP(ctx)
 	if creds := git.BasicCredentials(ctx.Get(fiber.HeaderAuthorization)); creds != nil {
+		if r, blocked := c.Limits.LoginBlocked(ctx.UserContext(), ip, ""); blocked {
+			return nil, nil, errLimited{r}
+		}
 		repo, err := c.AuthApp.AuthorizeGit(repoPath, "git-upload-pack", creds)
+		if errors.Is(err, application.ErrGitUnauthenticated) {
+			c.Limits.LoginFailed(ctx.UserContext(), ip, "")
+		}
 		if err != nil {
 			return nil, nil, err
+		}
+		if r := c.Limits.Allow(ctx.UserContext(), c.Limits.Rules.GitUser, "git:token:"+application.HashToken(creds.Token)[:16]); !r.Allowed {
+			return nil, nil, errLimited{r}
 		}
 		st, err := c.BrowseApp.Storage.GetStorer(repo.StorageKey)
 		return repo, st, err
@@ -56,11 +74,22 @@ func (c Controller) open(ctx *fiber.Ctx) (*domain.Repository, storer.Storer, err
 			userId = auth.UserID
 		}
 	}
+	rule, key := c.Limits.Rules.GitAnonymous, "git:ip:"+ip
+	if userId != "" {
+		rule, key = c.Limits.Rules.GitUser, "git:user:"+userId
+	}
+	if r := c.Limits.Allow(ctx.UserContext(), rule, key); !r.Allowed {
+		return nil, nil, errLimited{r}
+	}
 	return c.BrowseApp.Open(nil, &repoPath, userId)
 }
 
 func (c Controller) fail(ctx *fiber.Ctx, err error) error {
+	var limited errLimited
 	switch {
+	case errors.As(err, &limited):
+		ctx.Set(fiber.HeaderRetryAfter, ratelimit.RetryAfter(limited.r))
+		return ctx.Status(fiber.StatusTooManyRequests).SendString("too many requests; try again later")
 	case errors.Is(err, application.ErrGitUnauthenticated):
 		ctx.Set(fiber.HeaderWWWAuthenticate, `Basic realm="ogit"`)
 		return ctx.Status(fiber.StatusUnauthorized).SendString(err.Error())

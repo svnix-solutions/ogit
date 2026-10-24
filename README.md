@@ -286,6 +286,8 @@ override environment variables, and environment variables override the file.
 | `registration.password_complexity` | `REGISTRATION_PASSWORD_COMPLEXITY` | `true` |
 | `registration.require_email_verification` | `REGISTRATION_REQUIRE_EMAIL_VERIFICATION` | `false`; see [Email verification](#email-verification) |
 | `http.public_url` | `HTTP_PUBLIC_URL` | none; needed for email links |
+| `http.trusted_proxies` | `HTTP_TRUSTED_PROXIES` | none; see [Rate limits](#rate-limits) |
+| `ratelimit.*` | `RATELIMIT_*` | enabled, in memory; see [Rate limits](#rate-limits) |
 | `smtp.host`, `.port`, `.username`, `.password`, `.from`, `.tls` | `SMTP_*` | port `587`, tls `starttls` |
 | `ssh.enabled` / `ssh.port` / `ssh.host_key_path` | `SSH_ENABLED` / `SSH_PORT` / `SSH_HOST_KEY_PATH` | `false` / `2222` / `./ssh_host_ed25519_key` |
 | `storage.type` | `STORAGE_TYPE` | `local` (or `s3`) |
@@ -294,6 +296,24 @@ override environment variables, and environment variables override the file.
 | `storage.s3.cache.type` / `.max_mb` / `.redis_url` | `STORAGE_S3_CACHE_*` | `memory` / `256` / none; see [S3 storage](#s3-storage) |
 
 `./ogit server --help` lists every flag.
+
+### Rate limits
+
+Enabled by default (`config-example.yaml` lists every rule):
+
+- **Password and token guessing:** 10 failed logins, password changes or git token checks per IP in 15 minutes, and 50 failed logins per account from any IP. Successful logins don't count. After that, even the right password gets `429` until the window ends (`Retry-After` says when).
+- **Registration** and verification emails: 5 per IP per hour.
+- **API:** 600 requests a minute per signed-in user, 120 per IP without a session (`RateLimit-*` headers show what's left).
+- **Git** (HTTP, SSH, raw files and archives): 300 operations a minute per token, user or SSH key; 60 per IP without credentials.
+
+Counters live in memory, so each server counts on its own; with
+`ratelimit.store: redis` all servers share them. If Redis is down, requests
+are allowed (and the error logged).
+
+Behind a reverse proxy, list it in `http.trusted_proxies`: otherwise every
+request seems to come from the proxy, and they all share one budget.
+`X-Forwarded-For` (and `X-Forwarded-Proto`) are only believed from those
+addresses, read from the right, so a client can't choose its own address.
 
 ### Email verification
 

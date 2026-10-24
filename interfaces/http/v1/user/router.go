@@ -4,6 +4,7 @@ import (
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"github.com/rs/zerolog"
 )
 
@@ -14,6 +15,7 @@ type Controller struct {
 	UserApp   *application.UserApp
 	TokenApp  *application.TokenApp
 	AuthApp   *application.AuthApp
+	Limits    *ratelimit.Guard
 }
 
 func SetupUserRouter(controller Controller) {
