@@ -9,6 +9,7 @@ import (
 
 	billyos "github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
@@ -82,8 +83,10 @@ func (ls *LocalStorage) CreateRepository(repoPath string) error {
 	tempPath := fullPath + "_temp"
 	defer os.RemoveAll(tempPath) // Clean up temp directory
 
-	// Initialize normal (non-bare) repository
-	repo, err := git.PlainInit(tempPath, false)
+	// Initialize normal (non-bare) repository on main, matching the S3 backend
+	repo, err := git.PlainInitWithOptions(tempPath, &git.PlainInitOptions{
+		InitOptions: git.InitOptions{DefaultBranch: plumbing.Main},
+	})
 	if err != nil {
 		return err
 	}

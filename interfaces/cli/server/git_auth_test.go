@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -18,15 +19,26 @@ import (
 	"github.com/labbs/ogit/infrastructure"
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/migration"
+	"github.com/labbs/ogit/infrastructure/storage/s3/s3test"
 	routes "github.com/labbs/ogit/interfaces/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestGitHTTPAuthorization drives the real server (sqlite + local storage)
-// with a git client and checks every allow/deny path of the git routes.
+// TestGitHTTPAuthorization drives the real server (sqlite + each storage
+// backend) with a git client and checks every allow/deny path of the git
+// routes. git_auth_integration_test.go adds MinIO.
 func TestGitHTTPAuthorization(t *testing.T) {
-	srv := startTestServer(t)
+	t.Run("local", func(t *testing.T) { testGitHTTPAuthorization(t) })
+	t.Run("s3_fake", func(t *testing.T) { testGitHTTPAuthorization(t, withS3(s3test.StartFake(t))) })
+}
+
+func withS3(ep s3test.Endpoint) func(*config.Config) {
+	return func(c *config.Config) { s3test.Configure(c, ep) }
+}
+
+func testGitHTTPAuthorization(t *testing.T, opts ...func(*config.Config)) {
+	srv := startTestServer(t, opts...)
 
 	owner := srv.registerAndLogin(t, "owner@example.com", "owner")
 	outsider := srv.registerAndLogin(t, "outsider@example.com", "outsider")
@@ -56,6 +68,14 @@ func TestGitHTTPAuthorization(t *testing.T) {
 	t.Run("invalid_token", func(t *testing.T) {
 		_, err := clone(t, private, wrongSecret)
 		assert.ErrorIs(t, err, transport.ErrAuthenticationRequired)
+	})
+
+	t.Run("default_branch_is_main", func(t *testing.T) {
+		repo, err := clone(t, private, ownerRO)
+		require.NoError(t, err)
+		head, err := repo.Head()
+		require.NoError(t, err)
+		assert.Equal(t, plumbing.Main, head.Name())
 	})
 
 	t.Run("read_only_token", func(t *testing.T) {
