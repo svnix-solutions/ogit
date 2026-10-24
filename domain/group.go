@@ -72,6 +72,8 @@ type GroupPers interface {
 	Delete(id string) error
 	// ListForUser returns the groups userId is a member of.
 	ListForUser(userId string) ([]Group, error)
+	// OwnedBy returns the groups userId owns.
+	OwnedBy(userId string) ([]Group, error)
 	// GroupIdsForUser returns the IDs of the groups userId is a member of.
 	GroupIdsForUser(userId string) ([]string, error)
 

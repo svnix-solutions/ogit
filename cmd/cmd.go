@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/labbs/ogit/interfaces/cli/admin"
 	"github.com/labbs/ogit/interfaces/cli/migration"
 	"github.com/labbs/ogit/interfaces/cli/server"
 
@@ -39,6 +40,7 @@ func main() {
 		Commands: []*cli.Command{
 			server.NewInstance(version),
 			migration.NewInstance(version),
+			admin.NewInstance(version),
 		},
 	}
 

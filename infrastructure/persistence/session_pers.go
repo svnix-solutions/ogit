@@ -23,6 +23,14 @@ func (s *sessionPers) DeleteById(id string) error {
 	return s.db.Where("id = ?", id).Delete(&domain.Session{}).Error
 }
 
+func (s *sessionPers) DeleteByUserId(userId, keepId string) error {
+	q := s.db.Where("user_id = ?", userId)
+	if keepId != "" {
+		q = q.Where("id <> ?", keepId)
+	}
+	return q.Delete(&domain.Session{}).Error
+}
+
 func (s *sessionPers) DeleteExpired(now time.Time) (int64, error) {
 	res := s.db.Where("expires_at < ?", now).Delete(&domain.Session{})
 	return res.RowsAffected, res.Error

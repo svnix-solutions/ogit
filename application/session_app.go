@@ -91,6 +91,13 @@ func (c *SessionApp) ValidateToken(token string) (*fiberoapi.AuthContext, error)
 		return nil, fmt.Errorf("session has expired")
 	}
 
+	// A disabled account's sessions are deleted when it is disabled; this
+	// also covers any session created concurrently.
+	user, err := c.UserApp.GetById(session.UserId)
+	if err != nil || !user.Active {
+		return nil, fmt.Errorf("invalid token")
+	}
+
 	ctx := &fiberoapi.AuthContext{
 		UserID: session.UserId,
 		Claims: map[string]interface{}{SessionIDClaim: session.Id},

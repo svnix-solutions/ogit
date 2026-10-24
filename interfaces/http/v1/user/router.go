@@ -13,6 +13,7 @@ type Controller struct {
 	FiberOapi *fiberoapi.OApiGroup
 	UserApp   *application.UserApp
 	TokenApp  *application.TokenApp
+	AuthApp   *application.AuthApp
 }
 
 func SetupUserRouter(controller Controller) {
@@ -27,6 +28,13 @@ func SetupUserRouter(controller Controller) {
 		Summary:     "Create access token",
 		Description: "Create a personal access token for git over HTTP (username: token name, password: token). The token is only returned once.",
 		OperationID: "user.createToken",
+		Tags:        []string{"User"},
+	})
+
+	fiberoapi.Post(controller.FiberOapi, "/password", controller.ChangePassword, fiberoapi.OpenAPIOptions{
+		Summary:     "Change password",
+		Description: "Requires the current password. The password policy applies. All other sessions of the user end.",
+		OperationID: "user.changePassword",
 		Tags:        []string{"User"},
 	})
 }

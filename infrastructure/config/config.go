@@ -39,10 +39,6 @@ type Config struct {
 		Issuer            string
 	}
 
-	Auth struct {
-		DisableAdminAccount bool
-	}
-
 	Registration struct {
 		Enabled                  bool     // Enable or disable user registration
 		RequireEmailVerification bool     // Require email verification for new registrations

@@ -41,6 +41,14 @@ func checkRegistrationPolicy(cfg config.Config, email, password string) error {
 		}
 	}
 
+	return checkPasswordPolicy(cfg, password)
+}
+
+// checkPasswordPolicy enforces password_min_length and password_complexity.
+// It also applies to admin-created accounts and password changes.
+func checkPasswordPolicy(cfg config.Config, password string) error {
+	policy := cfg.Registration
+
 	if n := len([]rune(password)); n < policy.PasswordMinLength {
 		return fmt.Errorf("%w: password must be at least %d characters", ErrRegistrationRejected, policy.PasswordMinLength)
 	}
