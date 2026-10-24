@@ -14,6 +14,7 @@ import { NotFoundPage } from "@/pages/not-found";
 import { RegisterPage } from "@/pages/register";
 import { BlamePage, BlobPage, TreePage } from "@/pages/repo-code";
 import { BranchesPage, CommitPage, CommitsPage, ComparePage } from "@/pages/repo-history";
+import { NewPullPage, PullPage, PullsPage } from "@/pages/repo-pulls";
 import { RepoSettingsPage } from "@/pages/repo-settings";
 import { SettingsPage } from "@/pages/settings";
 
@@ -40,7 +41,16 @@ export const routes: RouteObject[] = [
           { path: "commit/:sha", element: <CommitPage /> },
           { path: "branches", element: <BranchesPage /> },
           { path: "compare/*", element: <ComparePage /> },
-          { element: <RequireAuth />, children: [{ path: "settings", element: <RepoSettingsPage /> }] },
+          { path: "pulls", element: <PullsPage /> },
+          { path: "pulls/:number", element: <PullPage /> },
+          { path: "pulls/:number/:tab", element: <PullPage /> },
+          {
+            element: <RequireAuth />,
+            children: [
+              { path: "pulls/new", element: <NewPullPage /> },
+              { path: "settings", element: <RepoSettingsPage /> },
+            ],
+          },
         ],
       },
       {

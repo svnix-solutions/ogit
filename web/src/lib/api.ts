@@ -85,7 +85,7 @@ export function atLeast(role: Role | undefined, min: Role): boolean {
   return roleLevel[role ?? "none"] >= roleLevel[min];
 }
 
-export type Repository = RepositorySummary & { owner_type: "user" | "group"; role?: Role };
+export type Repository = RepositorySummary & { owner_type: "user" | "group"; role?: Role; required_approvals?: number };
 
 export type Member = { id: string; type: "user" | "group"; username?: string; group?: string; role: Role };
 

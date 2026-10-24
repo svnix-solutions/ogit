@@ -12,7 +12,9 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError, atLeast, roles, type Member, type Repository, type Role, type SSHKey } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
+import { useLabels } from "@/lib/pulls";
 import { formatDate, useMyGroups } from "@/lib/queries";
+import { LabelBadge } from "@/components/label-badge";
 import { NotFoundPage } from "./not-found";
 import { useRepository } from "./repo";
 
@@ -29,6 +31,7 @@ export function RepoSettingsPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <General repo={r.data} isOwner={isOwner} />
+      <Labels repo={r.data} />
       <Members repo={r.data} isOwner={isOwner} />
       <DeployKeys repo={r.data} />
       {isOwner && <Transfer repo={r.data} />}
@@ -53,6 +56,7 @@ function General({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
   const [description, setDescription] = useState(repo.description);
   const [isPrivate, setPrivate] = useState(repo.is_private);
   const [archived, setArchived] = useState(repo.archived);
+  const [approvals, setApprovals] = useState(repo.required_approvals ?? 0);
   const changed = useRepoChanged();
   const save = useMutation({
     mutationFn: () => {
@@ -62,6 +66,7 @@ function General({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
         if (name !== repo.name) body.name = name;
         if (isPrivate !== repo.is_private) body.is_private = isPrivate;
         if (archived !== repo.archived) body.archived = archived;
+        if (approvals !== (repo.required_approvals ?? 0)) body.required_approvals = approvals;
       }
       return api<Repository>("PATCH", `/repository/${repo.id}`, body);
     },
@@ -90,6 +95,10 @@ function General({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={archived} disabled={!isOwner} onChange={(e) => setArchived(e.target.checked)} /> Archived (read-only: pushes are refused)
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          Approvals required to merge a pull request
+          <Input type="number" min={0} max={10} className="w-20" value={approvals} disabled={!isOwner} onChange={(e) => setApprovals(Number(e.target.value))} aria-label="Required approvals" />
         </label>
         <ErrorText error={save.error} />
         {save.isSuccess && <p className="text-sm text-muted-foreground">Saved.</p>}
@@ -312,5 +321,45 @@ function Delete({ repo }: { repo: Repository }) {
       <ConfirmDelete word={repo.slug} action="Delete repository" pending={del.isPending} onConfirm={() => del.mutate()} />
       <ErrorText error={del.error} />
     </Section>
+  );
+}
+
+function Labels({ repo }: { repo: Repository }) {
+  const qc = useQueryClient();
+  const labels = useLabels(repo.full_path);
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#0969da");
+  const [description, setDescription] = useState("");
+  const base = `/repository/${repo.id}/labels`;
+  const done = () => qc.invalidateQueries({ queryKey: ["labels", repo.full_path] });
+  const create = useMutation({ mutationFn: () => api("POST", base, { name, color, description }), onSuccess: () => (setName(""), setDescription(""), done()) });
+  const remove = useMutation({ mutationFn: (id: string) => api("DELETE", `${base}/${id}`), onSettled: done });
+  return (
+    <div id="labels">
+      <Section title="Labels" description="For pull requests. Developers set them; maintainers manage them here.">
+        {labels.data && labels.data.length > 0 && (
+          <ul className="divide-y text-sm">
+            {labels.data.map((l) => (
+              <li key={l.id} className="flex items-center gap-3 py-2">
+                <LabelBadge label={l} />
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{l.description}</span>
+                <Button variant="ghost" size="icon" aria-label={`Delete label ${l.name}`} onClick={() => remove.mutate(l.id)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form className="flex flex-wrap gap-2" onSubmit={(e) => (e.preventDefault(), create.mutate())}>
+          <Input className="w-40" aria-label="Label name" placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <input type="color" aria-label="Label color" value={color} onChange={(e) => setColor(e.target.value)} className="h-9 w-12 rounded-md border bg-card" />
+          <Input className="min-w-40 flex-1" aria-label="Label description" placeholder="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
+          <Button type="submit" disabled={create.isPending}>
+            Add label
+          </Button>
+        </form>
+        <ErrorText error={create.error ?? remove.error} />
+      </Section>
+    </div>
   );
 }

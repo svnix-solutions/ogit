@@ -46,7 +46,10 @@ infrastructure/migration/files/    goose migrations (Go files, one per table)
 web/                               React 19 + Vite + TS + Tailwind 4 app; web/embed.go embeds
                                    web/dist (only .gitkeep is committed)
                                    pages in web/src/pages (repository views: repo-code.tsx,
-                                   repo-history.tsx, under components/repo-layout.tsx),
+                                   repo-history.tsx, repo-pulls.tsx, under
+                                   components/repo-layout.tsx; they read the repository
+                                   with useRepo(), so wrappers like RequireAuth must pass
+                                   the outlet context through),
                                    routes in web/src/app.tsx (fixed
                                    paths before /:owner, which the server reserves as names)
 interfaces/http/v1/site/           public routes with an optional session (shared helper: v1/optauth): /instance,
