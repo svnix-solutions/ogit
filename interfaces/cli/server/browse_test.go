@@ -42,7 +42,7 @@ func pushFiles(t *testing.T, repoURL string, auth *githttp.BasicAuth, branch, ms
 		_, err := wt.Add(name)
 		require.NoError(t, err)
 	}
-	h, err := wt.Commit(msg, &git.CommitOptions{Author: &object.Signature{Name: "Alice", Email: "alice@example.com", When: time.Now()}})
+	h, err := wt.Commit(msg, &git.CommitOptions{AllowEmptyCommits: true, Author: &object.Signature{Name: "Alice", Email: "alice@example.com", When: time.Now()}})
 	require.NoError(t, err)
 	refspec := config.RefSpec("refs/heads/" + branch + ":refs/heads/" + branch)
 	require.NoError(t, repo.Push(&git.PushOptions{Auth: auth, RefSpecs: []config.RefSpec{refspec}}))

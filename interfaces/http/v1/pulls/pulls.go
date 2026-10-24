@@ -1,0 +1,280 @@
+// Package pulls is the pull request API under
+// /api/v1/repository/:identifier/pulls. Reading works without a session on
+// public repositories; the rules are in application/pull_request_app.go.
+package pulls
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	fiberoapi "github.com/labbs/fiber-oapi"
+	"github.com/labbs/ogit/application"
+	"github.com/labbs/ogit/domain"
+	"github.com/labbs/ogit/infrastructure/gitbrowse"
+	"github.com/labbs/ogit/interfaces/http/v1/apierror"
+	"github.com/labbs/ogit/interfaces/http/v1/optauth"
+	"github.com/labbs/ogit/interfaces/http/v1/repoid"
+	"github.com/rs/zerolog"
+)
+
+type Controller struct {
+	Logger     zerolog.Logger
+	SessionApp *application.SessionApp
+	Pulls      *application.PullRequestApp
+}
+
+type ListRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	State      string `query:"state" json:"-"` // open (default), closed, merged or all
+	Offset     int    `query:"offset" json:"-"`
+	Limit      int    `query:"limit" json:"-"`
+}
+
+type Summary struct {
+	Number       int        `json:"number"`
+	Title        string     `json:"title"`
+	State        string     `json:"state"`
+	Draft        bool       `json:"draft"`
+	Author       string     `json:"author"` // "" once the account is deleted
+	SourceBranch string     `json:"source_branch"`
+	TargetBranch string     `json:"target_branch"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	MergedAt     *time.Time `json:"merged_at,omitempty"`
+	ClosedAt     *time.Time `json:"closed_at,omitempty"`
+}
+
+type ListResponse struct {
+	PullRequests []Summary        `json:"pull_requests"`
+	Counts       map[string]int64 `json:"counts"` // per state
+}
+
+type CreateRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	Title      string `json:"title" validate:"required"`
+	Body       string `json:"body"`
+	Source     string `json:"source" validate:"required"`
+	Target     string `json:"target"` // default branch when empty
+	Draft      bool   `json:"draft"`
+}
+
+type NumberRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	Number     string `path:"number" json:"-" validate:"required"`
+}
+
+type UpdateRequest struct {
+	Identifier string  `path:"identifier" json:"-" validate:"required"`
+	Number     string  `path:"number" json:"-" validate:"required"`
+	Title      *string `json:"title"`
+	Body       *string `json:"body"`
+	Draft      *bool   `json:"draft"` // false marks a draft ready
+}
+
+type MergeRequest struct {
+	Identifier   string `path:"identifier" json:"-" validate:"required"`
+	Number       string `path:"number" json:"-" validate:"required"`
+	Method       string `json:"method" validate:"required"` // merge, squash or rebase
+	Message      string `json:"message"`
+	DeleteBranch bool   `json:"delete_branch"`
+}
+
+type Detail struct {
+	Summary
+	Body          string   `json:"body"`
+	BaseCommit    string   `json:"base_commit"`
+	HeadCommit    string   `json:"head_commit"`
+	MergeCommit   string   `json:"merge_commit,omitempty"`
+	MergeMethod   string   `json:"merge_method,omitempty"`
+	MergedBy      string   `json:"merged_by,omitempty"`
+	Mergeable     *bool    `json:"mergeable,omitempty"` // open pull requests
+	Conflicts     []string `json:"conflicts"`
+	BranchesExist bool     `json:"branches_exist"`
+	CanEdit       bool     `json:"can_edit"`
+	CanMerge      bool     `json:"can_merge"`
+}
+
+func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
+	tags := []string{"Pull requests"}
+	public := func(summary, id, desc string) fiberoapi.OpenAPIOptions {
+		return fiberoapi.OpenAPIOptions{Summary: summary, OperationID: id, Tags: tags, Security: "disabled", Description: desc + " No session needed for public repositories."}
+	}
+	private := func(summary, id, desc string) fiberoapi.OpenAPIOptions {
+		return fiberoapi.OpenAPIOptions{Summary: summary, OperationID: id, Tags: tags, Description: desc}
+	}
+	fiberoapi.Get(repoGrp, "/:identifier/pulls", c.List, public("List pull requests", "pulls.list", "?state=open (default), closed, merged or all; newest first, with counts per state."))
+	fiberoapi.Post(repoGrp, "/:identifier/pulls", c.Create, private("Open a pull request", "pulls.create", "Developers and up. From source into target (the default branch when empty), between branches of this repository."))
+	fiberoapi.Get(repoGrp, "/:identifier/pulls/:number", c.Get, public("Get a pull request", "pulls.get", "With mergeability and conflicting files while open, and what the caller may do."))
+	fiberoapi.Patch(repoGrp, "/:identifier/pulls/:number", c.Update, private("Edit a pull request", "pulls.update", "The author and maintainers: title, body, draft (false marks it ready)."))
+	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/close", c.Close, private("Close a pull request", "pulls.close", "The author and maintainers."))
+	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/reopen", c.Reopen, private("Reopen a pull request", "pulls.reopen", "The author and maintainers, while both branches exist."))
+	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/merge", c.Merge, private("Merge a pull request", "pulls.merge", "Maintainers and owners. method: merge, squash or rebase. Refused for drafts, conflicts, archived repositories, or if the target branch moves meanwhile."))
+	fiberoapi.Get(repoGrp, "/:identifier/pulls/:number/compare", c.Compare, public("Commits and diff", "pulls.compare", "The source's commits since the merge base and the diff, as for compare; recorded tips once merged or closed."))
+}
+
+func (c Controller) userId(ctx *fiber.Ctx) string { return optauth.UserID(ctx, c.SessionApp) }
+
+// number parses the :number path parameter (fiber-oapi fills strings only).
+func number(s string) (int, *fiberoapi.ErrorResponse) {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return 0, apierror.From(application.ErrPullRequestNotFound, zerolog.Nop())
+	}
+	return n, nil
+}
+
+func summary(pr *domain.PullRequest) Summary {
+	s := Summary{
+		Number: pr.Number, Title: pr.Title, State: string(pr.State), Draft: pr.Draft,
+		SourceBranch: pr.SourceBranch, TargetBranch: pr.TargetBranch,
+		CreatedAt: pr.CreatedAt, UpdatedAt: pr.UpdatedAt, MergedAt: pr.MergedAt, ClosedAt: pr.ClosedAt,
+	}
+	if pr.Author != nil {
+		s.Author = pr.Author.Username
+	}
+	return s
+}
+
+func detail(v *application.PullRequestView) *Detail {
+	d := &Detail{
+		Summary: summary(v.PullRequest), Body: v.Body, BaseCommit: v.BaseCommit, HeadCommit: v.HeadCommit,
+		MergeCommit: v.MergeCommit, MergeMethod: v.MergeMethod, Mergeable: v.Mergeable, Conflicts: v.Conflicts,
+		BranchesExist: v.BranchesExist, CanEdit: v.CanEdit, CanMerge: v.CanMerge,
+	}
+	if d.Conflicts == nil {
+		d.Conflicts = []string{}
+	}
+	if v.MergedBy != nil {
+		d.MergedBy = v.MergedBy.Username
+	}
+	return d
+}
+
+func (c Controller) List(ctx *fiber.Ctx, req ListRequest) (*ListResponse, *fiberoapi.ErrorResponse) {
+	state := domain.PullRequestState(req.State)
+	switch req.State {
+	case "":
+		state = domain.PullRequestOpen
+	case "all":
+		state = ""
+	case "open", "closed", "merged":
+	default:
+		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusBadRequest, Details: "state must be open, closed, merged or all", Type: "INVALID_STATE"}
+	}
+	id, path := repoid.Split(req.Identifier)
+	prs, counts, err := c.Pulls.List(id, path, c.userId(ctx), state, req.Offset, req.Limit)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	resp := &ListResponse{PullRequests: []Summary{}, Counts: map[string]int64{"open": 0, "closed": 0, "merged": 0}}
+	for i := range prs {
+		resp.PullRequests = append(resp.PullRequests, summary(&prs[i]))
+	}
+	for s, n := range counts {
+		resp.Counts[string(s)] = n
+	}
+	return resp, nil
+}
+
+func (c Controller) Create(ctx *fiber.Ctx, req CreateRequest) (*Detail, *fiberoapi.ErrorResponse) {
+	auth, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, path := repoid.Split(req.Identifier)
+	pr, err := c.Pulls.Create(id, path, auth.UserID, req.Title, req.Body, req.Source, req.Target, req.Draft)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	view, err := c.Pulls.Get(id, path, auth.UserID, pr.Number)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return detail(view), nil
+}
+
+func (c Controller) Get(ctx *fiber.Ctx, req NumberRequest) (*Detail, *fiberoapi.ErrorResponse) {
+	id, path := repoid.Split(req.Identifier)
+	n, errResp := number(req.Number)
+	if errResp != nil {
+		return nil, errResp
+	}
+	view, err := c.Pulls.Get(id, path, c.userId(ctx), n)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return detail(view), nil
+}
+
+func (c Controller) Update(ctx *fiber.Ctx, req UpdateRequest) (*Detail, *fiberoapi.ErrorResponse) {
+	auth, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, path := repoid.Split(req.Identifier)
+	n, errResp := number(req.Number)
+	if errResp != nil {
+		return nil, errResp
+	}
+	view, err := c.Pulls.Update(id, path, auth.UserID, n, application.PullRequestUpdate{Title: req.Title, Body: req.Body, Draft: req.Draft})
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return detail(view), nil
+}
+
+func (c Controller) Close(ctx *fiber.Ctx, req NumberRequest) (*Detail, *fiberoapi.ErrorResponse) {
+	return c.transition(ctx, req, c.Pulls.Close)
+}
+
+func (c Controller) Reopen(ctx *fiber.Ctx, req NumberRequest) (*Detail, *fiberoapi.ErrorResponse) {
+	return c.transition(ctx, req, c.Pulls.Reopen)
+}
+
+func (c Controller) transition(ctx *fiber.Ctx, req NumberRequest, do func(id, path *string, actor string, number int) (*application.PullRequestView, error)) (*Detail, *fiberoapi.ErrorResponse) {
+	auth, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, path := repoid.Split(req.Identifier)
+	n, errResp := number(req.Number)
+	if errResp != nil {
+		return nil, errResp
+	}
+	view, err := do(id, path, auth.UserID, n)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return detail(view), nil
+}
+
+func (c Controller) Merge(ctx *fiber.Ctx, req MergeRequest) (*Detail, *fiberoapi.ErrorResponse) {
+	auth, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, path := repoid.Split(req.Identifier)
+	n, errResp := number(req.Number)
+	if errResp != nil {
+		return nil, errResp
+	}
+	view, err := c.Pulls.Merge(id, path, auth.UserID, n, application.MergeOptions{Method: req.Method, Message: req.Message, DeleteBranch: req.DeleteBranch})
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return detail(view), nil
+}
+
+func (c Controller) Compare(ctx *fiber.Ctx, req NumberRequest) (*gitbrowse.Comparison, *fiberoapi.ErrorResponse) {
+	id, path := repoid.Split(req.Identifier)
+	n, errResp := number(req.Number)
+	if errResp != nil {
+		return nil, errResp
+	}
+	cmp, err := c.Pulls.Compare(id, path, c.userId(ctx), n)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return cmp, nil
+}

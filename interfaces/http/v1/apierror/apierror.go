@@ -8,6 +8,7 @@ import (
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/domain"
+	"github.com/labbs/ogit/infrastructure/gitmerge"
 	"github.com/rs/zerolog"
 )
 
@@ -37,6 +38,18 @@ var mapping = []struct {
 	{application.ErrRepositoryNameTaken, fiber.StatusConflict, "REPOSITORY_NAME_TAKEN"},
 	{application.ErrNamespaceNotFound, fiber.StatusNotFound, "NAMESPACE_NOT_FOUND"},
 	{application.ErrTokenNotFound, fiber.StatusNotFound, "TOKEN_NOT_FOUND"},
+	{application.ErrPullRequestNotFound, fiber.StatusNotFound, "PULL_REQUEST_NOT_FOUND"},
+	{application.ErrBranchNotFound, fiber.StatusNotFound, "BRANCH_NOT_FOUND"},
+	{application.ErrSameBranch, fiber.StatusBadRequest, "SAME_BRANCH"},
+	{application.ErrEmptyTitle, fiber.StatusBadRequest, "TITLE_REQUIRED"},
+	{application.ErrPullRequestExists, fiber.StatusConflict, "PULL_REQUEST_EXISTS"},
+	{application.ErrNoChanges, fiber.StatusConflict, "NO_CHANGES"},
+	{application.ErrNotOpen, fiber.StatusConflict, "NOT_OPEN"},
+	{application.ErrDraft, fiber.StatusConflict, "DRAFT"},
+	{application.ErrTargetMoved, fiber.StatusConflict, "TARGET_MOVED"},
+	{application.ErrGitArchived, fiber.StatusConflict, "REPOSITORY_ARCHIVED"},
+	{gitmerge.ErrMethod, fiber.StatusBadRequest, "INVALID_MERGE_METHOD"},
+	{gitmerge.ErrRebaseMerges, fiber.StatusConflict, "REBASE_MERGE_COMMITS"},
 	{application.ErrNamespaceNotEmpty, fiber.StatusConflict, "NAMESPACE_NOT_EMPTY"},
 	{domain.ErrInvalidNamespaceName, fiber.StatusBadRequest, "INVALID_NAMESPACE_NAME"},
 	{application.ErrInvalidName, fiber.StatusBadRequest, "INVALID_NAME"},
@@ -51,6 +64,10 @@ var mapping = []struct {
 // repositories listed by ErrWouldOrphan). Unknown errors are logged and
 // returned as a generic 500 without their message.
 func From(err error, logger zerolog.Logger) *fiberoapi.ErrorResponse {
+	var conflict *application.MergeConflictError
+	if errors.As(err, &conflict) {
+		return &fiberoapi.ErrorResponse{Code: fiber.StatusConflict, Details: err.Error(), Type: "MERGE_CONFLICT"}
+	}
 	for _, m := range mapping {
 		if errors.Is(err, m.err) {
 			return &fiberoapi.ErrorResponse{Code: m.code, Details: err.Error(), Type: m.typ}

@@ -25,6 +25,7 @@ type Deps struct {
 	AuthApp    *application.AuthApp
 	RepoApp    *application.RepositoryApp
 	BrowseApp  *application.BrowseApp
+	PullApp    *application.PullRequestApp
 	GitApp     *application.GitApp
 	TokenApp   *application.TokenApp
 	GroupApp   *application.GroupApp
