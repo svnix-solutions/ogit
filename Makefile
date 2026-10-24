@@ -65,13 +65,13 @@ lint: ## Lint code (requires golangci-lint)
 # Build
 build: ## Build the server
 	@mkdir -p $(BUILD_DIR)
-	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/main.go
+	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/cmd.go
 
 # Build with version information
 build-release: ## Build for release
 	@mkdir -p $(BUILD_DIR)
 	go build -ldflags "-X main.version=$(shell git describe --tags --always --dirty)" \
-		-o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/main.go
+		-o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/cmd.go
 
 # Run the server
 run: build ## Build and run the server
@@ -117,14 +117,6 @@ update-deps: ## Update dependencies
 
 # Complete check (CI)
 ci: fmt vet test-unit ## CI/CD checks
-
-# Memory tests with Valgrind (Linux only)
-memcheck: ## Memory tests (Linux only)
-	@if command -v valgrind >/dev/null 2>&1; then \
-		go test -c ./pkg/storage/s3/ && valgrind --leak-check=full ./s3.test; \
-	else \
-		echo "⚠️  valgrind not available (Linux only)"; \
-	fi
 
 # Install development tools
 install-tools: ## Install development tools

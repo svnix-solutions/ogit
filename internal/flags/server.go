@@ -22,7 +22,6 @@ func ServerFlags() []cli.Flag {
 		},
 		&cli.BoolFlag{
 			Name:        "http.logs",
-			Aliases:     []string{"l"},
 			Value:       false,
 			Destination: &config.Server.HttpLogs,
 			Sources: cli.NewValueSourceChain(
