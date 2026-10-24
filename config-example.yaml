@@ -1,13 +1,42 @@
+# oGit configuration. Copy to config.yaml and pass with -c config.yaml.
+# Every key can also be set with a flag (--http.port) or an environment
+# variable (HTTP_PORT); flags win over env vars, env vars over this file.
+# Values shown are the defaults unless noted.
+
 http:
   port: 8080
-  logs: true
+  logs: false          # access log for every request
+
 logger:
-  level: info
-  pretty: false
+  level: info          # debug, info, warn, error
+  pretty: false        # human-readable output instead of JSON
+
 database:
-  dialect: sqlite
+  dialect: sqlite      # sqlite or postgres
   dsn: ./database.sqlite
-# HMAC key for session tokens, at least 32 bytes (e.g. `openssl rand -hex 32`).
-# If unset, a random key is generated at startup and sessions do not survive restarts.
+  # postgres example: "host=localhost user=local password=local dbname=local port=5432 sslmode=disable"
+
 session:
+  # HMAC key for session tokens, at least 32 bytes (e.g. `openssl rand -hex 32`).
+  # If unset, a random key is generated at startup and sessions do not survive restarts.
   secret_key: ""
+  expiration_minutes: 43200   # 30 days
+  issuer: ogit
+
+registration:
+  enabled: true
+  domain_whitelist: []        # e.g. ["example.com"]; empty allows any domain
+  password_min_length: 12
+  password_complexity: true   # upper and lower case, digit and symbol
+  require_email_verification: true  # not enforced yet: there is no verification flow
+
+storage:
+  type: local          # local or s3
+  local:
+    path: ./repositories
+  s3:                  # used when type is s3; path-style addressing (MinIO, Outscale, ...)
+    bucket: ""
+    endpoint: ""       # e.g. https://s3.eu-west-2.amazonaws.com or http://localhost:9000
+    accesskey: ""
+    secretkey: ""
+    region: us-east-1
