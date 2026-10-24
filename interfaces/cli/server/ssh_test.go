@@ -71,6 +71,10 @@ func newGitCLI(t *testing.T, key sshKey, port int) *gitCLI {
 	t.Helper()
 	for _, bin := range []string{"git", "ssh"} {
 		if _, err := exec.LookPath(bin); err != nil {
+			// In CI these tests must run, not silently skip.
+			if os.Getenv("CI") != "" {
+				t.Fatalf("%s not installed; the SSH tests need the real client", bin)
+			}
 			t.Skipf("%s not installed", bin)
 		}
 	}
