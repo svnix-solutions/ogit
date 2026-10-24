@@ -20,7 +20,6 @@ func ServerFlags(cfg *Config) []cli.Flag {
 		},
 		&cli.BoolFlag{
 			Name:        "http.logs",
-			Aliases:     []string{"l"},
 			Value:       false,
 			Destination: &cfg.Server.HttpLogs,
 			Sources: cli.NewValueSourceChain(

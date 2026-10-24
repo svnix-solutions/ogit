@@ -23,3 +23,19 @@ func TestSetupDepsRejectsShortSessionSecret(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "session.secret_key")
 }
+
+// Duplicate names or aliases make urfave/cli silently bind the same switch
+// to more than one flag (e.g. -l was both --http.logs and --logger.level).
+func TestFlagNamesAreUnique(t *testing.T) {
+	var cfg config.Config
+	seen := map[string]string{}
+	for _, f := range getFlags(&cfg) {
+		owner := f.Names()[0]
+		for _, name := range f.Names() {
+			if prev, ok := seen[name]; ok {
+				t.Errorf("flag name %q is used by both %s and %s", name, prev, owner)
+			}
+			seen[name] = owner
+		}
+	}
+}

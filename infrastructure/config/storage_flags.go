@@ -47,7 +47,6 @@ func StorageFlags(cfg *Config) []cli.Flag {
 		&cli.StringFlag{
 			Name:        "storage.s3.endpoint",
 			Usage:       "The S3 endpoint URL (used when storage.type is 's3')",
-			Aliases:     []string{"storage.s3.endpoint"},
 			Value:       "",
 			Destination: &cfg.Storage.S3.Endpoint,
 			Sources: cli.NewValueSourceChain(
@@ -58,7 +57,6 @@ func StorageFlags(cfg *Config) []cli.Flag {
 		&cli.StringFlag{
 			Name:        "storage.s3.accesskey",
 			Usage:       "The S3 access key (used when storage.type is 's3')",
-			Aliases:     []string{"storage.s3.accesskey"},
 			Value:       "",
 			Destination: &cfg.Storage.S3.AccessKey,
 			Sources: cli.NewValueSourceChain(
@@ -69,7 +67,6 @@ func StorageFlags(cfg *Config) []cli.Flag {
 		&cli.StringFlag{
 			Name:        "storage.s3.secretkey",
 			Usage:       "The S3 secret key (used when storage.type is 's3')",
-			Aliases:     []string{"storage.s3.secretkey"},
 			Value:       "",
 			Destination: &cfg.Storage.S3.SecretKey,
 			Sources: cli.NewValueSourceChain(
@@ -80,7 +77,6 @@ func StorageFlags(cfg *Config) []cli.Flag {
 		&cli.StringFlag{
 			Name:        "storage.s3.region",
 			Usage:       "The S3 region (used when storage.type is 's3')",
-			Aliases:     []string{"storage.s3.region"},
 			Value:       "us-east-1",
 			Destination: &cfg.Storage.S3.Region,
 			Sources: cli.NewValueSourceChain(
