@@ -50,58 +50,11 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 
 // runServer initializes the necessary dependencies and starts the HTTP server.
 func runServer(cfg config.Config) error {
-	var err error
-
-	// Initialize dependencies
-	deps := infrastructure.Deps{
-		Config: cfg,
+	deps, err := setupDeps(cfg)
+	if err != nil {
+		return err
 	}
-
-	// Initialize logger
-	deps.Logger = logger.NewLogger(cfg.Logger.Level, cfg.Logger.Pretty, cfg.Version)
 	logger := deps.Logger.With().Str("component", "interfaces.cli.http.runserver").Logger()
-
-	// Initialize other cron scheduler (go-cron)
-	deps.CronScheduler, err = cronscheduler.Configure(deps.Logger)
-	if err != nil {
-		logger.Fatal().Err(err).Str("event", "http.runserver.cronscheduler.configure").Msg("Failed to configure cron scheduler")
-		return err
-	}
-
-	// Initialize database connection (gorm)
-	deps.Database, err = database.Configure(deps.Config, deps.Logger)
-	if err != nil {
-		logger.Fatal().Err(err).Str("event", "http.runserver.database.configure").Msg("Failed to configure database connection")
-		return err
-	}
-
-	// Initialize storage
-	deps.Storage, err = storage.Configure(deps.Config, deps.Logger)
-	if err != nil {
-		logger.Fatal().Err(err).Str("event", "http.runserver.storage.configure").Msg("Failed to configure storage")
-		return err
-	}
-
-	// Initialize application services
-	userPers := persistence.NewUserPers(deps.Database.Db)
-	groupPers := persistence.NewGroupPers(deps.Database.Db)
-	sessionPers := persistence.NewSessionPers(deps.Database.Db)
-	repoPers := persistence.NewRepositoryPers(deps.Database.Db)
-	tokenPers := persistence.NewTokenPers(deps.Database.Db)
-	repositoryMemberPers := persistence.NewRepositoryMemberPers(deps.Database.Db)
-
-	deps.UserApp = application.NewUserApp(deps.Config, deps.Logger, userPers, groupPers)
-	deps.SessionApp = application.NewSessionApp(deps.Config, deps.Logger, sessionPers, deps.UserApp)
-	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, nil, deps.Storage)
-	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
-	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp)
-
-	// Initialize HTTP server (fiber + fiberoapi)
-	deps.Http, err = http.Configure(deps.Config, deps.Logger, *deps.SessionApp, true)
-	if err != nil {
-		logger.Fatal().Err(err).Str("event", "http.runserver.http.configure").Msg("Failed to configure HTTP server")
-		return err
-	}
 
 	// Setup cron jobs
 	configJobs := jobs.Config{
@@ -128,4 +81,63 @@ func runServer(cfg config.Config) error {
 	}
 
 	return nil
+}
+
+// setupDeps initializes the logger, cron scheduler, database, storage,
+// application services and HTTP server. Routes and cron jobs are not set up.
+func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
+	var err error
+
+	// Initialize dependencies
+	deps := infrastructure.Deps{
+		Config: cfg,
+	}
+
+	// Initialize logger
+	deps.Logger = logger.NewLogger(cfg.Logger.Level, cfg.Logger.Pretty, cfg.Version)
+	logger := deps.Logger.With().Str("component", "interfaces.cli.http.runserver").Logger()
+
+	// Initialize other cron scheduler (go-cron)
+	deps.CronScheduler, err = cronscheduler.Configure(deps.Logger)
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.cronscheduler.configure").Msg("Failed to configure cron scheduler")
+		return deps, err
+	}
+
+	// Initialize database connection (gorm)
+	deps.Database, err = database.Configure(deps.Config, deps.Logger)
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.database.configure").Msg("Failed to configure database connection")
+		return deps, err
+	}
+
+	// Initialize storage
+	deps.Storage, err = storage.Configure(deps.Config, deps.Logger)
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.storage.configure").Msg("Failed to configure storage")
+		return deps, err
+	}
+
+	// Initialize application services
+	userPers := persistence.NewUserPers(deps.Database.Db)
+	groupPers := persistence.NewGroupPers(deps.Database.Db)
+	sessionPers := persistence.NewSessionPers(deps.Database.Db)
+	repoPers := persistence.NewRepositoryPers(deps.Database.Db)
+	tokenPers := persistence.NewTokenPers(deps.Database.Db)
+	repositoryMemberPers := persistence.NewRepositoryMemberPers(deps.Database.Db)
+
+	deps.UserApp = application.NewUserApp(deps.Config, deps.Logger, userPers, groupPers)
+	deps.SessionApp = application.NewSessionApp(deps.Config, deps.Logger, sessionPers, deps.UserApp)
+	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, nil, deps.Storage)
+	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
+	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp)
+
+	// Initialize HTTP server (fiber + fiberoapi)
+	deps.Http, err = http.Configure(deps.Config, deps.Logger, *deps.SessionApp, true)
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.http.configure").Msg("Failed to configure HTTP server")
+		return deps, err
+	}
+
+	return deps, nil
 }

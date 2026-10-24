@@ -1,6 +1,7 @@
 package application
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -78,72 +79,102 @@ func (c *AuthApp) Authenticate(email, password string, ctx *fiber.Ctx) (*dtos.Lo
 	}, nil
 }
 
-func (c *AuthApp) HTTPGitAuthenticate(name, token, repoSlug, operation string) (*domain.Token, error) {
-	logger := c.Logger.With().Str("component", "application.auth.http_git_authenticate").Logger()
+// Git authorization outcomes. The HTTP layer maps them to status codes:
+// ErrGitUnauthenticated → 401 (git prompts for credentials),
+// ErrGitNotFound → 404, ErrGitForbidden → 403.
+var (
+	ErrGitUnauthenticated = errors.New("authentication required")
+	ErrGitNotFound        = errors.New("repository not found")
+	ErrGitForbidden       = errors.New("permission denied")
+)
 
-	// Récupérer le repository
-	repo, err := c.RepositoryApp.GetRepository(nil, &repoSlug)
-	if err != nil {
-		logger.Warn().Err(err).Str("repo_slug", repoSlug).Msg("failed to get repository by slug")
-		return nil, fmt.Errorf("repository not found")
-	}
+// GitCredentials are the HTTP Basic credentials sent by a git client:
+// the token name as username and the token itself as password.
+type GitCredentials struct {
+	Name  string
+	Token string
+}
 
-	// Récupérer le token
-	authToken, err := c.TokenApp.GetByNameAndToken(name, token)
-	if err != nil {
-		logger.Warn().Err(err).Str("name", name).Msg("failed to get token by name and token")
-		return nil, fmt.Errorf("invalid token")
-	}
+// AuthorizeGit decides whether a git operation ("git-upload-pack" for
+// clone/fetch, "git-receive-pack" for push) on the repository with the given
+// slug is allowed. creds is nil for anonymous requests, which may only read
+// public repositories. Private repositories the caller cannot read are
+// reported as not found so that their existence is not disclosed.
+func (c *AuthApp) AuthorizeGit(repoSlug, operation string, creds *GitCredentials) error {
+	logger := c.Logger.With().Str("component", "application.auth.authorize_git").Logger()
 
-	// Vérifier les scopes du token
 	var requiredScope domain.TokenScope
+	var gitOperation string
 	switch operation {
 	case "git-upload-pack": // git clone, git fetch
 		requiredScope = domain.ScopeReadRepository
+		gitOperation = "read"
 	case "git-receive-pack": // git push
 		requiredScope = domain.ScopeWriteRepository
+		gitOperation = "write"
 	default:
-		return nil, fmt.Errorf("invalid git operation")
+		return fmt.Errorf("invalid git operation: %s", operation)
 	}
 
-	hasScope := slices.Contains(authToken.Scopes, requiredScope)
-	if !hasScope {
-		return nil, fmt.Errorf("token does not have required scope")
+	repo, repoErr := c.RepositoryApp.GetRepository(nil, &repoSlug)
+
+	if creds == nil {
+		if repoErr == nil && !repo.IsPrivate && gitOperation == "read" {
+			return nil
+		}
+		return ErrGitUnauthenticated
 	}
 
-	// Vérifier les permissions selon le type de token
+	authToken, err := c.TokenApp.GetByNameAndToken(creds.Name, creds.Token)
+	if err != nil {
+		logger.Warn().Err(err).Str("name", creds.Name).Msg("invalid git token")
+		return ErrGitUnauthenticated
+	}
+
+	if repoErr != nil {
+		return ErrGitNotFound
+	}
+
 	switch authToken.Type {
 	case domain.TokenUser:
-		// Token utilisateur - vérifier les permissions via user + groupes
-		if authToken.User.Id == "" || !authToken.User.Active {
-			return nil, fmt.Errorf("user is not active")
+		if authToken.UserId == nil || !authToken.User.Active {
+			logger.Warn().Str("token_id", authToken.Id).Msg("git token belongs to an inactive user")
+			return ErrGitUnauthenticated
 		}
 
-		// Vérifier l'accès via les permissions repository_member
-		gitOperation := "read"
-		if operation == "git-receive-pack" {
-			gitOperation = "write"
-		}
-
-		canAccess, err := c.RepositoryApp.CanUserAccess(repo.Id, authToken.User.Id, gitOperation)
+		canRead, err := c.RepositoryApp.CanUserAccess(repo.Id, *authToken.UserId, "read")
 		if err != nil {
-			logger.Error().Err(err).Msg("failed to check user access")
-			return nil, fmt.Errorf("access check failed")
+			logger.Error().Err(err).Str("repo_id", repo.Id).Msg("failed to check repository access")
+			return err
 		}
-		if !canAccess {
-			return nil, fmt.Errorf("user does not have access to repository")
+		if !canRead {
+			return ErrGitNotFound
+		}
+		if gitOperation == "write" {
+			canWrite, err := c.RepositoryApp.CanUserAccess(repo.Id, *authToken.UserId, "write")
+			if err != nil {
+				logger.Error().Err(err).Str("repo_id", repo.Id).Msg("failed to check repository access")
+				return err
+			}
+			if !canWrite {
+				return ErrGitForbidden
+			}
 		}
 
 	case domain.TokenRepo:
-		// Token repository - vérifier qu'il appartient au bon repo
 		if authToken.RepositoryId == nil || *authToken.RepositoryId != repo.Id {
-			return nil, fmt.Errorf("token does not belong to repository")
+			return ErrGitNotFound
 		}
+
 	default:
-		return nil, fmt.Errorf("invalid token type")
+		return ErrGitForbidden
 	}
 
-	return authToken, nil
+	if !slices.Contains(authToken.Scopes, requiredScope) {
+		return ErrGitForbidden
+	}
+
+	return nil
 }
 
 func (c *AuthApp) Register(username, email, password string) error {
