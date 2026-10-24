@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/storage/s3"
@@ -161,4 +163,52 @@ func TestS3GCOverGit(t *testing.T) {
 	assert.Equal(t, 41, res.Deleted)
 	g.mustRun(t.TempDir(), "clone", "-q", g.url("busy"), ".")
 	assert.Equal(t, "42", strings.TrimSpace(g.mustRun(reader, "rev-list", "--count", "HEAD")), "initial commit, 40 pushes and one after gc")
+}
+
+// After a force-push and a branch deletion, prune removes the dropped
+// commits and the repository keeps working.
+func TestS3PruneOverGit(t *testing.T) {
+	srv := startTestServer(t, withS3(s3test.StartFake(t)))
+	owner := srv.newUser(t, "owner")
+	srv.createRepo(t, owner.session, "Forced", false)
+	var repo domain.Repository
+	require.NoError(t, srv.deps.Database.Db.Where("slug = ?", "forced").First(&repo).Error)
+	port := srv.startSSH(t)
+	key := newSSHKey(t, "o")
+	status, _ := srv.post(t, "/api/v1/user/ssh-keys", owner.session, map[string]any{"key": key.authorized})
+	require.Equal(t, http.StatusOK, status)
+	g := newGitCLI(t, key, port)
+
+	dir := t.TempDir()
+	g.mustRun(dir, "clone", "-q", g.url("forced"), ".")
+	for i := 0; i < 3; i++ {
+		commitFile(t, g, dir, "f.txt", fmt.Sprintf("v%d\n", i))
+		g.mustRun(dir, "push", "-q", "origin", "HEAD")
+	}
+	dropped := strings.TrimSpace(g.mustRun(dir, "rev-parse", "HEAD"))
+	g.mustRun(dir, "checkout", "-qb", "feature")
+	commitFile(t, g, dir, "feature.txt", "x")
+	g.mustRun(dir, "push", "-q", "origin", "feature")
+	feature := strings.TrimSpace(g.mustRun(dir, "rev-parse", "HEAD"))
+	g.mustRun(dir, "checkout", "-q", "main")
+	g.mustRun(dir, "push", "-qf", "origin", "HEAD~1:main")
+	g.mustRun(dir, "push", "-q", "origin", ":feature")
+	time.Sleep(20 * time.Millisecond)
+
+	s3store := srv.deps.Storage.(*s3.S3Storage)
+	res, err := s3store.Prune(repo.StorageKey, 0, 0, false)
+	require.NoError(t, err)
+	assert.Equal(t, 6, res.Pruned, "two commits with a blob and a tree each")
+
+	st, err := srv.deps.Storage.GetStorer(repo.StorageKey)
+	require.NoError(t, err)
+	assert.Error(t, st.HasEncodedObject(plumbing.NewHash(dropped)))
+	assert.Error(t, st.HasEncodedObject(plumbing.NewHash(feature)))
+
+	check := t.TempDir()
+	g.mustRun(check, "clone", "-q", g.url("forced"), ".")
+	assert.Equal(t, "3", strings.TrimSpace(g.mustRun(check, "rev-list", "--count", "HEAD")), "initial commit and two pushes")
+	commitFile(t, g, check, "after.txt", "after prune")
+	g.mustRun(check, "push", "-q", "origin", "HEAD")
+	g.mustRun(t.TempDir(), "clone", "-q", g.url("forced"), ".")
 }

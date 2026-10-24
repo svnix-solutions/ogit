@@ -1,7 +1,6 @@
 package s3
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sort"
@@ -12,7 +11,6 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/format/packfile"
 )
 
 // Every push adds a pack, and every request lists the packs and loads their
@@ -81,67 +79,27 @@ func (s3s *S3Storage) GC(repoPath string, grace time.Duration) (GCResult, error)
 	seen := map[plumbing.Hash]bool{}
 	var hashes []plumbing.Hash
 	for _, p := range merge {
-		entries, err := p.idx.Entries()
-		if err != nil {
+		if err := forEachHash(p, func(h plumbing.Hash) {
+			if !seen[h] {
+				seen[h] = true
+				hashes = append(hashes, h)
+			}
+		}); err != nil {
 			return res, err
 		}
-		for {
-			e, err := entries.Next()
-			if err != nil {
-				break // io.EOF
-			}
-			if !seen[e.Hash] {
-				seen[e.Hash] = true
-				hashes = append(hashes, e.Hash)
-			}
-		}
-		entries.Close()
 	}
 
-	// Encode through the storer: it reads the objects from the old packs.
-	pw := &packWriter{s: st}
-	if pw.f, err = createTemp(); err != nil {
-		return res, err
-	}
-	if _, err := packfile.NewEncoder(pw, st, false).Encode(hashes, 10); err != nil {
-		pw.Close()
-		return res, fmt.Errorf("encode pack: %w", err)
-	}
-	if err := pw.Close(); err != nil {
-		return res, err
-	}
-
-	// Check the new pack itself (the old ones still hold every object).
-	check := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger, s3s.cache)
-	fresh, err := check.state()
+	// Encoded through the storer: it reads the objects from the old packs.
+	merged, err := s3s.writeVerifiedPack(st, repoKey, hashes)
 	if err != nil {
 		return res, err
 	}
-	var merged *pack
-	for _, p := range fresh.packs {
-		if p.key == pw.key {
-			merged = p
-		}
-	}
-	if merged == nil {
-		return res, fmt.Errorf("merged pack %s is not listed; old packs kept", pw.key)
-	}
-	for _, h := range hashes {
-		if ok, _ := merged.idx.Contains(h); !ok {
-			return res, fmt.Errorf("object %s missing from the merged pack; old packs kept", h)
-		}
-	}
-
 	for _, p := range merge {
 		if p.key == merged.key {
 			continue // same objects merged again: identical pack
 		}
-		if _, err := s3s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
-			Bucket: aws.String(s3s.bucket),
-			Key:    aws.String(strings.TrimSuffix(p.key, ".pack") + dropSuffix),
-			Body:   bytes.NewReader(nil),
-		}); err != nil {
-			return res, fmt.Errorf("drop %s: %w", p.key, err)
+		if err := s3s.dropPack(p); err != nil {
+			return res, err
 		}
 	}
 	res.Merged = len(merge)

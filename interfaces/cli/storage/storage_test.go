@@ -93,3 +93,49 @@ func TestGCCommand(t *testing.T) {
 	require.NoError(t, gc(cfg, "", true, 0, &out))
 	assert.Contains(t, out.String(), "nothing to do")
 }
+
+func TestPruneCommand(t *testing.T) {
+	ep := s3test.StartFake(t)
+	var cfg config.Config
+	cfg.Logger.Level = "error"
+	cfg.Database.Dialect = "sqlite"
+	cfg.Database.DSN = filepath.Join(t.TempDir(), "ogit.sqlite")
+	s3test.Configure(&cfg, ep)
+
+	db, err := database.Configure(cfg, zerolog.Nop())
+	require.NoError(t, err)
+	require.NoError(t, migration.RunMigration(zerolog.Nop(), db.Db))
+	repo := domain.Repository{Id: "44444444-4444-4444-8444-444444444444", Name: "Forced", Slug: "forced", StorageKey: "forced-key"}
+	require.NoError(t, db.Db.Create(&repo).Error)
+	// The initial commit, then an old-layout history replacing it: the
+	// initial commit (a blob, a tree and the commit) is unreachable.
+	require.NoError(t, s3test.NewStorage(t, ep).CreateRepository(repo.StorageKey))
+	s3test.CreateLegacyRepository(t, ep, repo.StorageKey, map[string]string{"README.md": "rewritten"})
+	time.Sleep(20 * time.Millisecond)
+
+	var out bytes.Buffer
+	assert.Error(t, prune(cfg, "", false, time.Hour, time.Hour, false, &out), "needs --repository or --all")
+	assert.Error(t, prune(cfg, "forced", false, -time.Hour, time.Hour, false, &out))
+
+	require.NoError(t, prune(cfg, "forced", false, 0, time.Hour, true, &out))
+	assert.Equal(t, "forced: would prune 3 unreachable objects (from 1 old packs, 0 objects kept)\n", out.String(), "dry run; loose objects are left alone")
+
+	out.Reset()
+	require.NoError(t, prune(cfg, "forced", false, 14*24*time.Hour, time.Hour, false, &out))
+	assert.Equal(t, "forced: packed 3 loose objects\n", out.String(), "nothing old enough to prune")
+
+	time.Sleep(20 * time.Millisecond)
+	out.Reset()
+	require.NoError(t, prune(cfg, "", true, 0, 0, false, &out))
+	assert.Equal(t, "forced: pruned 3 unreachable objects (from 2 old packs, 3 objects kept)\n", out.String())
+
+	out.Reset()
+	require.NoError(t, prune(cfg, "", true, 0, 0, false, &out))
+	assert.Equal(t, "forced: deleted 1 replaced packs\n", out.String(), "the kept objects re-encode to the same pack as before: only the other one went")
+
+	cfg.Storage.Type = "local"
+	cfg.Storage.Local.Path = t.TempDir()
+	out.Reset()
+	require.NoError(t, prune(cfg, "", true, 0, 0, false, &out))
+	assert.Contains(t, out.String(), "nothing to do")
+}

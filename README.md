@@ -261,6 +261,23 @@ and pushes are arriving. The packs it replaces are hidden at once, but kept
 for `--grace` (default 1h) for requests that were already reading them, and
 deleted by the next run after that. It also packs loose objects (see below).
 
+`gc` never deletes objects. Commits dropped by force-pushes or deleted
+branches stay until you prune them, e.g. weekly:
+
+```bash
+./ogit storage prune -c config.yaml --all --dry-run   # report only
+./ogit storage prune -c config.yaml --all             # --expire 336h (2 weeks) by default
+```
+
+An object is pruned only when no ref (branches, tags, notes, any `refs/`
+name, HEAD) reaches it and it is older than `--expire`, so force-pushed work
+can be recovered by its hash for two weeks. Objects needed by recent packs,
+such as a push still in progress, are kept. Objects that `gc` has just
+merged sit in a new pack, so their two weeks start again. Prune rewrites the repository's
+old packs, so it costs a full read and write of them. The same `--grace`
+rule as `gc` applies to the packs it replaces. If an object is missing from
+the repository, prune stops without deleting anything.
+
 Repositories created before packs (one S3 object per git object) still
 work, but stay slow until they are converted:
 
