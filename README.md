@@ -383,7 +383,9 @@ The web UI covers what the API does:
 
 - **Code:** `/<owner>/<repo>` shows the files and README of the default branch (signed out too, for public repositories), with `tree/`, `blob/` (syntax highlighting, rendered Markdown, raw), `blame/`, `commits/`, `commit/<sha>`, `branches` (with zip and tar.gz downloads) and `compare/<base>...<head>`.
 
-Pull requests come next. README images are shown only from the repository itself: the page's security policy blocks images from other sites (e.g. badges).
+- **Pull requests:** `/<owner>/<repo>/pulls` (open, merged, closed, label filter), `pulls/new` (pick branches, preview the diff), and each pull request with its conversation (Markdown with @mentions and #123 links, reviews, merge box listing what blocks the merge), commits and files changed (comment on any line). Repository settings hold labels and the approvals required to merge.
+
+README images are shown only from the repository itself: the page's security policy blocks images from other sites (e.g. badges).
 
 The UI signs in with `POST /api/v1/auth/session`, which keeps the session in
 an HttpOnly cookie (`ogit_session`) that page scripts can't read. Writes

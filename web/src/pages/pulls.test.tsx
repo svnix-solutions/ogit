@@ -1,0 +1,111 @@
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { routes } from "@/app";
+import { renderMarkdown } from "@/lib/markdown";
+import { textColor } from "@/lib/pulls";
+import { fakeAPI, renderRoutes } from "@/test/render";
+
+afterEach(() => vi.unstubAllGlobals());
+
+const instance = { version: "dev", registration_enabled: true, ssh_enabled: false };
+const me = (name: string) => ({ id: "u", username: name, email: `${name}@x`, avatar: "", role: "user" });
+const repo = (role: string) => ({ id: "r1", namespace: "acme", slug: "app", full_path: "acme/app", name: "App", description: "", is_private: true, archived: false, owner_type: "group", role });
+const bug = { id: "l1", name: "bug", color: "#d73a4a", description: "" };
+const summary = { number: 7, title: "Add login", state: "open", draft: false, author: "dev", source_branch: "feature/login", target_branch: "main", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", labels: [bug] };
+const pull = (over: object) => ({
+  ...summary, body: "Fixes #3, cc @maint", base_commit: "b".repeat(40), head_commit: "h".repeat(40), mergeable: true, conflicts: [], branches_exist: true,
+  can_edit: false, can_merge: false, can_review: true, approved: [], changes_requested: [], required_approvals: 0, ...over,
+});
+
+describe("markdown links", () => {
+  it("links mentions and pull requests outside code", () => {
+    const html = renderMarkdown("Thanks @bob! See #12 and `#13`, mail bob@example.com", { fullPath: "a/b", ref: "main", dir: "", links: true });
+    expect(html).toContain('<a href="/bob">@bob</a>');
+    expect(html).toContain('<a href="/a/b/pulls/12">#12</a>');
+    expect(html).toContain("<code>#13</code>");
+    expect(html).toContain("bob@example.com");
+    expect(html).not.toContain('href="/example.com"');
+  });
+  it("picks readable label text", () => {
+    expect(textColor("#ffffff")).toBe("#000");
+    expect(textColor("#d73a4a")).toBe("#fff");
+  });
+});
+
+describe("pull requests", () => {
+  it("lists them with counts and labels; developers can open one", async () => {
+    fakeAPI({
+      "/instance": instance, "/user/profile": me("dev"), "/repository/acme%2Fapp": repo("developer"),
+      "/repository/acme%2Fapp/pulls?state=open&limit=100": { pull_requests: [summary], counts: { open: 1, merged: 4, closed: 0 } },
+      "/repository/acme%2Fapp/labels": { labels: [bug] },
+    });
+    renderRoutes(routes, "/acme/app/pulls");
+    expect(await screen.findByRole("link", { name: "Add login" })).toHaveAttribute("href", "/acme/app/pulls/7");
+    expect(screen.getAllByText("bug").length).toBe(2); // the badge, and the label filter
+    expect(screen.getByRole("button", { name: /Merged\s*4/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "New pull request" })).toHaveAttribute("href", "/acme/app/pulls/new");
+  });
+
+  it("explains what blocks the merge and only enables it when allowed", async () => {
+    fakeAPI({
+      "/instance": instance, "/user/profile": me("maint"), "/repository/acme%2Fapp": repo("maintainer"),
+      "/repository/acme%2Fapp/pulls/7": pull({ required_approvals: 2, approved: ["dev2"], changes_requested: ["qa"], can_merge: false }),
+      "/repository/acme%2Fapp/pulls/7/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [bug] },
+    });
+    renderRoutes(routes, "/acme/app/pulls/7");
+    expect(await screen.findByText("1 of 2 required approvals.")).toBeInTheDocument();
+    expect(screen.getByText("Changes requested by qa.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Merge" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "#3" })).toHaveAttribute("href", "/acme/app/pulls/3");
+    expect(screen.getByRole("button", { name: "Submit review" })).toBeInTheDocument();
+  });
+
+  it("enables merging when approved, and hides review from the author", async () => {
+    fakeAPI({
+      "/instance": instance, "/user/profile": me("dev"), "/repository/acme%2Fapp": repo("maintainer"),
+      "/repository/acme%2Fapp/pulls/7": pull({ can_merge: true, can_review: false, can_edit: true, conflicts: [] }),
+      "/repository/acme%2Fapp/pulls/7/activity": { reviews: [{ id: "x", author: "dev2", state: "approved", body: "LGTM", commit_id: "", created_at: "2026-01-02T00:00:00Z" }], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [] },
+    });
+    renderRoutes(routes, "/acme/app/pulls/7");
+    expect(await screen.findByRole("button", { name: "Merge" })).toBeEnabled();
+    expect(await screen.findByText((_, el) => el?.tagName === "P" && /dev2 approved these changes/.test(el.textContent ?? ""))).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Submit review" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close pull request" })).toBeInTheDocument();
+  });
+
+  it("shows conflicting files", async () => {
+    fakeAPI({
+      "/instance": instance, "/user/profile": me("maint"), "/repository/acme%2Fapp": repo("maintainer"),
+      "/repository/acme%2Fapp/pulls/7": pull({ mergeable: false, conflicts: ["go.mod", "main.go"] }),
+      "/repository/acme%2Fapp/pulls/7/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [] },
+    });
+    renderRoutes(routes, "/acme/app/pulls/7");
+    expect(await screen.findByText(/Conflicts in go.mod, main.go/)).toBeInTheDocument();
+  });
+});
+
+describe("new pull request", () => {
+  it("previews the changes and creates it", async () => {
+    const commit = { hash: "c".repeat(40), parents: [], message: "Add login form\n", author: { name: "Dev", email: "d@x", when: "2026-01-01T00:00:00Z" }, committer: { name: "Dev", email: "d@x", when: "2026-01-01T00:00:00Z" } };
+    const fetch = fakeAPI({
+      "/instance": instance, "/user/profile": me("dev"), "/repository/acme%2Fapp": repo("developer"),
+      "/repository/acme%2Fapp/refs": { default_branch: "main", branches: [{ name: "main", commit }, { name: "feature/login", commit }], tags: [] },
+      "/repository/acme%2Fapp/compare?base=main&head=feature%2Flogin": { merge_base: "", commits: [commit], commits_truncated: false, diff: { files: [], additions: 0, deletions: 0, truncated: false } },
+      "POST /repository/acme%2Fapp/pulls": pull({ number: 8 }),
+      "/repository/acme%2Fapp/pulls/8": pull({ number: 8 }),
+      "/repository/acme%2Fapp/pulls/8/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [] },
+    });
+    renderRoutes(routes, "/acme/app/pulls/new?source=feature/login");
+    const title = await screen.findByLabelText("Title");
+    expect(title).toHaveAttribute("placeholder", "Add login form");
+    await userEvent.click(screen.getByRole("button", { name: "Create pull request" }));
+    await screen.findByRole("heading", { name: /Add login/ });
+    const post = fetch.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")!;
+    expect(JSON.parse((post[1] as RequestInit).body as string)).toEqual({ title: "Add login form", body: "", source: "feature/login", target: "main", draft: false });
+  });
+});

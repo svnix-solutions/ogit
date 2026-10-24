@@ -1,4 +1,4 @@
-import { Archive, ChevronDown, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, Globe, Lock, Settings } from "lucide-react";
+import { Archive, ChevronDown, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Settings } from "lucide-react";
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
 import { ApiError, atLeast, type Repository } from "@/lib/api";
@@ -86,6 +86,9 @@ export function RepoLayout() {
       <nav className="flex gap-1 overflow-x-auto border-b">
         <NavLink to={base} end className={({ isActive }) => tab({ isActive: isActive || /\/(tree|blob|blame)\//.test(location.pathname) })}>
           <Code2 className="h-4 w-4" /> Code
+        </NavLink>
+        <NavLink to={`${base}/pulls`} className={tab}>
+          <GitPullRequest className="h-4 w-4" /> Pull requests
         </NavLink>
         <NavLink to={`${base}/commits`} className={({ isActive }) => tab({ isActive: isActive || location.pathname.startsWith(`${base}/commit/`) })}>
           <GitCommitHorizontal className="h-4 w-4" /> Commits
