@@ -37,6 +37,7 @@ func (ctrl *Controller) GetProfile(ctx *fiber.Ctx, input struct{}) (*dtos.Profil
 		Username: user.Username,
 		Email:    user.Email,
 		Avatar:   user.AvatarUrl,
+		Role:     string(user.Role),
 	}, nil
 }
 

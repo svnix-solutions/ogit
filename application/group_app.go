@@ -70,6 +70,31 @@ func (c *GroupApp) ListForUser(userId string) ([]domain.Group, error) {
 	return c.GroupPers.ListForUser(userId)
 }
 
+// Membership is a group with the user's role in it.
+type Membership struct {
+	domain.Group
+	Role domain.GroupRole
+}
+
+// MembershipsFor returns userId's groups with their role in each.
+func (c *GroupApp) MembershipsFor(userId string) ([]Membership, error) {
+	groups, err := c.GroupPers.ListForUser(userId)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Membership, 0, len(groups))
+	for _, g := range groups {
+		m, err := c.GroupPers.GetMember(g.Id, userId)
+		if isNotFound(err) {
+			continue // left the group meanwhile
+		} else if err != nil {
+			return nil, err
+		}
+		out = append(out, Membership{Group: g, Role: m.Role})
+	}
+	return out, nil
+}
+
 // Get returns the group identified by id or name, with the actor's
 // membership. Groups the actor is not a member of are reported as not found.
 func (c *GroupApp) Get(identifier, actorId string) (*domain.Group, *domain.GroupMember, error) {

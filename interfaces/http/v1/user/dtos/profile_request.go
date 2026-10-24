@@ -5,4 +5,5 @@ type ProfileResponse struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Avatar   string `json:"avatar"`
+	Role     string `json:"role"` // admin or user
 }
