@@ -44,6 +44,15 @@ func (r *repositoryPers) Create(repo *domain.Repository) error {
 
 func (r *repositoryPers) Purge(id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Pull requests' rows first: SQLite does not enforce the cascades.
+		for _, table := range []string{"pull_request_label", "pull_request_comment", "pull_request_review"} {
+			if err := tx.Exec("DELETE FROM "+table+" WHERE pull_request_id IN (SELECT id FROM pull_request WHERE repository_id = ?)", id).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("repository_id = ?", id).Delete(&domain.Label{}).Error; err != nil {
+			return err
+		}
 		for _, q := range []struct {
 			model any
 			where string

@@ -11,8 +11,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	gitstorage "github.com/go-git/go-git/v5/storage"
 	"github.com/labbs/ogit/domain"
+	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/gitbrowse"
 	"github.com/labbs/ogit/infrastructure/gitmerge"
+	"github.com/labbs/ogit/infrastructure/mail"
 	"github.com/rs/zerolog"
 )
 
@@ -48,10 +50,14 @@ func (e *MergeConflictError) Error() string {
 }
 
 type PullRequestApp struct {
+	Config       config.Config
 	Logger       zerolog.Logger
 	Repositories *RepositoryApp
 	Pulls        domain.PullRequestPers
+	Reviews      domain.ReviewPers
+	Labels       domain.LabelPers
 	Users        domain.UserPers
+	Mailer       mail.Sender // nil or without smtp.host: no emails
 }
 
 // PullRequestView is a pull request with what can only be computed from
@@ -68,7 +74,14 @@ type PullRequestView struct {
 	Role          domain.AccessType
 	CanEdit       bool
 	CanMerge      bool
+	// Reviews that count (developers and up, not the author).
+	Approvals *Approvals
+	Labels    []domain.Label
+	viewerId  string
 }
+
+// Viewer is who the view was computed for ("" anonymous).
+func (v *PullRequestView) Viewer() string { return v.viewerId }
 
 // repo opens a repository for userId ("" anonymous) with their role.
 func (c *PullRequestApp) repo(id, path *string, userId string) (*domain.Repository, storer.Storer, domain.AccessType, error) {
@@ -147,16 +160,43 @@ func (c *PullRequestApp) Create(id, path *string, actorId, title, body, source, 
 	if err := c.Pulls.Create(pr); err != nil {
 		return nil, err
 	}
+	if len(Mentions(body)) > 0 {
+		c.notify(&PullRequestView{PullRequest: pr, Repository: repo}, actorId, "opened", body)
+	}
 	return pr, nil
 }
 
 // List returns pull requests of a repository userId can read.
-func (c *PullRequestApp) List(id, path *string, userId string, state domain.PullRequestState, offset, limit int) ([]domain.PullRequest, map[domain.PullRequestState]int64, error) {
+// List returns pull requests of a repository userId can read, optionally
+// only those with a label, with each one's labels.
+func (c *PullRequestApp) List(id, path *string, userId string, state domain.PullRequestState, label string, offset, limit int) ([]domain.PullRequest, map[domain.PullRequestState]int64, map[string][]domain.Label, error) {
 	repo, err := c.Repositories.GetRepositoryForUser(id, path, userId)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return c.Pulls.List(repo.Id, state, max(offset, 0), clampLimit(limit))
+	labelId := ""
+	if label != "" {
+		labels, err := c.Labels.List(repo.Id)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		labelId = "-" // a name that matches nothing lists nothing
+		for _, l := range labels {
+			if l.Name == label {
+				labelId = l.Id
+			}
+		}
+	}
+	prs, counts, err := c.Pulls.List(repo.Id, state, labelId, max(offset, 0), clampLimit(limit))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ids := make([]string, len(prs))
+	for i, pr := range prs {
+		ids[i] = pr.Id
+	}
+	labels, err := c.Labels.For(ids)
+	return prs, counts, labels, err
 }
 
 // Get returns a pull request with its live state.
@@ -171,13 +211,21 @@ func (c *PullRequestApp) Get(id, path *string, userId string, number int) (*Pull
 	} else if err != nil {
 		return nil, err
 	}
-	view := &PullRequestView{PullRequest: pr, Repository: repo, Role: role}
+	view := &PullRequestView{PullRequest: pr, Repository: repo, Role: role, viewerId: userId}
 	isAuthor := userId != "" && pr.AuthorId != nil && *pr.AuthorId == userId
 	view.CanEdit = role.CanAdmin() || (isAuthor && role.CanWrite())
 
 	source, serr := branchTip(st, pr.SourceBranch)
 	target, terr := branchTip(st, pr.TargetBranch)
 	view.BranchesExist = serr == nil && terr == nil
+	if view.Approvals, err = c.approvals(repo, pr); err != nil {
+		return nil, err
+	}
+	labels, err := c.Labels.For([]string{pr.Id})
+	if err != nil {
+		return nil, err
+	}
+	view.Labels = labels[pr.Id]
 	if pr.State == domain.PullRequestOpen && view.BranchesExist {
 		pr.HeadCommit, pr.BaseCommit = source.Hash.String(), target.Hash.String()
 		conflicts, upToDate, err := gitmerge.Check(st, target, source)
@@ -186,9 +234,14 @@ func (c *PullRequestApp) Get(id, path *string, userId string, number int) (*Pull
 		}
 		mergeable := len(conflicts) == 0 && !upToDate
 		view.Mergeable, view.Conflicts = &mergeable, conflicts
-		view.CanMerge = mergeable && role.CanAdmin() && !pr.Draft && !repo.IsArchived
+		view.CanMerge = mergeable && role.CanAdmin() && !pr.Draft && !repo.IsArchived && view.approved()
 	}
 	return view, nil
+}
+
+// approved: enough approvals and nobody asking for changes.
+func (v *PullRequestView) approved() bool {
+	return len(v.Approvals.Approved) >= v.Repository.RequiredApprovals && len(v.Approvals.ChangesRequested) == 0
 }
 
 // Compare returns a pull request's commits and diff: the source's commits
@@ -277,6 +330,7 @@ func (c *PullRequestApp) Close(id, path *string, actorId string, number int) (*P
 	} else if !ok {
 		return nil, ErrNotOpen
 	}
+	c.notify(view, actorId, "closed", "")
 	return c.Get(id, path, actorId, number)
 }
 
@@ -303,6 +357,7 @@ func (c *PullRequestApp) Reopen(id, path *string, actorId string, number int) (*
 	} else if !ok {
 		return nil, ErrNotOpen
 	}
+	c.notify(view, actorId, "reopened", "")
 	return c.Get(id, path, actorId, number)
 }
 
@@ -332,6 +387,10 @@ func (c *PullRequestApp) Merge(id, path *string, actorId string, number int, opt
 		return nil, ErrBranchNotFound
 	case len(view.Conflicts) > 0:
 		return nil, &MergeConflictError{Paths: view.Conflicts}
+	case len(view.Approvals.ChangesRequested) > 0:
+		return nil, fmt.Errorf("%w by %s", ErrChangesRequested, strings.Join(view.Approvals.ChangesRequested, ", "))
+	case len(view.Approvals.Approved) < view.Repository.RequiredApprovals:
+		return nil, fmt.Errorf("%w: %d of %d", ErrNeedsApproval, len(view.Approvals.Approved), view.Repository.RequiredApprovals)
 	}
 	merger, err := c.Users.GetById(actorId)
 	if err != nil {
@@ -391,6 +450,7 @@ func (c *PullRequestApp) Merge(id, path *string, actorId string, number int, opt
 		return nil, err
 	}
 
+	c.notify(view, actorId, "merged", "")
 	if opts.DeleteBranch {
 		if err := deleteBranch(st, view.SourceBranch, head.Hash); err != nil {
 			// The merge happened; a branch that moved is kept.

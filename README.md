@@ -113,6 +113,22 @@ locally. The target branch only moves if nobody pushed to it during the
 merge. Drafts can't be merged until marked ready (`PATCH {"draft": false}`).
 Anyone who can read the repository can read its pull requests.
 
+Reviews and conversation:
+
+```bash
+curl -X POST $R/pulls/1/comments -H "Authorization: Bearer $SESSION" -H 'Content-Type: application/json' \
+  -d '{"body": "Can we rename this? cc @alice", "inline": {"path": "src/a.go", "line": 12, "side": "new"}}'
+curl -X POST $R/pulls/1/reviews -H "Authorization: Bearer $SESSION" -H 'Content-Type: application/json' \
+  -d '{"state": "approved", "body": "LGTM"}'                                 # or changes_requested, commented
+curl -X PATCH localhost:8080/api/v1/repository/me%2Fmy-project -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"required_approvals": 1}'        # owners
+```
+
+- Anyone who can read the repository comments and reviews. Approvals and change requests count from developers and up (each reviewer's latest), never the author's own.
+- Merging needs `required_approvals` approvals (0 by default) and no outstanding request for changes.
+- Maintainers manage labels (`/labels`); developers set them on pull requests (`PUT /pulls/1/labels`); `?label=` filters the list.
+- With SMTP configured, the author, reviewers, commenters and anyone @mentioned (who can read the repository) are emailed about others' comments, reviews, merges and closes. Set `http.public_url` for links.
+
 ### Raw files and archives
 
 ```bash

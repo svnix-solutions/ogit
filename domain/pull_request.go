@@ -47,9 +47,10 @@ type PullRequestPers interface {
 	// Create assigns the next number in the repository and stores pr.
 	Create(pr *PullRequest) error
 	Get(repositoryId string, number int) (*PullRequest, error)
-	// List returns a repository's pull requests in a state ("" for all),
-	// newest first, with the number of pull requests in each state.
-	List(repositoryId string, state PullRequestState, offset, limit int) ([]PullRequest, map[PullRequestState]int64, error)
+	// List returns a repository's pull requests in a state ("" for all) and
+	// with a label ("" for any), newest first, with the number of pull
+	// requests in each state.
+	List(repositoryId string, state PullRequestState, labelId string, offset, limit int) ([]PullRequest, map[PullRequestState]int64, error)
 	// OpenFor returns the open pull request from source into target, if any.
 	OpenFor(repositoryId, source, target string) (*PullRequest, error)
 	// Update sets fields on pr if its state is still from; false when it
