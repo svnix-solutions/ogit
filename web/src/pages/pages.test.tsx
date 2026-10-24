@@ -5,7 +5,7 @@ import { routes } from "@/app";
 import { atLeast } from "@/lib/api";
 import { fakeAPI, renderRoutes } from "@/test/render";
 import { slugPreview } from "./new-repo";
-import { cloneURLs } from "./repo";
+import { cloneURLs } from "@/components/repo-layout";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -56,26 +56,57 @@ describe("routing", () => {
   });
 });
 
-describe("repository page", () => {
-  it("shows clone URLs and settings for maintainers", async () => {
-    fakeAPI({ "/instance": instance, "/user/profile": alice, "/repository/platform%2Finfra": repo("maintainer") });
+const tree = {
+  empty: false, ref: "main", path: "",
+  commit: { hash: "a".repeat(40), parents: [], message: "Initial commit\n", author: { name: "Ann", email: "a@x", when: "2026-01-01T00:00:00Z" }, committer: { name: "Ann", email: "a@x", when: "2026-01-01T00:00:00Z" } },
+  entries: [
+    { name: "docs", path: "docs", type: "dir" },
+    { name: "README.md", path: "README.md", type: "file", size: 20 },
+  ],
+  readme: { path: "README.md", size: 20, binary: false, truncated: false, content: "# Infra\n\nSee [docs](docs/guide.md).\n" },
+};
+
+describe("repository pages", () => {
+  it("shows the tree, README and settings for maintainers, and clone URLs on demand", async () => {
+    fakeAPI({ "/instance": instance, "/user/profile": alice, "/repository/platform%2Finfra": repo("maintainer"), "/repository/platform%2Finfra/tree?spec=": tree });
     renderRoutes(routes, "/platform/infra");
-    expect(await screen.findByRole("link", { name: /Settings/ })).toHaveAttribute("href", "/platform/infra/settings");
+    expect(await screen.findByRole("heading", { name: "Infra" })).toBeInTheDocument();
+    const docs = screen.getAllByRole("link", { name: "docs" }).map((a) => a.getAttribute("href"));
+    expect(docs).toEqual(["/platform/infra/tree/main/docs", "/platform/infra/blob/main/docs/guide.md"]); // the folder, and the README's link
+    expect(screen.getByRole("link", { name: /Settings/ })).toHaveAttribute("href", "/platform/infra/settings");
+
+    await userEvent.click(screen.getByRole("button", { name: /Clone/ }));
     expect(screen.getByLabelText("HTTPS clone URL")).toHaveValue(`${window.location.origin}/platform/infra.git`);
     expect(screen.getByLabelText("SSH clone URL")).toHaveValue(`ssh://git@${window.location.hostname}:2222/platform/infra.git`);
   });
 
   it("hides settings from developers", async () => {
-    fakeAPI({ "/instance": instance, "/user/profile": alice, "/repository/platform%2Finfra": repo("developer") });
+    fakeAPI({ "/instance": instance, "/user/profile": alice, "/repository/platform%2Finfra": repo("developer"), "/repository/platform%2Finfra/tree?spec=": tree });
     renderRoutes(routes, "/platform/infra");
-    expect(await screen.findByText("Terraform")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Infra" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Settings/ })).not.toBeInTheDocument();
   });
 
-  it("treats a hidden repository as not found", async () => {
-    fakeAPI({ "/instance": instance, "/user/profile": alice });
+  it("is browsable signed out, and suggests signing in when not found", async () => {
+    const anon = [401, { code: 401, details: "authentication required", type: "x" }];
+    fakeAPI({ "/instance": instance, "/user/profile": anon, "/repository/platform%2Finfra": repo("none"), "/repository/platform%2Finfra/tree?spec=": tree });
+    renderRoutes(routes, "/platform/infra");
+    expect(await screen.findByRole("heading", { name: "Infra" })).toBeInTheDocument();
+    vi.unstubAllGlobals();
+
+    fakeAPI({ "/instance": instance, "/user/profile": anon });
     renderRoutes(routes, "/platform/secret");
-    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "sign in" })).toBeInTheDocument();
+  });
+
+  it("shows a file with line numbers and a raw link", async () => {
+    fakeAPI({
+      "/instance": instance, "/user/profile": alice, "/repository/platform%2Finfra": repo("developer"),
+      "/repository/platform%2Finfra/blob?spec=feature%2Fx%2Fmain.go": { ref: "feature/x", commit: tree.commit, file: { path: "main.go", size: 26, binary: false, truncated: false, content: "package main\n\nfunc main() {}\n" } },
+    });
+    renderRoutes(routes, "/platform/infra/blob/feature/x/main.go");
+    expect(await screen.findByRole("link", { name: "Raw" })).toHaveAttribute("href", "/platform/infra/raw/feature/x/main.go");
+    expect(screen.getByRole("link", { name: "3" })).toHaveAttribute("href", "#L3");
   });
 });
 

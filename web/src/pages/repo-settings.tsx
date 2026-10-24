@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { ErrorText, Section } from "@/components/section";
 import { Alert } from "@/components/ui/alert";
@@ -27,13 +27,7 @@ export function RepoSettingsPage() {
 
   const isOwner = r.data.role === "owner";
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <h1 className="text-xl">
-        <Link to={`/${r.data.full_path}`} className="text-primary hover:underline">
-          {r.data.full_path}
-        </Link>
-        <span className="text-muted-foreground"> · settings</span>
-      </h1>
+    <div className="max-w-3xl space-y-6">
       <General repo={r.data} isOwner={isOwner} />
       <Members repo={r.data} isOwner={isOwner} />
       <DeployKeys repo={r.data} />
