@@ -10,6 +10,10 @@ import (
 	helpergit "github.com/labbs/ogit/infrastructure/helpers/git"
 )
 
+// storageKeyLocal is the request local holding the authorized repository's
+// storage key.
+const storageKeyLocal = "git_storage_key"
+
 // Authorize returns a middleware that checks the caller may run the git
 // service on the repository in the URL. suffix is the route suffix used to
 // extract the repository ("/info/refs", "/git-upload-pack", ...). service is
@@ -36,10 +40,15 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 		// Missing or malformed credentials are treated as anonymous.
 		creds := basicCredentials(ctx.Get(fiber.HeaderAuthorization))
 
-		err := ctrl.AuthApp.AuthorizeGit(slug, op, creds)
+		repo, err := ctrl.AuthApp.AuthorizeGit(slug, op, creds)
 		switch {
 		case err == nil:
+			// The handlers serve the repository that was authorized (also when
+			// reached through a former slug), from its storage key.
+			ctx.Locals(storageKeyLocal, repo.StorageKey)
 			return ctx.Next()
+		case errors.Is(err, application.ErrGitArchived):
+			return ctx.Status(fiber.StatusForbidden).SendString("repository is archived (read-only)")
 		case errors.Is(err, application.ErrGitUnauthenticated):
 			ctx.Set(fiber.HeaderWWWAuthenticate, `Basic realm="ogit"`)
 			return ctx.Status(fiber.StatusUnauthorized).SendString(err.Error())

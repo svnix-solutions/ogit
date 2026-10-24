@@ -209,7 +209,7 @@ func TestAdminRepositoriesAndDeletion(t *testing.T) {
 	})
 
 	t.Run("delete_repository", func(t *testing.T) {
-		repoDir := filepath.Join(srv.deps.Config.Storage.Local.Path, "secret.git")
+		repoDir := srv.repoDir(t, "secret")
 		require.DirExists(t, repoDir)
 
 		status, _ := srv.request(t, http.MethodDelete, "/api/v1/admin/repositories/secret", admin.session, nil)
@@ -307,4 +307,14 @@ func (s *testServer) countRows(t *testing.T, model any, where string, args ...an
 	var n int64
 	require.NoError(t, s.deps.Database.Db.Model(model).Where(where, args...).Count(&n).Error)
 	return n
+}
+
+// repoDir is where local storage keeps the repository's git data (its
+// storage key, not its slug).
+func (s *testServer) repoDir(t *testing.T, slug string) string {
+	t.Helper()
+	var repo domain.Repository
+	require.NoError(t, s.deps.Database.Db.Where("slug = ?", slug).First(&repo).Error)
+	require.NotEmpty(t, repo.StorageKey)
+	return filepath.Join(s.deps.Config.Storage.Local.Path, repo.StorageKey+".git")
 }

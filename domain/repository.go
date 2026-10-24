@@ -7,11 +7,15 @@ type Repository struct {
 	Name        string
 	Description string
 	Slug        string
+	// StorageKey is where the git data lives: the id for repositories created
+	// after renames were introduced, the original slug for older ones. It
+	// never changes, so renaming does not move data.
+	StorageKey string
 
 	DefaultBranch string
 
-	IsArchived bool `gorm:"default:false"`
-	ArchivedAt time.Time
+	IsArchived bool
+	ArchivedAt *time.Time
 
 	// No gorm default here: with one, GORM omits false on insert and the
 	// column default (true) wins, so public repositories could not be created.
@@ -76,4 +80,28 @@ type RepositoryPers interface {
 	List(limit, offset int) ([]Repository, int64, error)
 	// SoleOwnedBy returns the repositories where userId is the only owner.
 	SoleOwnedBy(userId string) ([]Repository, error)
+	// Rename changes name and slug in one transaction: the old slug becomes
+	// a redirect, and any redirect that pointed the new slug elsewhere is
+	// dropped (the slug now belongs to this repository).
+	Rename(id, name, newSlug, oldSlug string) error
+	// Update sets the given columns.
+	Update(id string, fields map[string]any) error
+	// DropRedirect removes the redirect for slug, if any.
+	DropRedirect(slug string) error
+	// ResolveRedirect returns the repository an old slug now points to.
+	ResolveRedirect(slug string) (*Repository, error)
+	// ListPublic returns public repositories whose name or description
+	// contains query (all when empty), with the total.
+	ListPublic(query string, limit, offset int) ([]Repository, int64, error)
+}
+
+// RepositoryRedirect maps a former slug to a renamed repository.
+type RepositoryRedirect struct {
+	Slug         string `gorm:"primaryKey"`
+	RepositoryId string
+	CreatedAt    time.Time
+}
+
+func (RepositoryRedirect) TableName() string {
+	return "repository_redirect"
 }

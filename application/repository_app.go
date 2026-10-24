@@ -41,12 +41,15 @@ func NewRepositoryApp(config config.Config, logger zerolog.Logger, repoPers doma
 func (c *RepositoryApp) Create(name, description, creator string, isPrivate bool) (*domain.Repository, error) {
 	logger := c.Logger.With().Str("component", "application.repository.create").Logger()
 
+	id := utils.UUIDv4()
 	repo := &domain.Repository{
-		Id:          utils.UUIDv4(),
-		Name:        name,
-		Description: description,
-		IsPrivate:   isPrivate,
-		Slug:        slug.Make(name),
+		Id:            id,
+		Name:          name,
+		Description:   description,
+		IsPrivate:     isPrivate,
+		Slug:          slug.Make(name),
+		StorageKey:    id, // never changes, so renames do not move data
+		DefaultBranch: "main",
 	}
 
 	err := c.RepoPres.Create(repo)
@@ -58,7 +61,13 @@ func (c *RepositoryApp) Create(name, description, creator string, isPrivate bool
 		return nil, err
 	}
 
-	err = c.StorageConfig.CreateRepository(repo.Slug)
+	// The slug now belongs to this repository, even if it used to redirect
+	// to another one.
+	if err := c.RepoPres.DropRedirect(repo.Slug); err != nil {
+		logger.Warn().Err(err).Str("slug", repo.Slug).Msg("failed to drop redirect")
+	}
+
+	err = c.StorageConfig.CreateRepository(repo.StorageKey)
 	if err != nil {
 		logger.Error().Err(err).Str("repo_id", repo.Id).Str("repo_name", repo.Name).Msg("failed to create repository storage")
 		// Attempt to clean up the database entry if storage creation fails
@@ -81,7 +90,7 @@ func (c *RepositoryApp) Create(name, description, creator string, isPrivate bool
 	} else if err != nil {
 		logger.Error().Err(err).Str("repo_id", repo.Id).Str("user_id", creator).Msg("failed to create repository member")
 		c.RepoPres.Delete(*repo)
-		c.StorageConfig.DeleteRepository(repo.Slug)
+		c.StorageConfig.DeleteRepository(repo.StorageKey)
 		return nil, err
 	}
 
@@ -128,6 +137,12 @@ func (c *RepositoryApp) GetRepository(id, slug *string) (*domain.Repository, err
 	}
 
 	repository, err := c.RepoPres.GetRepository(repo)
+	if id == nil && isNotFound(err) {
+		// A former slug of a renamed repository.
+		if renamed, rerr := c.RepoPres.ResolveRedirect(*slug); rerr == nil {
+			return renamed, nil
+		}
+	}
 	switch helperError.Catch(err) {
 	case nil:
 	case gorm.ErrRecordNotFound:

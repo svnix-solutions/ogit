@@ -1,6 +1,8 @@
 package persistence
 
 import (
+	"strings"
+
 	"github.com/labbs/ogit/domain"
 	"gorm.io/gorm"
 )
@@ -35,6 +37,7 @@ func (r *repositoryPers) Purge(id string) error {
 			{&domain.RepositoryMember{}, "repository_id = ?"},
 			{&domain.Token{}, "repository_id = ?"},
 			{&domain.SSHKey{}, "repository_id = ?"},
+			{&domain.RepositoryRedirect{}, "repository_id = ?"},
 			{&domain.Repository{}, "id = ?"},
 		} {
 			if err := tx.Where(q.where, id).Delete(q.model).Error; err != nil {
@@ -63,6 +66,56 @@ func (r *repositoryPers) SoleOwnedBy(userId string) ([]domain.Repository, error)
 	var repos []domain.Repository
 	err := r.db.Where("id IN (?) AND id NOT IN (?)", owned, otherOwners).Order("slug").Find(&repos).Error
 	return repos, err
+}
+
+func (r *repositoryPers) Rename(id, name, newSlug, oldSlug string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&domain.Repository{}).Where("id = ?", id).Updates(map[string]any{"name": name, "slug": newSlug}).Error; err != nil {
+			return err
+		}
+		// The new slug belongs to this repository now, including if it was
+		// one of its own former slugs.
+		if err := tx.Where("slug = ?", newSlug).Delete(&domain.RepositoryRedirect{}).Error; err != nil {
+			return err
+		}
+		if oldSlug == newSlug {
+			return nil
+		}
+		return tx.Create(&domain.RepositoryRedirect{Slug: oldSlug, RepositoryId: id}).Error
+	})
+}
+
+func (r *repositoryPers) Update(id string, fields map[string]any) error {
+	return r.db.Model(&domain.Repository{}).Where("id = ?", id).Updates(fields).Error
+}
+
+func (r *repositoryPers) DropRedirect(slug string) error {
+	return r.db.Where("slug = ?", slug).Delete(&domain.RepositoryRedirect{}).Error
+}
+
+func (r *repositoryPers) ResolveRedirect(slug string) (*domain.Repository, error) {
+	var redirect domain.RepositoryRedirect
+	if err := r.db.Where("slug = ?", slug).First(&redirect).Error; err != nil {
+		return nil, err
+	}
+	var repo domain.Repository
+	err := r.db.Where("id = ?", redirect.RepositoryId).First(&repo).Error
+	return &repo, err
+}
+
+func (r *repositoryPers) ListPublic(query string, limit, offset int) ([]domain.Repository, int64, error) {
+	q := r.db.Model(&domain.Repository{}).Where("is_private = ?", false)
+	if query != "" {
+		like := "%" + strings.ToLower(query) + "%"
+		q = q.Where("LOWER(name) LIKE ? OR LOWER(description) LIKE ?", like, like)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var repos []domain.Repository
+	err := q.Order("slug").Limit(limit).Offset(offset).Find(&repos).Error
+	return repos, total, err
 }
 
 func (r *repositoryPers) Delete(repo domain.Repository) error {

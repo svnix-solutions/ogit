@@ -18,7 +18,7 @@ func (ctrl *Controller) InfoRefs(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).SendString("invalid service parameter")
 	}
 
-	repoPath := helpergit.ExtractRepoPathFromURL(ctx.Path(), "/info/refs")
+	repoPath, _ := ctx.Locals(storageKeyLocal).(string)
 	if repoPath == "" {
 		return ctx.SendStatus(fiber.StatusNotFound)
 	}
@@ -70,7 +70,7 @@ func (ctrl *Controller) InfoRefs(ctx *fiber.Ctx) error {
 func (ctrl *Controller) HandleUploadPack(c *fiber.Ctx) error {
 	logger := ctrl.Logger.With().Str("component", "http.git.uploadpack").Logger()
 
-	repoPath := helpergit.ExtractRepoPathFromURL(c.Path(), "/git-upload-pack")
+	repoPath, _ := c.Locals(storageKeyLocal).(string)
 	if repoPath == "" {
 		return c.SendStatus(fiber.StatusNotFound)
 	}
@@ -118,9 +118,8 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 	logger := ctrl.Logger.With().Str("component", "http.git.receivepack").Logger()
 
 	// Extract repository path from URL
-	repoPath := helpergit.ExtractRepoPathFromURL(c.Path(), "/git-receive-pack")
+	repoPath, _ := c.Locals(storageKeyLocal).(string)
 	if repoPath == "" {
-		logger.Error().Msg("Repository path not found")
 		return c.SendStatus(fiber.StatusNotFound)
 	}
 

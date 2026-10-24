@@ -9,10 +9,19 @@ type RepositorySummary struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	IsPrivate   bool   `json:"is_private"`
+	IsArchived  bool   `json:"archived"`
+}
+
+type ListRepositoriesRequest struct {
+	Scope  string `query:"scope" json:"-"` // "mine" (default) or "public"
+	Query  string `query:"q" json:"-"`     // public scope: matches name or description
+	Limit  int    `query:"limit" json:"-"`
+	Offset int    `query:"offset" json:"-"`
 }
 
 type ListRepositoriesResponse struct {
 	Repositories []RepositorySummary `json:"repositories"`
+	Total        *int64              `json:"total,omitempty"` // public scope
 }
 
 type MemberResponse struct {

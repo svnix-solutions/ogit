@@ -10,26 +10,66 @@ import (
 	"github.com/labbs/ogit/interfaces/http/v1/repository/dtos"
 )
 
-// ListRepositories returns the repositories the caller is a member of,
-// directly or through a group.
-func (ctrl *Controller) ListRepositories(ctx *fiber.Ctx, _ struct{}) (*dtos.ListRepositoriesResponse, *fiberoapi.ErrorResponse) {
+// ListRepositories returns the repositories the caller is a member of
+// (directly or through a group), or with ?scope=public all public
+// repositories, optionally filtered by ?q=.
+func (ctrl *Controller) ListRepositories(ctx *fiber.Ctx, req dtos.ListRepositoriesRequest) (*dtos.ListRepositoriesResponse, *fiberoapi.ErrorResponse) {
 	authCtx, err := fiberoapi.GetAuthContext(ctx)
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
 
-	repos, err := ctrl.RepositoryApp.ListForUser(authCtx.UserID)
+	var repos []domain.Repository
+	resp := &dtos.ListRepositoriesResponse{}
+	switch req.Scope {
+	case "", "mine":
+		repos, err = ctrl.RepositoryApp.ListForUser(authCtx.UserID)
+	case "public":
+		var total int64
+		repos, total, err = ctrl.RepositoryApp.ListPublic(req.Query, req.Limit, req.Offset)
+		resp.Total = &total
+	default:
+		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusBadRequest, Details: "scope must be mine or public", Type: "INVALID_SCOPE"}
+	}
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
 
-	resp := &dtos.ListRepositoriesResponse{Repositories: make([]dtos.RepositorySummary, 0, len(repos))}
+	resp.Repositories = make([]dtos.RepositorySummary, 0, len(repos))
 	for _, r := range repos {
 		resp.Repositories = append(resp.Repositories, dtos.RepositorySummary{
-			Id: r.Id, Slug: r.Slug, Name: r.Name, Description: r.Description, IsPrivate: r.IsPrivate,
+			Id: r.Id, Slug: r.Slug, Name: r.Name, Description: r.Description, IsPrivate: r.IsPrivate, IsArchived: r.IsArchived,
 		})
 	}
 	return resp, nil
+}
+
+func (ctrl *Controller) UpdateRepository(ctx *fiber.Ctx, req dtos.UpdateRepositoryRequest) (*dtos.GetRepositoryResponse, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, slug := splitIdentifier(req.Identifier)
+	repo, err := ctrl.RepositoryApp.Update(id, slug, authCtx.UserID, application.RepositoryUpdate{
+		Name: req.Name, Description: req.Description, IsPrivate: req.IsPrivate, Archived: req.Archived,
+	})
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return &dtos.GetRepositoryResponse{Id: repo.Id, Slug: repo.Slug, Name: repo.Name, Description: repo.Description,
+		IsPrivate: repo.IsPrivate, IsArchived: repo.IsArchived}, nil
+}
+
+func (ctrl *Controller) DeleteRepository(ctx *fiber.Ctx, req dtos.DeleteRepositoryRequest) (*dtos.DeleteRepositoryResponse, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, slug := splitIdentifier(req.Identifier)
+	if err := ctrl.RepositoryApp.Delete(id, slug, authCtx.UserID, req.Confirm); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return &dtos.DeleteRepositoryResponse{Message: "repository deleted"}, nil
 }
 
 func (ctrl *Controller) ListMembers(ctx *fiber.Ctx, req dtos.ListMembersRequest) (*dtos.ListMembersResponse, *fiberoapi.ErrorResponse) {
