@@ -4,11 +4,16 @@ import (
 	"github.com/labbs/ogit/infrastructure"
 	"github.com/labbs/ogit/interfaces/http/git"
 	v1 "github.com/labbs/ogit/interfaces/http/v1"
+	"github.com/labbs/ogit/interfaces/http/websession"
+	"github.com/labbs/ogit/web"
 )
 
 func SetupRoutes(deps infrastructure.Deps) {
 	logger := deps.Logger.With().Str("component", "http.router").Logger()
 	logger.Info().Str("event", "setup_routes").Msg("Setting up HTTP routes")
+
+	// Before any /api/v1 route: turns the web UI's cookie into a bearer token.
+	deps.Http.Fiber.Use("/api/v1", websession.Middleware())
 
 	// Setup system routes (health, metrics, etc.)
 	setupSystemRoutes(deps)
@@ -25,4 +30,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// Setup v1 routes
 	v1.SetupRouterV1(deps)
+
+	// Last: it answers every GET no other route matched.
+	setupWebUI(deps.Http.Fiber, web.Dist())
 }
