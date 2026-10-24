@@ -43,3 +43,20 @@ jobs:
 
     - name: Build app
       run: CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static" -X "main.version=${{ steps.version.outputs.full }}"' -o bin/app cmd/cmd.go
+  integration:
+    name: Integration (MinIO)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache: true
+        cache-dependency-path: go.sum
+
+    # testcontainers starts MinIO through the runner's Docker daemon.
+    - name: Integration tests
+      run: go test -race -count=1 -tags=integration -run MinIO ./...
