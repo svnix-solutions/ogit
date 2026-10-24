@@ -130,10 +130,15 @@ func (ls *LocalStorage) CreateRepository(repoPath string) error {
 	}
 
 	// Now clone this repository as bare to the final location
-	_, err = git.PlainClone(fullPath, true, &git.CloneOptions{
+	bare, err := git.PlainClone(fullPath, true, &git.CloneOptions{
 		URL: tempPath,
 	})
 	if err != nil {
+		return err
+	}
+	// The clone keeps refs/remotes/origin/* and an "origin" remote pointing at
+	// the temp directory; clients would see them as stray refs.
+	if err := dropRemote(bare); err != nil {
 		return err
 	}
 
@@ -190,4 +195,31 @@ func (ls *LocalStorage) getFullPath(repoPath string) string {
 
 	// Join with base path
 	return filepath.Join(ls.basePath, cleanPath)
+}
+
+// dropRemote removes the "origin" remote and its remote-tracking refs.
+func dropRemote(repo *git.Repository) error {
+	refs, err := repo.References()
+	if err != nil {
+		return err
+	}
+	var remoteRefs []plumbing.ReferenceName
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Name().IsRemote() {
+			remoteRefs = append(remoteRefs, ref.Name())
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, name := range remoteRefs {
+		if err := repo.Storer.RemoveReference(name); err != nil {
+			return err
+		}
+	}
+	if err := repo.DeleteRemote("origin"); err != nil && !errors.Is(err, git.ErrRemoteNotFound) {
+		return err
+	}
+	return nil
 }
