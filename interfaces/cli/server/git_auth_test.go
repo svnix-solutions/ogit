@@ -158,6 +158,10 @@ func TestCreateToken(t *testing.T) {
 	})
 }
 
+// testDatabases switch every test server to another database. Empty means
+// sqlite; db_integration_test.go adds Postgres when OGIT_TEST_DB=postgres.
+var testDatabases []func(t *testing.T, cfg *config.Config)
+
 type testServer struct {
 	url  string
 	deps infrastructure.Deps
@@ -180,6 +184,9 @@ func startTestServer(t *testing.T, opts ...func(*config.Config)) *testServer {
 	cfg.Registration.Enabled = true
 	cfg.Registration.PasswordMinLength = 12
 	cfg.Registration.PasswordComplexity = true
+	for _, useDatabase := range testDatabases {
+		useDatabase(t, &cfg)
+	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -187,6 +194,11 @@ func startTestServer(t *testing.T, opts ...func(*config.Config)) *testServer {
 	deps, err := setupDeps(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = deps.CronScheduler.CronScheduler.Shutdown() })
+	t.Cleanup(func() {
+		if sqlDB, err := deps.Database.Db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	require.NoError(t, migration.RunMigration(deps.Logger, deps.Database.Db))
 
 	routes.SetupRoutes(deps)
