@@ -140,7 +140,7 @@ type GitCredentials struct {
 // slug is allowed. creds is nil for anonymous requests, which may only read
 // public repositories. Private repositories the caller cannot read are
 // reported as not found so that their existence is not disclosed.
-func (c *AuthApp) AuthorizeGit(repoSlug, operation string, creds *GitCredentials) error {
+func (c *AuthApp) AuthorizeGit(repoSlug, operation string, creds *GitCredentials) (*domain.Repository, error) {
 	logger := c.Logger.With().Str("component", "application.auth.authorize_git").Logger()
 
 	var requiredScope domain.TokenScope
@@ -153,68 +153,72 @@ func (c *AuthApp) AuthorizeGit(repoSlug, operation string, creds *GitCredentials
 		requiredScope = domain.ScopeWriteRepository
 		gitOperation = "write"
 	default:
-		return fmt.Errorf("invalid git operation: %s", operation)
+		return nil, fmt.Errorf("invalid git operation: %s", operation)
 	}
 
 	repo, repoErr := c.RepositoryApp.GetRepository(nil, &repoSlug)
 
 	if creds == nil {
 		if repoErr == nil && !repo.IsPrivate && gitOperation == "read" {
-			return nil
+			return repo, nil
 		}
-		return ErrGitUnauthenticated
+		return nil, ErrGitUnauthenticated
 	}
 
 	authToken, err := c.TokenApp.GetByNameAndToken(creds.Name, creds.Token)
 	if err != nil {
 		logger.Warn().Err(err).Str("name", creds.Name).Msg("invalid git token")
-		return ErrGitUnauthenticated
+		return nil, ErrGitUnauthenticated
 	}
 
 	if repoErr != nil {
-		return ErrGitNotFound
+		return nil, ErrGitNotFound
 	}
 
 	switch authToken.Type {
 	case domain.TokenUser:
 		if authToken.UserId == nil || !authToken.User.Active {
 			logger.Warn().Str("token_id", authToken.Id).Msg("git token belongs to an inactive user")
-			return ErrGitUnauthenticated
+			return nil, ErrGitUnauthenticated
 		}
 
 		canRead, err := c.RepositoryApp.CanUserAccess(repo.Id, *authToken.UserId, "read")
 		if err != nil {
 			logger.Error().Err(err).Str("repo_id", repo.Id).Msg("failed to check repository access")
-			return err
+			return nil, err
 		}
 		if !canRead {
-			return ErrGitNotFound
+			return nil, ErrGitNotFound
 		}
 		if gitOperation == "write" {
 			canWrite, err := c.RepositoryApp.CanUserAccess(repo.Id, *authToken.UserId, "write")
 			if err != nil {
 				logger.Error().Err(err).Str("repo_id", repo.Id).Msg("failed to check repository access")
-				return err
+				return nil, err
 			}
 			if !canWrite {
-				return ErrGitForbidden
+				return nil, ErrGitForbidden
 			}
 		}
 
 	case domain.TokenRepo:
 		if authToken.RepositoryId == nil || *authToken.RepositoryId != repo.Id {
-			return ErrGitNotFound
+			return nil, ErrGitNotFound
 		}
 
 	default:
-		return ErrGitForbidden
+		return nil, ErrGitForbidden
 	}
 
 	if !slices.Contains(authToken.Scopes, requiredScope) {
-		return ErrGitForbidden
+		return nil, ErrGitForbidden
 	}
 
-	return nil
+	if gitOperation == "write" && repo.IsArchived {
+		return nil, ErrGitArchived
+	}
+
+	return repo, nil
 }
 
 // ChangePassword replaces the user's password after checking the current

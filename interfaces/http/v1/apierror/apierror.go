@@ -33,6 +33,8 @@ var mapping = []struct {
 	{application.ErrConfirmMismatch, fiber.StatusBadRequest, "CONFIRM_MISMATCH"},
 	{application.ErrRegistrationRejected, fiber.StatusBadRequest, "PASSWORD_REJECTED"},
 	{application.ErrInvalidCredentials, fiber.StatusBadRequest, "INVALID_PASSWORD"},
+	{application.ErrRepositoryNameTaken, fiber.StatusConflict, "REPOSITORY_NAME_TAKEN"},
+	{application.ErrInvalidName, fiber.StatusBadRequest, "INVALID_NAME"},
 	{application.ErrInvalidSSHKey, fiber.StatusBadRequest, "INVALID_SSH_KEY"},
 	{application.ErrSSHKeyInUse, fiber.StatusConflict, "SSH_KEY_IN_USE"},
 	{application.ErrSSHKeyName, fiber.StatusConflict, "SSH_KEY_NAME_TAKEN"},

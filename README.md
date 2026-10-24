@@ -103,6 +103,24 @@ ssh -T -p 2222 git@localhost      # "Hi <username>! ..."
 - **Host key:** an ed25519 key is generated at `ssh.host_key_path` on first start. Keep that file; in Docker, put it on a volume and publish the port (`-p 2222:2222`). If it changes, clients warn about a changed host key.
 - **Known limitation:** the go-git server doesn't negotiate common commits, so `git fetch` re-sends history the client already has (`warning: no common commits`). It works, just with more data than needed.
 
+### Managing a repository
+
+```bash
+# Owners: rename (the old URL keeps working), change visibility, archive (read-only)
+curl -X PATCH localhost:8080/api/v1/repository/my-project -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"name": "Better Name", "is_private": false, "archived": true}'
+# Maintainers and owners: description
+curl -X PATCH localhost:8080/api/v1/repository/better-name -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"description": "What it does"}'
+# Owners: delete permanently (repeat the slug)
+curl -X DELETE "localhost:8080/api/v1/repository/better-name?confirm=better-name" -H "Authorization: Bearer $SESSION"
+# Browse public repositories
+curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: Bearer $SESSION"
+```
+
+- **Renaming:** the slug changes, and the old one keeps working for the API, HTTP and SSH until another repository takes it. Git data never moves.
+- **Archiving:** an archived repository can be cloned and fetched, but refuses pushes from everyone until it's unarchived.
+
 ### Members and groups
 
 The creator of a repository is its owner. Owners and maintainers share it

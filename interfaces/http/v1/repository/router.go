@@ -30,8 +30,8 @@ func SetupRepositoryRouter(controller Controller) {
 	})
 
 	fiberoapi.Get(controller.FiberOapi, "", controller.ListRepositories, fiberoapi.OpenAPIOptions{
-		Summary:     "List my repositories",
-		Description: "Repositories the caller is a member of, directly or through a group",
+		Summary:     "List repositories",
+		Description: "By default the caller's repositories (directly or through a group). ?scope=public lists public repositories, filtered by ?q= (name or description), with ?limit= and ?offset=.",
 		OperationID: "repository.list",
 		Tags:        []string{"Repository"},
 	})
@@ -63,5 +63,19 @@ func SetupRepositoryRouter(controller Controller) {
 		Description: "Owners can remove anyone; maintainers members up to developer; anyone can remove themselves. The last owner cannot be removed.",
 		OperationID: "repository.members.remove",
 		Tags:        []string{"Repository members"},
+	})
+
+	fiberoapi.Patch(controller.FiberOapi, "/:identifier", controller.UpdateRepository, fiberoapi.OpenAPIOptions{
+		Summary:     "Update repository",
+		Description: "Owners: name (the slug follows; the old slug keeps working), is_private, archived (archived repositories refuse pushes). Maintainers and owners: description.",
+		OperationID: "repository.update",
+		Tags:        []string{"Repository"},
+	})
+
+	fiberoapi.Delete(controller.FiberOapi, "/:identifier", controller.DeleteRepository, fiberoapi.OpenAPIOptions{
+		Summary:     "Delete repository",
+		Description: "Owners only. Permanently deletes the repository and its git data. Requires ?confirm=<slug>.",
+		OperationID: "repository.delete",
+		Tags:        []string{"Repository"},
 	})
 }

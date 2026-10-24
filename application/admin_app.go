@@ -275,14 +275,8 @@ func (c *AdminApp) DeleteRepository(actorId, identifier, confirm string) error {
 		return ErrConfirmMismatch
 	}
 
-	// Database first: if removing the git data then fails, the repository is
-	// already gone for users and the leftover data is only logged.
-	if err := c.RepoPers.Purge(repo.Id); err != nil {
+	if err := purgeRepository(c.RepoPers, c.Storage, c.Logger, repo); err != nil {
 		return err
-	}
-	if err := c.Storage.DeleteRepository(repo.Slug); err != nil {
-		c.Logger.Error().Err(err).Str("component", "application.admin").Str("repository", repo.Slug).
-			Msg("repository deleted but its git data could not be removed")
 	}
 	c.audit(actorId, "repository.delete").Str("repository_id", repo.Id).Str("slug", repo.Slug).Send()
 	return nil

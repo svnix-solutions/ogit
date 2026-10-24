@@ -152,8 +152,12 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 		return 1
 	}
 
-	switch err := s.AuthApp.AuthorizeSSH(id, slug, service); {
+	repo, err := s.AuthApp.AuthorizeSSH(id, slug, service)
+	switch {
 	case err == nil:
+	case errors.Is(err, application.ErrGitArchived):
+		fmt.Fprintf(ch.Stderr(), "fatal: repository %q is archived (read-only)\n", slug)
+		return 1
 	case errors.Is(err, application.ErrGitForbidden):
 		fmt.Fprintf(ch.Stderr(), "fatal: permission to %s denied to %s\n", slug, id.Name)
 		return 1
@@ -167,7 +171,7 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 	}
 	_ = s.Keys.TouchLastUsed(id.Key.Id, time.Now())
 
-	srv, ep, err := helpergit.GetTransportServer(slug, s.Storage)
+	srv, ep, err := helpergit.GetTransportServer(repo.StorageKey, s.Storage)
 	if err != nil {
 		fmt.Fprintf(ch.Stderr(), "fatal: repository %q not found\n", slug)
 		return 1
