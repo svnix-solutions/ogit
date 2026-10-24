@@ -45,9 +45,9 @@ func pushTag(t *testing.T, st *s3.S3Storer, name string, target plumbing.Hash) p
 // ageBoundary separates "old" packs written before it from "young" ones
 // written after; prune with expire = time.Since(boundary) treats them so.
 func ageBoundary() time.Time {
-	time.Sleep(20 * time.Millisecond) // S3 times are in milliseconds
+	time.Sleep(100 * time.Millisecond) // S3 times are in milliseconds; CI is slow
 	b := time.Now()
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	return b
 }
 

@@ -46,6 +46,9 @@ func (s3s *S3Storage) Prune(repoPath string, expire, grace time.Duration, dryRun
 	var res PruneResult
 	repoKey := s3s.getRepoKey(repoPath)
 	var err error
+	// Fixed before any work: the cleanup below can take a while, and a pack
+	// uploaded meanwhile must not age into the old set.
+	cutoff := time.Now().Add(-expire)
 
 	if !dryRun {
 		if res.Deleted, err = s3s.deleteDroppedPacks(repoKey, grace); err != nil {
@@ -62,7 +65,6 @@ func (s3s *S3Storage) Prune(repoPath string, expire, grace time.Duration, dryRun
 	if err != nil {
 		return res, err
 	}
-	cutoff := time.Now().Add(-expire)
 	var old, young []*pack
 	for _, p := range state.packs {
 		if p.modified.After(cutoff) {
