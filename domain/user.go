@@ -31,6 +31,16 @@ type UserPers interface {
 	GetByEmail(email string) (User, error)
 	Create(user *User) error
 	MarkEmailVerified(userId string, at time.Time) error
+	// List returns users whose username or email contains query (all when
+	// empty), ordered by username, with the total number of matches.
+	List(query string, limit, offset int) ([]User, int64, error)
+	SetActive(userId string, active bool) error
+	SetRole(userId string, role Role) error
+	SetPassword(userId, hash string) error
+	CountActiveAdmins() (int64, error)
+	// Purge deletes the user and every row that references them (sessions,
+	// tokens, memberships, pending verification, SSH keys) in one transaction.
+	Purge(userId string) error
 }
 
 // EmailVerification is a pending email verification. A user has at most one;

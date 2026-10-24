@@ -112,6 +112,38 @@ curl -X POST localhost:8080/api/v1/repository/my-project/members -H "Authorizati
   - Groups are visible to their members only.
 - `GET /api/v1/repository` and `GET /api/v1/group` list your repositories and groups.
 
+## Administration
+
+Make the first site admin from the server. The command uses the database
+directly, like `migration`:
+
+```bash
+./ogit admin promote -c config.yaml --email you@example.com   # or --username
+./ogit admin demote  -c config.yaml --username someone
+# Docker: docker exec <container> ./app admin promote -c /config/config.yaml --email you@example.com
+```
+
+Admins use `/api/v1/admin` (`/documentation` lists the details):
+
+| Endpoint | |
+|---|---|
+| `GET /api/v1/admin/users?q=&limit=&offset=` | list and search users |
+| `POST /api/v1/admin/users` | create a verified account with an initial password (works when registration is off) |
+| `PATCH /api/v1/admin/users/<username>` | `{"active": false}` disables the account and ends its sessions immediately; also `"email_verified": true`, `"role": "admin"` or `"user"` |
+| `DELETE /api/v1/admin/users/<username>` | delete a user and their sessions, tokens and memberships |
+| `GET /api/v1/admin/repositories` | list every repository |
+| `POST /api/v1/admin/repositories/<slug>/owner` | make a user owner, e.g. when a repo's owners are gone |
+| `DELETE /api/v1/admin/repositories/<slug>?confirm=<slug>` | permanently delete a repository and its git data |
+| `POST /api/v1/admin/groups/<name>/transfer` | make a user the group owner |
+
+- Admins have no implicit access to repository content. To get access, they make themselves owner, which shows in the member list.
+- A user is not deleted while they're the only owner of a repository or own a group. The error lists them, so the admin can hand them over first.
+- The API never removes the last active admin; the CLI can always promote one.
+- Admin actions are logged with `"component":"audit"`.
+
+Users change their own password with `POST /api/v1/user/password`
+(`current_password`, `new_password`), which also ends their other sessions.
+
 ## Configuration
 
 Settings come from the YAML file given with `-c` (default `config.yaml`; a
@@ -158,7 +190,6 @@ The server refuses to start unless `smtp.host`, `smtp.from` and
 
 - SSH access
 - SSH key management
-- Site administrators (the `admin` user role is not used yet)
 - Repositories in nested paths (`org/project.git`)
 
 ## Development

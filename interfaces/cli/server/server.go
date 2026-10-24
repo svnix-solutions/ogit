@@ -140,6 +140,10 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers)
+	deps.AdminApp = &application.AdminApp{
+		Config: deps.Config, Logger: deps.Logger, UserPers: userPers, SessionPers: sessionPers,
+		RepoPers: repoPers, RepositoryMemberPers: repositoryMemberPers, GroupPers: groupPers, Storage: deps.Storage,
+	}
 	deps.Mailer = mail.NewSMTPSender(deps.Config)
 	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp,
 		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))

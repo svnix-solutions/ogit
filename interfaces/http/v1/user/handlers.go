@@ -3,7 +3,9 @@ package user
 import (
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
+	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/domain"
+	"github.com/labbs/ogit/interfaces/http/v1/apierror"
 	"github.com/labbs/ogit/interfaces/http/v1/user/dtos"
 )
 
@@ -75,4 +77,17 @@ func (ctrl *Controller) CreateToken(ctx *fiber.Ctx, req dtos.CreateTokenRequest)
 		Scopes:    req.Scopes,
 		ExpiresAt: token.ExpiresAt,
 	}, nil
+}
+
+// ChangePassword replaces the caller's password. Their other sessions end.
+func (ctrl *Controller) ChangePassword(ctx *fiber.Ctx, req dtos.ChangePasswordRequest) (*dtos.ChangePasswordResponse, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	sessionId, _ := authCtx.Claims[application.SessionIDClaim].(string)
+	if err := ctrl.AuthApp.ChangePassword(authCtx.UserID, sessionId, req.CurrentPassword, req.NewPassword); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return &dtos.ChangePasswordResponse{Message: "password changed; other sessions have been ended"}, nil
 }

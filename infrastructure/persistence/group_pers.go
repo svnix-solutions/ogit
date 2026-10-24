@@ -55,6 +55,12 @@ func (g *groupPers) ListForUser(userId string) ([]domain.Group, error) {
 	return groups, err
 }
 
+func (g *groupPers) OwnedBy(userId string) ([]domain.Group, error) {
+	var groups []domain.Group
+	err := g.db.Where("owner_id = ?", userId).Order("name").Find(&groups).Error
+	return groups, err
+}
+
 func (g *groupPers) GroupIdsForUser(userId string) ([]string, error) {
 	var ids []string
 	err := g.db.Model(&domain.GroupMember{}).Where("user_id = ?", userId).Pluck("group_id", &ids).Error

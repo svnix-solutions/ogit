@@ -27,14 +27,22 @@ var mapping = []struct {
 	{application.ErrGroupNameTaken, fiber.StatusConflict, "GROUP_NAME_TAKEN"},
 	{application.ErrLastOwner, fiber.StatusConflict, "LAST_OWNER"},
 	{application.ErrOwnerMustTransfer, fiber.StatusConflict, "OWNER_MUST_TRANSFER"},
+	{application.ErrLastAdmin, fiber.StatusConflict, "LAST_ADMIN"},
+	{application.ErrWouldOrphan, fiber.StatusConflict, "WOULD_ORPHAN"},
+	{application.ErrAccountTaken, fiber.StatusConflict, "ACCOUNT_TAKEN"},
+	{application.ErrConfirmMismatch, fiber.StatusBadRequest, "CONFIRM_MISMATCH"},
+	{application.ErrRegistrationRejected, fiber.StatusBadRequest, "PASSWORD_REJECTED"},
+	{application.ErrInvalidCredentials, fiber.StatusBadRequest, "INVALID_PASSWORD"},
 }
 
-// From converts err into an error response. Unknown errors are logged and
+// From converts err into an error response. Known application errors keep
+// their message, including wrapped details the application added (e.g. the
+// repositories listed by ErrWouldOrphan). Unknown errors are logged and
 // returned as a generic 500 without their message.
 func From(err error, logger zerolog.Logger) *fiberoapi.ErrorResponse {
 	for _, m := range mapping {
 		if errors.Is(err, m.err) {
-			return &fiberoapi.ErrorResponse{Code: m.code, Details: m.err.Error(), Type: m.typ}
+			return &fiberoapi.ErrorResponse{Code: m.code, Details: err.Error(), Type: m.typ}
 		}
 	}
 	logger.Error().Err(err).Msg("request failed")

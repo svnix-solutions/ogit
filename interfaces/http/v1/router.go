@@ -2,6 +2,7 @@ package v1
 
 import (
 	"github.com/labbs/ogit/infrastructure"
+	"github.com/labbs/ogit/interfaces/http/v1/admin"
 	"github.com/labbs/ogit/interfaces/http/v1/auth"
 	"github.com/labbs/ogit/interfaces/http/v1/group"
 	"github.com/labbs/ogit/interfaces/http/v1/repository"
@@ -28,6 +29,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		FiberOapi: grp.Group("/user"),
 		UserApp:   deps.UserApp,
 		TokenApp:  deps.TokenApp,
+		AuthApp:   deps.AuthApp,
 	}
 	user.SetupUserRouter(userCtrl)
 
@@ -44,5 +46,11 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		Logger:    deps.Logger,
 		FiberOapi: grp.Group("/group"),
 		GroupApp:  deps.GroupApp,
+	})
+
+	admin.SetupAdminRouter(admin.Controller{
+		Logger:    deps.Logger,
+		FiberOapi: grp.Group("/admin"),
+		AdminApp:  deps.AdminApp,
 	})
 }

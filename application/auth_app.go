@@ -217,6 +217,29 @@ func (c *AuthApp) AuthorizeGit(repoSlug, operation string, creds *GitCredentials
 	return nil
 }
 
+// ChangePassword replaces the user's password after checking the current
+// one. The user's other sessions end; sessionId (the caller's) is kept.
+func (c *AuthApp) ChangePassword(userId, sessionId, current, next string) error {
+	user, err := c.UserApp.GetById(userId)
+	if err != nil {
+		return err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(current)); err != nil {
+		return ErrInvalidCredentials
+	}
+	if err := checkPasswordPolicy(c.Config, next); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(next), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	if err := c.UserApp.UserPres.SetPassword(userId, string(hash)); err != nil {
+		return err
+	}
+	return c.SessionApp.SessionPers.DeleteByUserId(userId, sessionId)
+}
+
 // Logout ends the session identified by sessionId.
 func (c *AuthApp) Logout(sessionId string) error {
 	return c.SessionApp.Delete(sessionId)
