@@ -29,6 +29,11 @@ type Config struct {
 		Timeout      time.Duration
 	}
 
+	// Releases: uploaded assets are at most MaxAssetSize bytes.
+	Releases struct {
+		MaxAssetSize int64
+	}
+
 	// RateLimit rules are "N/window" (e.g. "10/15m"); "0" turns one off.
 	RateLimit struct {
 		Enabled      bool

@@ -1,6 +1,7 @@
 // Package ghcompat answers the GitHub REST endpoints for commit statuses
-// under /api/v3, as GitHub Enterprise does, so CI plugins that report to
-// GitHub work against oGit unchanged. Nothing else pretends to be GitHub.
+// and releases under /api/v3 (and release uploads under /api/uploads), as
+// GitHub Enterprise does, so CI plugins and release tools work against
+// oGit unchanged. Nothing else pretends to be GitHub.
 // Requests authenticate with a personal access token ("Authorization: token
 // <pat>"); the web UI's cookie is not accepted here.
 package ghcompat
@@ -27,6 +28,7 @@ type Controller struct {
 	TokenApp   *application.TokenApp
 	Limits     *ratelimit.Guard
 	Statuses   *application.StatusApp
+	Releases   *application.ReleaseApp
 }
 
 type ghUser struct {
@@ -68,6 +70,7 @@ func Setup(c Controller, app *fiber.App) {
 	g.Get("/statuses/:sha", c.list)
 	// Refs may contain slashes: /commits/<ref>/status and /commits/<ref>/statuses.
 	g.Get("/commits/*", c.commits)
+	setupReleases(c, app)
 }
 
 func (c Controller) base() string {
@@ -75,7 +78,7 @@ func (c Controller) base() string {
 }
 
 func (c Controller) fail(ctx *fiber.Ctx, code int, msg string) error {
-	return ctx.Status(code).JSON(fiber.Map{"message": msg, "documentation_url": "https://docs.github.com/rest/commits/statuses"})
+	return ctx.Status(code).JSON(fiber.Map{"message": msg, "documentation_url": "https://docs.github.com/rest"})
 }
 
 func (c Controller) failWith(ctx *fiber.Ctx, err error) error {

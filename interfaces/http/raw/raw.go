@@ -2,6 +2,7 @@
 //
 //	GET /<owner>/<repo>/raw/<ref>/<path>
 //	GET /<owner>/<repo>/archive/<ref>.zip (or .tar.gz)
+//	GET /<owner>/<repo>/releases/download/<tag>/<name> (release assets)
 //
 // Access is git's: HTTP Basic with an access token (for scripts), the web
 // UI's session cookie, or nothing for public repositories. Files are served
@@ -24,6 +25,7 @@ import (
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/gitbrowse"
 	"github.com/labbs/ogit/interfaces/http/git"
+	"github.com/labbs/ogit/interfaces/http/v1/releases"
 	"github.com/labbs/ogit/interfaces/http/websession"
 	"github.com/rs/zerolog"
 )
@@ -33,12 +35,14 @@ type Controller struct {
 	AuthApp    *application.AuthApp
 	SessionApp *application.SessionApp
 	BrowseApp  *application.BrowseApp
+	Releases   *application.ReleaseApp
 	Limits     *ratelimit.Guard
 }
 
 func Setup(c Controller, app *fiber.App) {
 	app.Get("/:owner/:repo/raw/*", c.Raw)
 	app.Get("/:owner/:repo/archive/*", c.Archive)
+	app.Get("/:owner/:repo/releases/download/*", c.ReleaseAsset)
 }
 
 // errLimited: the caller used up their git budget (see ratelimit).
@@ -95,7 +99,8 @@ func (c Controller) fail(ctx *fiber.Ctx, err error) error {
 		return ctx.Status(fiber.StatusUnauthorized).SendString(err.Error())
 	case errors.Is(err, application.ErrRepositoryNotFound), errors.Is(err, application.ErrGitNotFound),
 		errors.Is(err, application.ErrGitForbidden), errors.Is(err, gitbrowse.ErrRefNotFound),
-		errors.Is(err, gitbrowse.ErrPathNotFound), errors.Is(err, gitbrowse.ErrNotAFile), errors.Is(err, gitbrowse.ErrEmpty):
+		errors.Is(err, gitbrowse.ErrPathNotFound), errors.Is(err, gitbrowse.ErrNotAFile), errors.Is(err, gitbrowse.ErrEmpty),
+		errors.Is(err, application.ErrAssetNotFound):
 		return ctx.Status(fiber.StatusNotFound).SendString("not found")
 	case errors.Is(err, gitbrowse.ErrFormat):
 		return ctx.Status(fiber.StatusNotFound).SendString(err.Error())
@@ -188,5 +193,26 @@ func (c Controller) Archive(ctx *fiber.Ctx) error {
 		}
 		_ = w.Flush()
 	})
+	return nil
+}
+
+// ReleaseAsset downloads an asset of a published release (drafts' go
+// through the API, for writers).
+func (c Controller) ReleaseAsset(ctx *fiber.Ctx) error {
+	repo, _, err := c.open(ctx)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	tag, name, ok := releases.SplitDownload(ctx.Params("*"))
+	if !ok {
+		return c.fail(ctx, application.ErrAssetNotFound)
+	}
+	a, err := c.Releases.PublishedAsset(repo, tag, name)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	if err := releases.SendAsset(ctx, c.Releases, a); err != nil {
+		return c.fail(ctx, err)
+	}
 	return nil
 }

@@ -71,3 +71,23 @@ func TestPostgresMigrationNamespaces(t *testing.T) {
 	require.NoError(t, goose.DownToContext(gctx, sqlDB, "files", beforeNamespaces))
 	require.NoError(t, goose.UpToContext(gctx, sqlDB, "files", namespaces))
 }
+
+func TestPostgresMigrationReleaseAssets(t *testing.T) {
+	ctx := context.Background()
+	ctr, err := postgres.Run(ctx, "postgres:17-alpine",
+		postgres.WithDatabase("ogit"), postgres.WithUsername("ogit"), postgres.WithPassword("ogit"),
+		postgres.BasicWaitStrategies())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ctr.Terminate(context.Background()) })
+	dsn, err := ctr.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+	db, err := gorm.Open(gpostgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	goose.SetBaseFS(migrationFiles)
+	require.NoError(t, goose.SetDialect("postgres"))
+	checkReleaseAssetsMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
+}

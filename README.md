@@ -10,7 +10,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
-- **Releases**: on tags, with drafts, pre-releases and generated notes
+- **Releases**: on tags, with drafts, pre-releases, generated notes, uploaded assets and protected tags; GitHub's releases API for release tools
 - **Forks**: fork any repository you can read, open pull requests from your fork, sync it with the original
 - **Issues**: per repository, numbered with pull requests, with comments, labels, assignees, milestones and "Fixes #N"
 - **Branch protection**: no force-pushes or deletion, pull-request-only branches, per-branch approvals, push and merge allowlists
@@ -209,7 +209,44 @@ curl localhost:8080/api/v1/repository/me%2Fmy-project/releases/latest
 - **Drafts:** visible to writers only. They create no tag and send no webhooks until published (`"draft": false`). A published release keeps its tag and stays published.
 - **Pre-releases** are never `latest`.
 - **Notes:** `generate-notes` lists the pull requests merged since the previous release (or `previous_tag_name`).
-- **Webhooks:** GitHub's `release` event (created, published, released, prereleased, edited, deleted). A tag created by a release is also a `push` event.
+- **Webhooks:** GitHub's `release` event (created, published, released, prereleased, edited, deleted), with the assets. A tag created by a release is also a `push` event.
+
+#### Assets
+
+```bash
+# Upload: the file is the body (streamed), ?name= its file name
+curl -X POST "localhost:8080/api/v1/repository/me%2Fmy-project/releases/$RELEASE/assets?name=app_linux_amd64.tar.gz&label=Linux" \
+  -H "Authorization: token $CI_TOKEN" -H 'Content-Type: application/gzip' --data-binary @dist/app_linux_amd64.tar.gz
+# Download from a published release (git's auth: a token for private repositories)
+curl -LO localhost:8080/me/my-project/releases/download/v1.2.0/app_linux_amd64.tar.gz
+```
+
+- Writers upload, rename and delete assets, on drafts too. Names are made safe (other characters become `.`) and unique per release.
+- At most `releases.max_asset_size` bytes (100 MB by default) per asset. Uploads are streamed to the repository's storage (local or S3), never held in memory, and refused once over the limit.
+- Downloads always come as `application/octet-stream` attachments, whatever the uploaded type, and each one is counted (`download_count`). Drafts' assets are only downloadable by writers, through the API (`.../assets/<id>/download`).
+- Deleting a release deletes its assets; deleting the repository deletes everything.
+
+#### GitHub-compatible API (goreleaser and the like)
+
+`/api/v3/repos/<owner>/<repo>/releases` answers GitHub's releases endpoints: list, get, by tag, latest, create (with `generate_release_notes`), edit, delete, generate notes, and assets (list, get, download with `Accept: application/octet-stream`, edit, delete). Uploads go to the `upload_url` of a release, under `/api/uploads` (GitHub Enterprise's upload URL). Ids are numbers there, since GitHub's clients parse them as integers. Authenticate with a personal access token or a repository token. For goreleaser:
+
+```yaml
+github_urls:
+  api: https://git.example.com/api/v3/
+  upload: https://git.example.com/api/uploads/
+  download: https://git.example.com/
+```
+
+#### Protected tags
+
+```bash
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/protected-tags -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"pattern": "v*", "allowed_users": ["release-bot"]}'
+```
+
+- Owners manage the rules; developers and up can read them. `pattern` is a tag name or a glob (`*` within a segment, `**` across, `?`).
+- Only maintainers and up, and the users and groups listed, may create a matching tag, by a push or by publishing a release. Deploy keys and repository tokens never may; they can still release an existing protected tag.
+- Nobody may move or delete a protected tag, except owners, and every such bypass is logged (`"component":"audit"`).
 
 ### Forks
 

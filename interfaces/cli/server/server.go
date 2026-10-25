@@ -55,6 +55,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.SSHFlags(cfg)...)
 	list = append(list, config.RateLimitFlags(cfg)...)
 	list = append(list, config.WebhookFlags(cfg)...)
+	list = append(list, config.ReleaseFlags(cfg)...)
 	return
 }
 
@@ -179,7 +180,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.PullApp.Webhooks = deps.WebhookApp
 	deps.ProtectionApp = &application.ProtectionApp{
 		Logger: deps.Logger, Repositories: deps.RepoApp, Rules: persistence.NewBranchProtectionPers(deps.Database.Db),
-		Users: userPers, Groups: groupPers,
+		Tags: persistence.NewProtectedTagPers(deps.Database.Db), Users: userPers, Groups: groupPers,
 	}
 	deps.PullApp.Protection = deps.ProtectionApp
 	deps.StatusApp = &application.StatusApp{
@@ -211,7 +212,8 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.RepoTokenApp = &application.RepositoryTokenApp{Repositories: deps.RepoApp, Tokens: deps.TokenApp}
 	deps.ReleaseApp = &application.ReleaseApp{
 		Logger: deps.Logger, Repositories: deps.RepoApp, Releases: persistence.NewReleasePers(deps.Database.Db),
-		Pulls: deps.PullApp.Pulls, Users: userPers, Webhooks: deps.WebhookApp,
+		Assets: persistence.NewReleaseAssetPers(deps.Database.Db), MaxAssetSize: deps.Config.Releases.MaxAssetSize,
+		Pulls: deps.PullApp.Pulls, Users: userPers, Webhooks: deps.WebhookApp, TagCheck: deps.ProtectionApp.ReleaseTagCheck,
 	}
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
