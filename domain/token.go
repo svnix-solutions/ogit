@@ -29,9 +29,12 @@ type Token struct {
 
 	Scopes TokenScopes
 
-	ExpiresAt *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ExpiresAt  *time.Time
+	LastUsedAt *time.Time
+	// CreatedById is who made a repository token (nil once deleted).
+	CreatedById *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 func (Token) TableName() string {
@@ -89,5 +92,32 @@ type TokenPers interface {
 	GetByToken(tokenStr string) (*Token, error)
 	GetByUserId(userId string) ([]Token, error)
 	GetById(id string) (*Token, error)
+	// GetByRepositoryId returns a repository's tokens.
+	GetByRepositoryId(repositoryId string) ([]Token, error)
+	// Touch records that the token was used.
+	Touch(id string, at time.Time) error
 	Delete(token *Token) error
+}
+
+// A repository token reads its repository's API as a principal of its own,
+// "repo-token:<repository id>": a reader of that repository only, and
+// never a person (it can't comment, review or be assigned).
+const repoTokenPrefix = "repo-token:"
+
+func RepoTokenPrincipal(repositoryId string) string { return repoTokenPrefix + repositoryId }
+
+// RepoTokenRepository returns the repository of a repository token
+// principal.
+func RepoTokenRepository(principal string) (string, bool) {
+	if len(principal) > len(repoTokenPrefix) && principal[:len(repoTokenPrefix)] == repoTokenPrefix {
+		return principal[len(repoTokenPrefix):], true
+	}
+	return "", false
+}
+
+// IsPerson reports whether id is a signed-in user (not anonymous, not a
+// repository token).
+func IsPerson(id string) bool {
+	_, token := RepoTokenRepository(id)
+	return id != "" && !token
 }

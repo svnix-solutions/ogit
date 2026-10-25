@@ -19,6 +19,7 @@ import (
 type Controller struct {
 	Logger     zerolog.Logger
 	SessionApp *application.SessionApp
+	TokenApp   *application.TokenApp // repository tokens read the repository's routes
 	Issues     *application.IssueApp
 }
 
@@ -181,7 +182,9 @@ func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Get(repoGrp, "/:identifier/numbers/:number", c.Resolve, public("Issue or pull request?", "numbers.resolve", "Whether #number is an issue or a pull request (they share numbers)."))
 }
 
-func (c Controller) userId(ctx *fiber.Ctx) string { return optauth.UserID(ctx, c.SessionApp) }
+func (c Controller) userId(ctx *fiber.Ctx) string {
+	return optauth.Reader(ctx, c.SessionApp, c.TokenApp)
+}
 
 func authed(ctx *fiber.Ctx) (string, *fiberoapi.ErrorResponse) {
 	auth, err := fiberoapi.GetAuthContext(ctx)

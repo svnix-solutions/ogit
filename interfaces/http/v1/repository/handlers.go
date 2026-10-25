@@ -19,7 +19,7 @@ func (ctrl *Controller) GetRepository(ctx *fiber.Ctx, req dtos.GetRepositoryRequ
 
 	id, path := repoid.Split(req.Identifier)
 
-	userId := optauth.UserID(ctx, ctrl.SessionApp)
+	userId := optauth.Reader(ctx, ctrl.SessionApp, ctrl.TokenApp)
 	repo, err := ctrl.RepositoryApp.GetRepositoryForUser(id, path, userId)
 	if errors.Is(err, application.ErrRepositoryNotFound) {
 		return nil, &fiberoapi.ErrorResponse{

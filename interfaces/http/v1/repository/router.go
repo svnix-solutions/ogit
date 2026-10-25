@@ -13,6 +13,8 @@ type Controller struct {
 	FiberOapi     *fiberoapi.OApiGroup
 	RepositoryApp *application.RepositoryApp
 	SessionApp    *application.SessionApp // optional sessions on public routes
+	TokenApp      *application.TokenApp   // repository tokens read GET /:identifier
+	RepoTokens    *application.RepositoryTokenApp
 	WebhookApp    *application.WebhookApp
 	ProtectionApp *application.ProtectionApp
 }
@@ -21,6 +23,7 @@ func SetupRepositoryRouter(controller Controller) {
 	setupWebhookRoutes(controller)
 	setupBranchProtectionRoutes(controller)
 	setupForkRoutes(controller)
+	setupTokenRoutes(controller)
 
 	fiberoapi.Get(controller.FiberOapi, "/:identifier", controller.GetRepository, fiberoapi.OpenAPIOptions{
 		Summary:     "Get repository",

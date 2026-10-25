@@ -66,6 +66,8 @@ var mapping = []struct {
 	{application.ErrInvalidToken, fiber.StatusUnauthorized, "INVALID_TOKEN"},
 	{application.ErrIssueNotFound, fiber.StatusNotFound, "ISSUE_NOT_FOUND"},
 	{application.ErrNotAFork, fiber.StatusConflict, "NOT_A_FORK"},
+	{application.ErrInvalidTokenRequest, fiber.StatusBadRequest, "INVALID_TOKEN_REQUEST"},
+	{application.ErrTokenNameTaken, fiber.StatusConflict, "TOKEN_NAME_TAKEN"},
 	{application.ErrDiverged, fiber.StatusConflict, "DIVERGED"},
 	{application.ErrNotInNetwork, fiber.StatusBadRequest, "NOT_IN_NETWORK"},
 	{application.ErrMilestoneNotFound, fiber.StatusNotFound, "MILESTONE_NOT_FOUND"},

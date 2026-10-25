@@ -21,6 +21,7 @@ import (
 type Controller struct {
 	Logger     zerolog.Logger
 	SessionApp *application.SessionApp
+	TokenApp   *application.TokenApp // repository tokens read the repository's routes
 	Pulls      *application.PullRequestApp
 }
 
@@ -180,7 +181,9 @@ func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Get(repoGrp, "/:identifier/pulls/:number/compare", c.Compare, public("Commits and diff", "pulls.compare", "The source's commits since the merge base and the diff, as for compare; recorded tips once merged or closed."))
 }
 
-func (c Controller) userId(ctx *fiber.Ctx) string { return optauth.UserID(ctx, c.SessionApp) }
+func (c Controller) userId(ctx *fiber.Ctx) string {
+	return optauth.Reader(ctx, c.SessionApp, c.TokenApp)
+}
 
 // number parses the :number path parameter (fiber-oapi fills strings only).
 func number(s string) (int, *fiberoapi.ErrorResponse) {
@@ -230,7 +233,7 @@ func detail(v *application.PullRequestView) *Detail {
 		d.MergeBlocked = &MergeBlocked{Type: e.Type, Message: v.MergeBlocked.Error()}
 	}
 	d.Labels = labels(v.Labels)
-	d.CanReview = v.Role.CanRead() && v.State == domain.PullRequestOpen && !v.Repository.IsArchived && v.Viewer() != "" &&
+	d.CanReview = v.Role.CanRead() && v.State == domain.PullRequestOpen && !v.Repository.IsArchived && domain.IsPerson(v.Viewer()) &&
 		(v.AuthorId == nil || *v.AuthorId != v.Viewer())
 	if d.Conflicts == nil {
 		d.Conflicts = []string{}

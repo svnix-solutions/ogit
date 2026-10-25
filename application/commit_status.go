@@ -98,12 +98,16 @@ func (c *StatusApp) Create(id, path *string, caller StatusCaller, sha string, in
 	if caller.UserId == "" {
 		return nil, ErrForbidden
 	}
-	role, err := c.Repositories.GetUserEffectiveRole(repo.Id, caller.UserId)
-	if err != nil {
-		return nil, err
-	}
-	if !role.CanWrite() {
-		return nil, ErrForbidden
+	if domain.IsPerson(caller.UserId) {
+		role, err := c.Repositories.GetUserEffectiveRole(repo.Id, caller.UserId)
+		if err != nil {
+			return nil, err
+		}
+		if !role.CanWrite() {
+			return nil, ErrForbidden
+		}
+	} else if caller.Token == nil || caller.Token.RepositoryId == nil || *caller.Token.RepositoryId != repo.Id {
+		return nil, ErrForbidden // a repository token posts on its own repository only
 	}
 	if !caller.tokenAllows(domain.ScopeWriteStatus, domain.ScopeWriteRepository) {
 		return nil, ErrTokenScope
@@ -123,14 +127,21 @@ func (c *StatusApp) Create(id, path *string, caller StatusCaller, sha string, in
 	if err != nil || commit.Hash.String() != sha {
 		return nil, ErrCommitNotFound
 	}
-	status.RepositoryId, status.SHA, status.CreatorId = repo.Id, sha, &caller.UserId
+	status.RepositoryId, status.SHA = repo.Id, sha
+	if domain.IsPerson(caller.UserId) {
+		status.CreatorId = &caller.UserId
+	}
 	if err := c.Statuses.Create(status); err != nil {
 		return nil, err
 	}
-	if u, err := c.Repositories.UserPers.GetById(caller.UserId); err == nil {
-		status.Creator = &u
+	sender := ""
+	if status.CreatorId != nil {
+		if u, err := c.Repositories.UserPers.GetById(caller.UserId); err == nil {
+			status.Creator = &u
+		}
+		sender = caller.UserId
 	}
-	c.Webhooks.StatusEvent(repo, st, commit, status, caller.UserId)
+	c.Webhooks.StatusEvent(repo, st, commit, status, sender)
 	return status, nil
 }
 

@@ -50,6 +50,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		FiberOapi:     repoGrp,
 		RepositoryApp: deps.RepoApp,
 		SessionApp:    deps.SessionApp,
+		TokenApp:      deps.TokenApp,
+		RepoTokens:    deps.RepoTokenApp,
 		WebhookApp:    deps.WebhookApp,
 		ProtectionApp: deps.ProtectionApp,
 	}
@@ -70,15 +72,15 @@ func SetupRouterV1(deps infrastructure.Deps) {
 
 	sshkey.Setup(sshkey.Controller{Logger: deps.Logger, SSHKeyApp: deps.SSHKeyApp}, userGrp, repoGrp, adminGrp)
 
-	browse.Setup(browse.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp}, repoGrp)
+	browse.Setup(browse.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, BrowseApp: deps.BrowseApp}, repoGrp)
 
 	statuses.Setup(statuses.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Limits: deps.Limits, Statuses: deps.StatusApp}, repoGrp)
 
-	milestones.Setup(milestones.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, Milestones: deps.MilestoneApp}, repoGrp)
+	milestones.Setup(milestones.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Milestones: deps.MilestoneApp}, repoGrp)
 
-	issues.Setup(issues.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, Issues: deps.IssueApp}, repoGrp)
+	issues.Setup(issues.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Issues: deps.IssueApp}, repoGrp)
 
-	pulls.Setup(pulls.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, Pulls: deps.PullApp}, repoGrp)
+	pulls.Setup(pulls.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Pulls: deps.PullApp}, repoGrp)
 
 	site.Setup(site.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, RepositoryApp: deps.RepoApp}, grp)
 }

@@ -259,6 +259,7 @@ func (c *AuthApp) authorizeGit(repoPath, operation string, creds *GitCredentials
 	if !slices.Contains(authToken.Scopes, requiredScope) {
 		return nil, nil, nil, ErrGitForbidden
 	}
+	c.TokenApp.Touch(authToken)
 
 	if gitOperation == "write" && repo.IsArchived {
 		return nil, nil, nil, ErrGitArchived
