@@ -209,7 +209,7 @@ func (c *IssueApp) List(id, path *string, userId string, q IssueQuery, offset, l
 	switch q.Mine {
 	case "":
 	case "assigned", "created":
-		if userId == "" {
+		if !domain.IsPerson(userId) {
 			return nil, ErrForbidden
 		}
 		if q.Mine == "assigned" {
@@ -274,8 +274,8 @@ func (c *IssueApp) Get(id, path *string, userId string, number int) (*IssueView,
 			v.Milestone = m
 		}
 	}
-	open := writable(repo) == nil && userId != ""
-	isAuthor := userId != "" && issue.AuthorId != nil && *issue.AuthorId == userId
+	open := writable(repo) == nil && domain.IsPerson(userId)
+	isAuthor := domain.IsPerson(userId) && issue.AuthorId != nil && *issue.AuthorId == userId
 	v.CanEdit = open && (isAuthor || role.CanWrite())
 	v.CanComment = open
 	v.CanLabel = open && role.CanWrite()

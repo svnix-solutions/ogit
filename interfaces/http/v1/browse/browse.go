@@ -28,6 +28,7 @@ const (
 type Controller struct {
 	Logger     zerolog.Logger
 	SessionApp *application.SessionApp
+	TokenApp   *application.TokenApp // repository tokens read the repository's routes
 	BrowseApp  *application.BrowseApp
 }
 
@@ -128,7 +129,7 @@ func (c Controller) fail(err error) *fiberoapi.ErrorResponse {
 // storer opens the repository if the caller (or anonymous) may read it.
 func (c Controller) storer(ctx *fiber.Ctx, identifier string) (storer.Storer, *fiberoapi.ErrorResponse) {
 	id, path := repoid.Split(identifier)
-	_, st, err := c.BrowseApp.Open(id, path, optauth.UserID(ctx, c.SessionApp))
+	_, st, err := c.BrowseApp.Open(id, path, optauth.Reader(ctx, c.SessionApp, c.TokenApp))
 	if err != nil {
 		return nil, c.fail(err)
 	}

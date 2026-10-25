@@ -3,10 +3,12 @@ package optauth
 import (
 	"encoding/base64"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/labbs/ogit/application"
+	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/ratelimit"
 )
 
@@ -60,7 +62,25 @@ func Caller(ctx *fiber.Ctx, sessions *application.SessionApp, tokens *applicatio
 		if err != nil {
 			return application.StatusCaller{}, err
 		}
+		if token.Type == domain.TokenRepo {
+			return application.StatusCaller{UserId: domain.RepoTokenPrincipal(*token.RepositoryId), Token: token}, nil
+		}
 		return application.StatusCaller{UserId: *token.UserId, Token: token}, nil
 	}
 	return application.StatusCaller{UserId: UserID(ctx, sessions)}, nil
+}
+
+// Reader returns who reads a repository-scoped API route: the session's
+// user, or a repository token's principal (a reader of its repository
+// only) when the token has read:repository; "" is anonymous. Only routes
+// under /repository/:identifier use it: elsewhere tokens are not readers.
+func Reader(ctx *fiber.Ctx, sessions *application.SessionApp, tokens *application.TokenApp) string {
+	if pat := Token(ctx); pat != "" && tokens != nil {
+		token, err := tokens.Authenticate(pat)
+		if err != nil || token.Type != domain.TokenRepo || !slices.Contains(token.Scopes, domain.ScopeReadRepository) {
+			return ""
+		}
+		return domain.RepoTokenPrincipal(*token.RepositoryId)
+	}
+	return UserID(ctx, sessions)
 }

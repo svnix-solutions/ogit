@@ -92,11 +92,34 @@ func (c *TokenApp) Authenticate(tokenStr string) (*domain.Token, error) {
 		}
 		return nil, ErrInvalidToken
 	}
-	if !token.Active || (token.ExpiresAt != nil && token.ExpiresAt.Before(time.Now())) ||
-		token.Type != domain.TokenUser || token.UserId == nil || !token.User.Active {
+	if !token.Active || (token.ExpiresAt != nil && token.ExpiresAt.Before(time.Now())) {
 		return nil, ErrInvalidToken
 	}
+	switch token.Type {
+	case domain.TokenUser:
+		if token.UserId == nil || !token.User.Active {
+			return nil, ErrInvalidToken
+		}
+	case domain.TokenRepo:
+		if token.RepositoryId == nil {
+			return nil, ErrInvalidToken
+		}
+	default:
+		return nil, ErrInvalidToken
+	}
+	c.Touch(token)
 	return token, nil
+}
+
+// Touch records that token was used now (at most once a minute).
+func (c *TokenApp) Touch(token *domain.Token) {
+	now := time.Now()
+	if token.LastUsedAt != nil && now.Sub(*token.LastUsedAt) < time.Minute {
+		return
+	}
+	if err := c.TokenPers.Touch(token.Id, now); err != nil {
+		c.Logger.Warn().Err(err).Str("token_id", token.Id).Msg("failed to record token use")
+	}
 }
 
 // CreateUserToken creates a personal access token for userId and returns the

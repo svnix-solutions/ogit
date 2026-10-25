@@ -17,6 +17,7 @@ import { formatDate, useMyGroups } from "@/lib/queries";
 import { LabelBadge } from "@/components/label-badge";
 import { NotFoundPage } from "./not-found";
 import { BranchProtection } from "./repo-protection";
+import { RepoTokens } from "./repo-tokens";
 import { Webhooks } from "./repo-webhooks";
 import { useRepository } from "./repo";
 
@@ -37,6 +38,7 @@ export function RepoSettingsPage() {
       <Labels repo={r.data} />
       <Members repo={r.data} isOwner={isOwner} />
       <DeployKeys repo={r.data} />
+      <RepoTokens repo={r.data} />
       <Webhooks repo={r.data} />
       {isOwner && <Transfer repo={r.data} />}
       {isOwner && <Delete repo={r.data} />}

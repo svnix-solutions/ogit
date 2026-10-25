@@ -208,6 +208,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp,
 		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))
 	deps.AuthApp.ForkEdits = deps.PullApp.EditableBranches
+	deps.RepoTokenApp = &application.RepositoryTokenApp{Repositories: deps.RepoApp, Tokens: deps.TokenApp}
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
 	if err != nil {

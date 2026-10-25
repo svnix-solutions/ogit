@@ -212,6 +212,13 @@ func (c *RepositoryApp) GetUserEffectiveRole(repositoryId, userId string) (domai
 	if userId == "" {
 		return domain.AccessTypeNone, nil
 	}
+	// A repository token reads its own repository, nothing else.
+	if tokenRepo, ok := domain.RepoTokenRepository(userId); ok {
+		if tokenRepo == repositoryId {
+			return domain.AccessTypeReporter, nil
+		}
+		return domain.AccessTypeNone, nil
+	}
 
 	repo, err := c.GetRepository(&repositoryId, nil)
 	if err != nil {

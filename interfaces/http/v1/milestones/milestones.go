@@ -16,6 +16,7 @@ import (
 type Controller struct {
 	Logger     zerolog.Logger
 	SessionApp *application.SessionApp
+	TokenApp   *application.TokenApp // repository tokens read the repository's routes
 	Milestones *application.MilestoneApp
 }
 
@@ -103,7 +104,7 @@ func authed(ctx *fiber.Ctx) (string, *fiberoapi.ErrorResponse) {
 
 func (c Controller) List(ctx *fiber.Ctx, req ListRequest) (*ListResponse, *fiberoapi.ErrorResponse) {
 	id, path := repoid.Split(req.Identifier)
-	views, err := c.Milestones.List(id, path, optauth.UserID(ctx, c.SessionApp), req.State)
+	views, err := c.Milestones.List(id, path, optauth.Reader(ctx, c.SessionApp, c.TokenApp), req.State)
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
@@ -130,7 +131,7 @@ func (c Controller) Create(ctx *fiber.Ctx, req CreateRequest) (*Milestone, *fibe
 
 func (c Controller) Get(ctx *fiber.Ctx, req IdRequest) (*Milestone, *fiberoapi.ErrorResponse) {
 	id, path := repoid.Split(req.Identifier)
-	v, err := c.Milestones.Get(id, path, optauth.UserID(ctx, c.SessionApp), req.MilestoneId)
+	v, err := c.Milestones.Get(id, path, optauth.Reader(ctx, c.SessionApp, c.TokenApp), req.MilestoneId)
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}

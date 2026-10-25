@@ -251,6 +251,24 @@ curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/branch-protection 
 - `owners_bypass`: repository owners may break the rule. Each bypass is logged with `"component":"audit"`.
 - A pull request's `merge_blocked` says why the caller can't merge it, and `protected_by` names the rule. A protected source branch is kept after a merge, even with `delete_branch`.
 
+### Repository tokens (CI)
+
+Maintainers and owners create tokens bound to one repository, in its
+**Settings** page or through the API, so CI needs no personal account:
+
+```bash
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/tokens -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"name": "ci", "scopes": ["read:repository", "write:status"]}'
+git clone https://ci:$TOKEN@git.example.com/me/my-project.git
+curl localhost:8080/api/v1/repository/me%2Fmy-project/issues -H "Authorization: token $TOKEN"
+```
+
+- **Scopes:**
+  - `read:repository`: clone, fetch, and read this repository's API (files, pull requests, issues, milestones, statuses);
+  - `write:repository`: push, under branch protection (a token is never on a rule's list);
+  - `write:status`: post commit statuses.
+- **Limits:** a token reaches its own repository only. It never acts as a person, so no comments, reviews or other writes through the API. Expiry is optional, the value is shown once at creation, and the token list shows each token's last use.
+
 ### Commit statuses (CI)
 
 CI reports results on commits like it does to GitHub. Create a personal access
