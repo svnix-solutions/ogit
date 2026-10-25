@@ -1,4 +1,4 @@
-import { File, FileText, Folder, FolderGit2, History, Link2 } from "lucide-react";
+import { File, FileText, Folder, FolderGit2, History, Link2, Tag } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { CodeView } from "@/components/code-view";
@@ -21,6 +21,7 @@ import {
   type Commit,
 } from "@/lib/browse";
 import { renderMarkdown } from "@/lib/markdown";
+import { releasePath, useLatestRelease } from "@/lib/releases";
 import { cn } from "@/lib/utils";
 
 function notFound(error: unknown, what: string) {
@@ -64,6 +65,7 @@ export function TreePage() {
           <History className="h-4 w-4" /> History
         </ButtonLink>
       </div>
+      {!path && <LatestRelease fullPath={repo.full_path} />}
       <Card className="overflow-hidden">
         {commit && <LastCommit commit={commit} />}
         <table className="w-full text-sm">
@@ -103,6 +105,28 @@ export function TreePage() {
       </Card>
       {readme && <Readme repoPath={repo.full_path} gitRef={ref} dir={path} file={readme} />}
     </div>
+  );
+}
+
+// LatestRelease is a one-line pointer to the latest release, on the
+// repository's front page.
+function LatestRelease({ fullPath }: { fullPath: string }) {
+  const latest = useLatestRelease(fullPath);
+  const r = latest.data;
+  if (!r) return null;
+  return (
+    <Card className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
+      <Tag className="h-4 w-4 text-green-600 dark:text-green-400" />
+      <span className="text-muted-foreground">Latest release</span>
+      <Link to={releasePath(fullPath, r.tag_name)} className="font-medium text-primary hover:underline">
+        {r.name || r.tag_name}
+      </Link>
+      {r.published_at && <span className="text-xs text-muted-foreground">{relativeTime(r.published_at)}</span>}
+      {r.assets.length > 0 && <span className="text-xs text-muted-foreground">· {r.assets.length} {r.assets.length === 1 ? "file" : "files"}</span>}
+      <Link to={`/${fullPath}/releases`} className="ml-auto text-xs text-primary hover:underline">
+        All releases
+      </Link>
+    </Card>
   );
 }
 

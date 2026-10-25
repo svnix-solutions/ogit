@@ -41,6 +41,7 @@ func TestSitePages(t *testing.T) {
 		assert.Equal(t, true, body["registration_enabled"])
 		assert.Equal(t, false, body["ssh_enabled"])
 		assert.NotContains(t, body, "ssh_port")
+		assert.EqualValues(t, 100<<20, body["max_asset_size"], "the default")
 	})
 
 	t.Run("explore_without_session", func(t *testing.T) {

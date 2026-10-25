@@ -91,20 +91,25 @@ func (c *ReleaseApp) canWrite(repo *domain.Repository, caller StatusCaller) bool
 		caller.tokenAllows(domain.ScopeWriteRepository)
 }
 
-func (c *ReleaseApp) List(id, path *string, caller StatusCaller, offset, limit int) ([]ReleaseView, error) {
+// List returns a page of releases and how many the caller can see.
+func (c *ReleaseApp) List(id, path *string, caller StatusCaller, offset, limit int) ([]ReleaseView, int64, error) {
 	repo, _, writer, err := c.open(id, path, caller)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	releases, err := c.Releases.List(repo.Id, writer, max(offset, 0), clampLimit(limit))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	total, err := c.Releases.Count(repo.Id, writer)
+	if err != nil {
+		return nil, 0, err
 	}
 	out := make([]ReleaseView, 0, len(releases))
 	for i := range releases {
 		out = append(out, ReleaseView{Release: &releases[i], Repository: repo, CanEdit: writer})
 	}
-	return out, c.withAssets(out)
+	return out, total, c.withAssets(out)
 }
 
 func (c *ReleaseApp) view(repo *domain.Repository, writer bool, r *domain.Release, err error) (*ReleaseView, error) {

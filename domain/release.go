@@ -37,6 +37,7 @@ type ReleasePers interface {
 	ByApiId(repositoryId string, apiId int64) (*Release, error)
 	// List returns releases, newest first (drafts only with drafts).
 	List(repositoryId string, drafts bool, offset, limit int) ([]Release, error)
+	Count(repositoryId string, drafts bool) (int64, error)
 	// Latest returns the newest published release that is not a
 	// pre-release.
 	Latest(repositoryId string) (*Release, error)

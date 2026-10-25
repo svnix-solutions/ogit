@@ -22,6 +22,17 @@ function readCookie(name: string): string | undefined {
   return undefined;
 }
 
+// csrfToken is the value writes send in X-CSRF-Token (uploads use it too).
+export function csrfToken(): string | undefined {
+  return readCookie(CSRF_COOKIE);
+}
+
+// apiError turns an error answer into an ApiError.
+export function apiError(status: number, statusText: string, data: unknown): ApiError {
+  const err = (data ?? {}) as { type?: string; details?: string };
+  return new ApiError(status, err.type ?? "HTTP_" + status, err.details ?? statusText);
+}
+
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -37,14 +48,11 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   });
   const text = await res.text();
   const data = text ? safeJSON(text) : undefined;
-  if (!res.ok) {
-    const err = (data ?? {}) as { type?: string; details?: string };
-    throw new ApiError(res.status, err.type ?? "HTTP_" + res.status, err.details ?? res.statusText);
-  }
+  if (!res.ok) throw apiError(res.status, res.statusText, data);
   return data as T;
 }
 
-function safeJSON(text: string): unknown {
+export function safeJSON(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
@@ -102,7 +110,7 @@ export type NamespaceView = {
   total: number;
 };
 
-export type Instance = { version: string; registration_enabled: boolean; ssh_enabled: boolean; ssh_port?: number };
+export type Instance = { version: string; registration_enabled: boolean; ssh_enabled: boolean; ssh_port?: number; max_asset_size?: number };
 
 export type Token = { id: string; name: string; description: string; scopes: string[]; expires_at?: string; created_at: string };
 
