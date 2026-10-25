@@ -10,6 +10,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
+- **Webhooks**: GitHub-compatible push, pull request and repository events, signed and retried
 - **REST API** with OpenAPI documentation at `/documentation`
 
 ## Quick start
@@ -187,6 +188,28 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 - **Renaming and moving:** the path changes, and the old one keeps working for the API, HTTP and SSH until another repository takes it. Git data never moves.
 - **Archiving:** an archived repository can be cloned and fetched, but refuses pushes from everyone until it's unarchived.
 
+### Webhooks
+
+Maintainers and owners add webhooks to a repository. Payloads and headers follow
+GitHub's (`X-GitHub-Event`, `X-GitHub-Delivery`, `X-Hub-Signature-256`), so
+existing receivers and CI integrations work.
+
+```bash
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/hooks -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"url": "https://ci.example.com/hook", "secret": "s3cret", "events": ["push", "repository"]}'
+# Delivery log (newest 100), one delivery with its payload and response, redeliver, ping
+curl localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/deliveries -H "Authorization: Bearer $SESSION"
+curl localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/deliveries/<id> -H "Authorization: Bearer $SESSION"
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/deliveries/<id>/attempts -H "Authorization: Bearer $SESSION"
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/pings -H "Authorization: Bearer $SESSION"
+```
+
+- **Events:** `push` (the default; HTTP, SSH and pull request merges, including deleted branches), `repository` (renamed, transferred, publicized, privatized, archived, unarchived, edited), or `*` for all. A `ping` is sent when a hook is created.
+- **Signing:** with a secret, `X-Hub-Signature-256` is `sha256=` plus the HMAC-SHA256 of the body. Secrets are write-only.
+- **Delivery:** events are queued in the database and sent in the background by every server, each delivery by one of them. A 2xx answer is a success; anything else is retried after 30s, 2m, 10m and 30m, then marked failed. Redirects are not followed.
+- **Private networks:** targets on private, loopback or link-local addresses are refused unless listed in `webhooks.allowed_hosts`.
+- **URLs** in payloads are built from `http.public_url`; set it.
+
 ### Namespaces, members and groups
 
 Every repository belongs to a user or a group, its namespace. Usernames and
@@ -285,10 +308,11 @@ override environment variables, and environment variables override the file.
 | `registration.password_min_length` | `REGISTRATION_PASSWORD_MIN_LENGTH` | `12` |
 | `registration.password_complexity` | `REGISTRATION_PASSWORD_COMPLEXITY` | `true` |
 | `registration.require_email_verification` | `REGISTRATION_REQUIRE_EMAIL_VERIFICATION` | `false`; see [Email verification](#email-verification) |
-| `http.public_url` | `HTTP_PUBLIC_URL` | none; needed for email links |
+| `http.public_url` | `HTTP_PUBLIC_URL` | none; needed for email links and webhook payloads |
 | `http.trusted_proxies` | `HTTP_TRUSTED_PROXIES` | none; see [Rate limits](#rate-limits) |
 | `ratelimit.*` | `RATELIMIT_*` | enabled, in memory; see [Rate limits](#rate-limits) |
 | `smtp.host`, `.port`, `.username`, `.password`, `.from`, `.tls` | `SMTP_*` | port `587`, tls `starttls` |
+| `webhooks.allowed_hosts` / `webhooks.timeout` | `WEBHOOKS_ALLOWED_HOSTS` / `WEBHOOKS_TIMEOUT` | none / `10s`; see [Webhooks](#webhooks) |
 | `ssh.enabled` / `ssh.port` / `ssh.host_key_path` | `SSH_ENABLED` / `SSH_PORT` / `SSH_HOST_KEY_PATH` | `false` / `2222` / `./ssh_host_ed25519_key` |
 | `storage.type` | `STORAGE_TYPE` | `local` (or `s3`) |
 | `storage.local.path` | `STORAGE_LOCAL_PATH` | `./repositories` |

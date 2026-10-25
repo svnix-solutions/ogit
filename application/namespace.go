@@ -151,7 +151,12 @@ func (c *RepositoryApp) Transfer(id, path *string, actorId, target string) (*dom
 	if err != nil {
 		return nil, err
 	}
-	return moveRepository(c.RepoPres, repo, ns)
+	from := HookOwner{Login: repo.Namespace, Id: repo.OwnerId, Type: hookOwnerType(repo.OwnerType)}
+	moved, err := moveRepository(c.RepoPres, repo, ns)
+	if err == nil && moved.Namespace != from.Login {
+		c.Webhooks.RepositoryEvent(moved, "transferred", actorId, map[string]any{"owner": map[string]any{"from": map[string]any{"user": from}}})
+	}
+	return moved, err
 }
 
 func moveRepository(pers domain.RepositoryPers, repo *domain.Repository, ns *domain.Namespace) (*domain.Repository, error) {

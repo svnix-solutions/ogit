@@ -31,6 +31,7 @@ func (s *testServer) startSSH(t *testing.T) int {
 	srv, err := sshserver.New(filepath.Join(t.TempDir(), "host_key"), s.deps.Logger, s.deps.AuthApp, s.deps.SSHKeyApp.SSHKeyPers, s.deps.Storage)
 	if srv != nil {
 		srv.Limits = s.deps.Limits
+		srv.Webhooks = s.deps.WebhookApp
 	}
 	require.NoError(t, err)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

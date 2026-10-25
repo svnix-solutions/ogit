@@ -33,4 +33,5 @@ type Deps struct {
 	GroupApp   *application.GroupApp
 	AdminApp   *application.AdminApp
 	SSHKeyApp  *application.SSHKeyApp
+	WebhookApp *application.WebhookApp
 }

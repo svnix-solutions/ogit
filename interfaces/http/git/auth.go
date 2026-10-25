@@ -13,7 +13,11 @@ import (
 
 // storageKeyLocal is the request local holding the authorized repository's
 // storage key.
-const storageKeyLocal = "git_storage_key"
+const (
+	storageKeyLocal = "git_storage_key"
+	repositoryLocal = "git_repository"
+	pusherLocal     = "git_pusher"
+)
 
 // Authorize returns a middleware that checks the caller may run the git
 // service on the repository in the URL. suffix is the route suffix used to
@@ -49,7 +53,7 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 			}
 		}
 
-		repo, err := ctrl.AuthApp.AuthorizeGit(path, op, creds)
+		repo, pusher, err := ctrl.AuthApp.AuthorizeGitAs(path, op, creds)
 		if creds != nil && errors.Is(err, application.ErrGitUnauthenticated) {
 			ctrl.Limits.LoginFailed(ctx.UserContext(), ip, "")
 		}
@@ -69,6 +73,8 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 			// The handlers serve the repository that was authorized (also when
 			// reached through a former path), from its storage key.
 			ctx.Locals(storageKeyLocal, repo.StorageKey)
+			ctx.Locals(repositoryLocal, repo)
+			ctx.Locals(pusherLocal, pusher)
 			return ctx.Next()
 		case errors.Is(err, application.ErrGitArchived):
 			return ctx.Status(fiber.StatusForbidden).SendString("repository is archived (read-only)")

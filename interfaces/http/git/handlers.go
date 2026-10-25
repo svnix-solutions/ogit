@@ -6,6 +6,8 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
 	"github.com/gofiber/fiber/v2"
+	"github.com/labbs/ogit/application"
+	"github.com/labbs/ogit/domain"
 	helpergit "github.com/labbs/ogit/infrastructure/helpers/git"
 )
 
@@ -148,6 +150,10 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 
 	// Process the receive pack request and generate a status report
 	report, err := sess.ReceivePack(context.Background(), req)
+	if repo, ok := c.Locals(repositoryLocal).(*domain.Repository); ok {
+		pusher, _ := c.Locals(pusherLocal).(application.Pusher)
+		ctrl.Webhooks.Pushed(repo, pusher, st, application.AppliedUpdates(req, report))
+	}
 	c.Set("Content-Type", "application/x-git-receive-pack-result")
 	if err != nil {
 		logger.Warn().Err(err).Msg("Receive pack failed")

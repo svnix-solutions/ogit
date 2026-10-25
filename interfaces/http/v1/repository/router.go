@@ -13,9 +13,12 @@ type Controller struct {
 	FiberOapi     *fiberoapi.OApiGroup
 	RepositoryApp *application.RepositoryApp
 	SessionApp    *application.SessionApp // optional sessions on public routes
+	WebhookApp    *application.WebhookApp
 }
 
 func SetupRepositoryRouter(controller Controller) {
+	setupWebhookRoutes(controller)
+
 	fiberoapi.Get(controller.FiberOapi, "/:identifier", controller.GetRepository, fiberoapi.OpenAPIOptions{
 		Summary:     "Get repository",
 		Description: "Retrieve the details of a specific repository, with the caller's role. Public repositories need no session.",

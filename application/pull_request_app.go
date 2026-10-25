@@ -55,6 +55,7 @@ type PullRequestApp struct {
 	Repositories *RepositoryApp
 	Pulls        domain.PullRequestPers
 	Reviews      domain.ReviewPers
+	Webhooks     *WebhookApp
 	Labels       domain.LabelPers
 	Users        domain.UserPers
 	Mailer       mail.Sender // nil or without smtp.host: no emails
@@ -456,12 +457,17 @@ func (c *PullRequestApp) Merge(id, path *string, actorId string, number int, opt
 	}
 
 	c.notify(view, actorId, "merged", "")
+	// A merge is a push to the target (and to the source, when deleted).
+	pushed := []RefUpdate{{Name: targetRef, Old: base.Hash, New: res.Commit}}
 	if opts.DeleteBranch {
 		if err := deleteBranch(st, view.SourceBranch, head.Hash); err != nil {
 			// The merge happened; a branch that moved is kept.
 			c.Logger.Warn().Err(err).Str("component", "application.pull_request").Str("branch", view.SourceBranch).Msg("source branch not deleted")
+		} else {
+			pushed = append(pushed, RefUpdate{Name: plumbing.NewBranchReferenceName(view.SourceBranch), Old: head.Hash})
 		}
 	}
+	c.Webhooks.Pushed(view.Repository, Pusher{UserId: actorId}, st, pushed)
 	return c.Get(id, path, actorId, number)
 }
 

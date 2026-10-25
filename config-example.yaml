@@ -49,6 +49,13 @@ ratelimit:             # "N/window"; "0" turns a rule off. Exceeding one answers
   git_user: 300/1m     # git operations, raw files and archives per token, user or SSH key
   git_anonymous: 60/1m # the same per IP without credentials
 
+webhooks:
+  # Deliveries to private, loopback, link-local and shared addresses are
+  # refused (checked on the address actually dialed). List hosts, IPs or
+  # CIDRs here to allow some, e.g. an internal CI server.
+  allowed_hosts: []    # e.g. [ci.internal, 10.0.5.0/24]
+  timeout: 10s         # per delivery attempt
+
 ssh:                   # git over SSH: ssh://git@host:2222/<repo>.git
   enabled: false
   port: 2222

@@ -52,6 +52,13 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 		return nil, ErrForbidden
 	}
 
+	// Repository events, sent once everything is saved.
+	type event struct {
+		action  string
+		changes map[string]any
+	}
+	var events []event
+
 	if upd.Name != nil && *upd.Name != repo.Name {
 		name := strings.TrimSpace(*upd.Name)
 		newSlug := gslug.Make(name)
@@ -63,11 +70,15 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 		} else if err != nil {
 			return nil, err
 		}
+		events = append(events, event{"renamed", map[string]any{"repository": map[string]any{"name": map[string]string{"from": repo.Slug}}}})
 		repo.Name, repo.Slug = name, newSlug
 	}
 
 	fields := map[string]any{}
 	if upd.Description != nil {
+		if *upd.Description != repo.Description {
+			events = append(events, event{"edited", map[string]any{"description": map[string]string{"from": repo.Description}}})
+		}
 		fields["description"] = *upd.Description
 		repo.Description = *upd.Description
 	}
@@ -79,12 +90,16 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 		repo.RequiredApprovals = *upd.RequiredApprovals
 	}
 	if upd.IsPrivate != nil {
+		if *upd.IsPrivate != repo.IsPrivate {
+			events = append(events, event{map[bool]string{true: "privatized", false: "publicized"}[*upd.IsPrivate], nil})
+		}
 		fields["is_private"] = *upd.IsPrivate
 		repo.IsPrivate = *upd.IsPrivate
 	}
 	if upd.Archived != nil && *upd.Archived != repo.IsArchived {
 		fields["is_archived"] = *upd.Archived
 		repo.IsArchived = *upd.Archived
+		events = append(events, event{map[bool]string{true: "archived", false: "unarchived"}[*upd.Archived], nil})
 		if *upd.Archived {
 			now := time.Now()
 			fields["archived_at"], repo.ArchivedAt = now, &now
@@ -96,6 +111,9 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 		if err := c.RepoPres.Update(repo.Id, fields); err != nil {
 			return nil, err
 		}
+	}
+	for _, e := range events {
+		c.Webhooks.RepositoryEvent(repo, e.action, actorId, e.changes)
 	}
 	return repo, nil
 }

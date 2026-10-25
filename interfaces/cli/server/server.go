@@ -5,6 +5,7 @@ import (
 	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/infrastructure"
@@ -17,6 +18,7 @@ import (
 	"github.com/labbs/ogit/infrastructure/mail"
 	"github.com/labbs/ogit/infrastructure/persistence"
 	"github.com/labbs/ogit/infrastructure/storage"
+	"github.com/labbs/ogit/infrastructure/webhook"
 	routes "github.com/labbs/ogit/interfaces/http"
 	sshserver "github.com/labbs/ogit/interfaces/ssh"
 
@@ -52,6 +54,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.SMTPFlags(cfg)...)
 	list = append(list, config.SSHFlags(cfg)...)
 	list = append(list, config.RateLimitFlags(cfg)...)
+	list = append(list, config.WebhookFlags(cfg)...)
 	return
 }
 
@@ -78,6 +81,9 @@ func runServer(cfg config.Config) error {
 
 	// Setup routes
 	routes.SetupRoutes(deps)
+
+	// Webhook deliveries, on every server (each delivery is claimed once).
+	go deps.WebhookApp.Run(context.Background(), 2*time.Second)
 
 	if cfg.SSH.Enabled {
 		if err := startSSH(deps); err != nil {
@@ -159,6 +165,17 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Pulls: persistence.NewPullRequestPers(deps.Database.Db), Reviews: persistence.NewReviewPers(deps.Database.Db),
 		Labels: persistence.NewLabelPers(deps.Database.Db),
 	}
+	sender, err := webhook.NewSender(deps.Config.Webhooks.AllowedHosts, deps.Config.Webhooks.Timeout)
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.webhooks").Msg("Invalid webhooks.allowed_hosts")
+		return deps, err
+	}
+	deps.WebhookApp = &application.WebhookApp{
+		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Users: userPers,
+		Hooks: persistence.NewWebhookPers(deps.Database.Db), Sender: sender,
+	}
+	deps.RepoApp.Webhooks = deps.WebhookApp
+	deps.PullApp.Webhooks = deps.WebhookApp
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
 	deps.AdminApp = &application.AdminApp{
@@ -193,6 +210,7 @@ func startSSH(deps infrastructure.Deps) error {
 	srv, err := sshserver.New(deps.Config.SSH.HostKeyPath, deps.Logger, deps.AuthApp, deps.SSHKeyApp.SSHKeyPers, deps.Storage)
 	if srv != nil {
 		srv.Limits = deps.Limits
+		srv.Webhooks = deps.WebhookApp
 	}
 	if err != nil {
 		return err

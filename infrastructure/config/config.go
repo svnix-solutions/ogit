@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 type Config struct {
 	// Version of the application
 	Version string
@@ -18,6 +20,13 @@ type Config struct {
 		// TrustedProxies are the IPs or CIDRs of reverse proxies whose
 		// X-Forwarded-For and X-Forwarded-Proto headers are believed.
 		TrustedProxies []string
+	}
+
+	// Webhooks: deliveries to private, loopback or link-local addresses are
+	// refused unless the host, IP or CIDR is in AllowedHosts.
+	Webhooks struct {
+		AllowedHosts []string
+		Timeout      time.Duration
 	}
 
 	// RateLimit rules are "N/window" (e.g. "10/15m"); "0" turns one off.
