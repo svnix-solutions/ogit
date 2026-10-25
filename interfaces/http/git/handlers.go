@@ -1,8 +1,11 @@
 package git
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"errors"
+	"io"
 
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
 	"github.com/gofiber/fiber/v2"
@@ -147,13 +150,39 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 	}
 
 	// Decode the reference update request from the client
+	// Large pushes arrive as a stream (see interfaces/http/body_limit.go).
+	body := io.Reader(c.Context().RequestBodyStream())
+	if !c.Request().IsBodyStream() {
+		body = bytes.NewReader(c.Body())
+	}
+	// Before a push too large for its buffer, git probes with a lone
+	// flush-pkt (no commands): git-http-backend answers it with nothing.
+	br := bufio.NewReader(body)
+	if probe, _ := br.Peek(5); string(probe) == "0000" {
+		c.Set("Content-Type", "application/x-git-receive-pack-result")
+		return nil
+	}
 	req := packp.NewReferenceUpdateRequest()
-	if err := req.Decode(bytes.NewReader(c.Body())); err != nil {
+	if err := req.Decode(br); err != nil {
 		logger.Error().Err(err).Msg("Failed to decode receive pack request")
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 	}
 	if helpergit.OnlyDeletes(req) {
 		req.Packfile = nil
+	}
+	c.Set("Content-Type", "application/x-git-receive-pack-result")
+	if err := helpergit.SpoolPack(req, ctrl.Config.Git.MaxPushSize); errors.Is(err, helpergit.ErrPushTooLarge) {
+		// curl only reads the answer once it has sent the body: discard the
+		// rest (up to the limit again, never stored) so git can show why.
+		// Past that the connection is cut and git only says "RPC failed".
+		logger.Warn().Int64("limit", ctrl.Config.Git.MaxPushSize).Msg("push refused: larger than git.max_push_size")
+		if n, _ := io.Copy(io.Discard, io.LimitReader(req.Packfile, ctrl.Config.Git.MaxPushSize+1)); n > ctrl.Config.Git.MaxPushSize {
+			c.Context().SetConnectionClose()
+		}
+		return helpergit.RefusedReport(req, err).Encode(c.Response().BodyWriter())
+	} else if err != nil {
+		logger.Warn().Err(err).Msg("Failed to read the pushed pack")
+		return c.Status(fiber.StatusBadRequest).SendString("could not read the pack")
 	}
 	expect(req)
 

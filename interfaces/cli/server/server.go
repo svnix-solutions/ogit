@@ -56,6 +56,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.RateLimitFlags(cfg)...)
 	list = append(list, config.WebhookFlags(cfg)...)
 	list = append(list, config.ReleaseFlags(cfg)...)
+	list = append(list, config.GitFlags(cfg)...)
 	return
 }
 
@@ -240,6 +241,7 @@ func startSSH(deps infrastructure.Deps) error {
 		srv.Webhooks = deps.WebhookApp
 		srv.Protection = deps.ProtectionApp
 		srv.Pulls = deps.PullApp
+		srv.MaxPushSize = deps.Config.Git.MaxPushSize
 	}
 	if err != nil {
 		return err
