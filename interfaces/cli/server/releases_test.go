@@ -96,10 +96,12 @@ func testReleases(t *testing.T, opts ...func(*config.Config)) {
 
 		_, list := srv.get(t, releasesAPI("owner/app"), f.reporter.session)
 		assert.Len(t, list["releases"], 2, "readers don't see drafts")
+		assert.EqualValues(t, 2, list["total"])
 		status, _ := srv.get(t, releasesAPI("owner/app", draftId), f.reporter.session)
 		assert.Equal(t, http.StatusNotFound, status)
 		_, list = srv.get(t, releasesAPI("owner/app"), f.dev.session)
 		assert.Len(t, list["releases"], 3)
+		assert.EqualValues(t, 3, list["total"], "writers count drafts")
 		assert.Equal(t, "v2.0.0", list["releases"].([]any)[0].(map[string]any)["tag_name"], "drafts first")
 
 		status, body := srv.request(t, http.MethodPatch, releasesAPI("owner/app", draftId), f.dev.session, map[string]any{"tag_name": "v2.0.0-rc1"})

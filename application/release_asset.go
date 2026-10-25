@@ -30,7 +30,8 @@ var (
 	ErrInvalidAsset  = errors.New("an asset needs a file name (letters, digits, . _ - + @ ~) and a label of at most 255 characters")
 )
 
-const defaultMaxAssetSize = 100 << 20
+// DefaultMaxAssetSize applies when releases.max_asset_size is 0.
+const DefaultMaxAssetSize = 100 << 20
 
 // AssetView is an asset with its release and repository.
 type AssetView struct {
@@ -43,7 +44,7 @@ func (c *ReleaseApp) maxAssetSize() int64 {
 	if c.MaxAssetSize > 0 {
 		return c.MaxAssetSize
 	}
-	return defaultMaxAssetSize
+	return DefaultMaxAssetSize
 }
 
 // MaxAssetBytes is the upload limit (for handlers that check

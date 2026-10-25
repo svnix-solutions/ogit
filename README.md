@@ -210,6 +210,7 @@ curl localhost:8080/api/v1/repository/me%2Fmy-project/releases/latest
 - **Pre-releases** are never `latest`.
 - **Notes:** `generate-notes` lists the pull requests merged since the previous release (or `previous_tag_name`).
 - **Webhooks:** GitHub's `release` event (created, published, released, prereleased, edited, deleted), with the assets. A tag created by a release is also a `push` event.
+- **Web UI:** a Releases tab (with the count) lists releases with their notes, files, download counts and source code archives; the code page links the latest release. Writers draft releases on a new or existing tag, generate notes, preview them, and attach files on the release page (with progress, refused above the limit). Protected tags are in the repository settings, after branch protection.
 
 #### Assets
 

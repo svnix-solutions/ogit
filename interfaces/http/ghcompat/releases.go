@@ -187,7 +187,7 @@ func (c Controller) listReleases(ctx *fiber.Ctx) error {
 	}
 	perPage := min(max(ctx.QueryInt("per_page", 30), 1), 100)
 	page := max(ctx.QueryInt("page", 1), 1)
-	views, err := c.Releases.List(nil, path, caller, (page-1)*perPage, perPage)
+	views, _, err := c.Releases.List(nil, path, caller, (page-1)*perPage, perPage)
 	if err != nil {
 		return c.failWith(ctx, err)
 	}

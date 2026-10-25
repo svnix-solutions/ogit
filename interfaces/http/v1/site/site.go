@@ -26,6 +26,7 @@ type InstanceResponse struct {
 	RegistrationEnabled bool   `json:"registration_enabled"`
 	SSHEnabled          bool   `json:"ssh_enabled"`
 	SSHPort             int    `json:"ssh_port,omitempty"`
+	MaxAssetSize        int64  `json:"max_asset_size"` // bytes per release asset
 }
 
 type Repository struct {
@@ -88,6 +89,10 @@ func (c Controller) Instance(ctx *fiber.Ctx, _ struct{}) (*InstanceResponse, *fi
 		Version:             c.Config.Version,
 		RegistrationEnabled: c.Config.Registration.Enabled,
 		SSHEnabled:          c.Config.SSH.Enabled,
+		MaxAssetSize:        c.Config.Releases.MaxAssetSize,
+	}
+	if resp.MaxAssetSize <= 0 {
+		resp.MaxAssetSize = application.DefaultMaxAssetSize
 	}
 	if resp.SSHEnabled {
 		resp.SSHPort = c.Config.SSH.Port

@@ -50,6 +50,16 @@ func (p *releasePers) List(repositoryId string, drafts bool, offset, limit int) 
 	return out, err
 }
 
+func (p *releasePers) Count(repositoryId string, drafts bool) (int64, error) {
+	q := p.db.Model(&domain.Release{}).Where("repository_id = ?", repositoryId)
+	if !drafts {
+		q = q.Where("draft = ?", false)
+	}
+	var n int64
+	err := q.Count(&n).Error
+	return n, err
+}
+
 func (p *releasePers) Latest(repositoryId string) (*domain.Release, error) {
 	return p.first(p.db.Where("repository_id = ? AND draft = ? AND prerelease = ?", repositoryId, false, false).Order("published_at DESC"))
 }

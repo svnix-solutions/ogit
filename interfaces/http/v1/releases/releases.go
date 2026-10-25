@@ -48,6 +48,7 @@ type ListRequest struct {
 
 type ListResponse struct {
 	Releases []Release `json:"releases"`
+	Total    int64     `json:"total"` // drafts included for writers
 }
 
 type Fields struct {
@@ -151,11 +152,11 @@ func (c Controller) List(ctx *fiber.Ctx, req ListRequest) (*ListResponse, *fiber
 		return nil, e
 	}
 	id, path := repoid.Split(req.Identifier)
-	views, err := c.Releases.List(id, path, caller, req.Offset, req.Limit)
+	views, total, err := c.Releases.List(id, path, caller, req.Offset, req.Limit)
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
-	resp := &ListResponse{Releases: make([]Release, 0, len(views))}
+	resp := &ListResponse{Releases: make([]Release, 0, len(views)), Total: total}
 	for i := range views {
 		resp.Releases = append(resp.Releases, c.toRelease(&views[i]))
 	}

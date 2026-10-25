@@ -1,4 +1,4 @@
-import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Settings } from "lucide-react";
+import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Settings, Tag } from "lucide-react";
 import { ForkButton, ForkedFrom, SyncButton } from "@/components/forks";
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
@@ -6,6 +6,7 @@ import { ApiError, atLeast, type Repository } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
 import { encodePath, useRefs } from "@/lib/browse";
 import { useInstance } from "@/lib/queries";
+import { useReleaseCount } from "@/lib/releases";
 import { cn } from "@/lib/utils";
 import { useRepository } from "@/pages/repo";
 import { NotFoundPage } from "@/pages/not-found";
@@ -108,6 +109,9 @@ export function RepoLayout() {
         <NavLink to={`${base}/compare`} className={tab}>
           <GitCompare className="h-4 w-4" /> Compare
         </NavLink>
+        <NavLink to={`${base}/releases`} className={tab}>
+          <Tag className="h-4 w-4" /> Releases <ReleaseCount fullPath={repo.full_path} />
+        </NavLink>
         {atLeast(repo.role, "maintainer") && (
           <NavLink to={`${base}/settings`} className={tab}>
             <Settings className="h-4 w-4" /> Settings
@@ -116,6 +120,16 @@ export function RepoLayout() {
       </nav>
       <Outlet context={{ repo } satisfies RepoContext} />
     </div>
+  );
+}
+
+function ReleaseCount({ fullPath }: { fullPath: string }) {
+  const count = useReleaseCount(fullPath);
+  if (!count.data) return null;
+  return (
+    <span className="rounded-full bg-muted px-1.5 text-xs" aria-label={`${count.data} releases`}>
+      {count.data}
+    </span>
   );
 }
 
