@@ -18,6 +18,7 @@ export type PullSummary = {
   labels: Label[];
   head_commit?: string;
 };
+export type MilestoneRef = { id: string; title: string; state: "open" | "closed" };
 export type Pull = PullSummary & {
   body: string;
   base_commit: string;
@@ -37,6 +38,8 @@ export type Pull = PullSummary & {
   protected_by?: string; // the rule protecting the target branch
   required_checks: { context: string; state: "" | "pending" | "success" | "failure" | "error" }[];
   merge_blocked?: { type: string; message: string }; // why the viewer can't merge
+  assignees: string[];
+  milestone?: MilestoneRef;
 };
 export type PullComment = {
   id: string;

@@ -61,6 +61,7 @@ function General({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
   const [isPrivate, setPrivate] = useState(repo.is_private);
   const [archived, setArchived] = useState(repo.archived);
   const [approvals, setApprovals] = useState(repo.required_approvals ?? 0);
+  const [hasIssues, setHasIssues] = useState(repo.has_issues !== false);
   const changed = useRepoChanged();
   const save = useMutation({
     mutationFn: () => {
@@ -71,6 +72,7 @@ function General({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
         if (isPrivate !== repo.is_private) body.is_private = isPrivate;
         if (archived !== repo.archived) body.archived = archived;
         if (approvals !== (repo.required_approvals ?? 0)) body.required_approvals = approvals;
+        if (hasIssues !== (repo.has_issues !== false)) body.has_issues = hasIssues;
       }
       return api<Repository>("PATCH", `/repository/${repo.id}`, body);
     },
@@ -99,6 +101,9 @@ function General({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={archived} disabled={!isOwner} onChange={(e) => setArchived(e.target.checked)} /> Archived (read-only: pushes are refused)
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={hasIssues} disabled={!isOwner} onChange={(e) => setHasIssues(e.target.checked)} /> Issues (when off, existing issues stay readable)
         </label>
         <label className="flex items-center gap-2 text-sm">
           Approvals required to merge a pull request
