@@ -17,6 +17,7 @@ export type PullSummary = {
   closed_at?: string;
   labels: Label[];
   head_commit?: string;
+  source_repository?: string; // the fork ("deleted fork" when gone)
 };
 export type MilestoneRef = { id: string; title: string; state: "open" | "closed" };
 export type Pull = PullSummary & {
@@ -40,6 +41,7 @@ export type Pull = PullSummary & {
   merge_blocked?: { type: string; message: string }; // why the viewer can't merge
   assignees: string[];
   milestone?: MilestoneRef;
+  allow_maintainer_edits: boolean;
 };
 export type PullComment = {
   id: string;

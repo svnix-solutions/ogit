@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MessageSquare, ShieldCheck, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from "react-router";
@@ -18,8 +18,9 @@ import { api, ApiError, atLeast } from "@/lib/api";
 import { safeLink, useCombined, useStatuses } from "@/lib/statuses";
 import { CombinedIcon, StatusIcon } from "@/components/status-icon";
 import { AssigneesBox, MilestoneBox } from "@/components/tracking";
+import { useForks } from "@/components/forks";
 import { useProfile } from "@/lib/auth";
-import { relativeTime, shortHash, summary, useCompare, useRefs } from "@/lib/browse";
+import { relativeTime, shortHash, summary, useCompare, useRefs, type Comparison } from "@/lib/browse";
 import { renderMarkdown } from "@/lib/markdown";
 import { pullsBase, useLabels, usePull, usePullActivity, usePullCompare, usePulls, type Pull, type PullSummary } from "@/lib/pulls";
 import { cn } from "@/lib/utils";
@@ -110,7 +111,7 @@ export function PullsPage() {
                     {p.head_commit && <CombinedIcon combined={statuses.data?.[p.head_commit]} />}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    #{p.number} by {p.author || "ghost"} · {p.source_branch} → {p.target_branch} · updated {relativeTime(p.updated_at)}
+                    #{p.number} by {p.author || "ghost"} · {p.source_repository ? `${p.source_repository}:` : ""}{p.source_branch} → {p.target_branch} · updated {relativeTime(p.updated_at)}
                   </p>
                 </div>
               </div>
@@ -132,24 +133,62 @@ export function NewPullPage() {
   const branches = refs.data?.branches.map((b) => b.name) ?? [];
   const [target, setTarget] = useState(params.get("target") ?? "");
   const [source, setSource] = useState(params.get("source") ?? "");
+  // The source branch may be in a fork of this repository.
+  const [from, setFrom] = useState(params.get("source_repository") ?? "");
+  const forks = useForks(repo.id);
+  const fromFork = from !== "" && from !== repo.full_path;
+  const forkRefs = useRefs(fromFork ? from : repo.full_path);
+  const sourceBranches = fromFork ? (forkRefs.data?.branches.map((b) => b.name) ?? []) : branches;
   const base = target || refs.data?.default_branch || "";
-  const cmp = useCompare(repo.full_path, base, source);
+  const sameRepo = useCompare(repo.full_path, fromFork ? "" : base, fromFork ? "" : source);
+  const acrossForks = useQuery({
+    queryKey: ["pull-preview", repo.full_path, from, source, base],
+    queryFn: () =>
+      api<Comparison>("GET", `${pullsBase(repo.full_path)}/preview?source_repository=${encodeURIComponent(from)}&source=${encodeURIComponent(source)}&target=${encodeURIComponent(base)}`),
+    enabled: fromFork && !!source && !!base,
+    retry: false,
+  });
+  const cmp = fromFork ? acrossForks : sameRepo;
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [draft, setDraft] = useState(false);
   const create = useMutation({
-    mutationFn: () => api<Pull>("POST", pullsBase(repo.full_path), { title: title || summary(cmp.data?.commits.at(-1)?.message ?? source), body, source, target: base, draft }),
+    mutationFn: () =>
+      api<Pull>("POST", pullsBase(repo.full_path), {
+        title: title || summary(cmp.data?.commits.at(-1)?.message ?? source), body, source, target: base, draft,
+        ...(fromFork ? { source_repository: from } : {}),
+      }),
     onSuccess: (pr) => navigate(`/${repo.full_path}/pulls/${pr.number}`),
   });
 
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">New pull request</h2>
+      {repo.fork_of && !fromFork && (
+        <Alert>
+          This is a fork.{" "}
+          <Link to={`/${repo.fork_of.full_path}/pulls/new?source_repository=${encodeURIComponent(repo.full_path)}`} className="text-primary hover:underline">
+            Open a pull request into {repo.fork_of.full_path}
+          </Link>{" "}
+          to propose your changes there.
+        </Alert>
+      )}
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span>Merge</span>
+        {(forks.data?.length ?? 0) > 0 || fromFork ? (
+          <Select aria-label="Source repository" value={fromFork ? from : ""} onChange={(e) => (setFrom(e.target.value), setSource(""))}>
+            <option value="">{repo.full_path}</option>
+            {fromFork && !forks.data?.some((f) => f.full_path === from) && <option value={from}>{from}</option>}
+            {forks.data?.map((f) => (
+              <option key={f.id} value={f.full_path}>
+                {f.full_path}
+              </option>
+            ))}
+          </Select>
+        ) : null}
         <Select aria-label="Source branch" value={source} onChange={(e) => setSource(e.target.value)}>
           <option value="">choose a branch</option>
-          {branches.filter((b) => b !== base).map((b) => (
+          {sourceBranches.filter((b) => fromFork || b !== base).map((b) => (
             <option key={b}>{b}</option>
           ))}
         </Select>
@@ -237,7 +276,8 @@ export function PullPage() {
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <StateBadge pr={p} />
           <span>
-            <span className="font-medium text-foreground">{p.author || "ghost"}</span> wants to merge <code className="text-foreground">{p.source_branch}</code> into{" "}
+            <span className="font-medium text-foreground">{p.author || "ghost"}</span> wants to merge{" "}
+            <code className="text-foreground">{p.source_repository ? `${p.source_repository}:${p.source_branch}` : p.source_branch}</code> into{" "}
             <code className="text-foreground">{p.target_branch}</code>
           </span>
           {p.labels.map((l) => (
@@ -396,6 +436,7 @@ function Conversation({ pr, onChange }: { pr: Pull; onChange: () => void }) {
       <aside className="space-y-4 text-sm">
         <ReviewBox pr={pr} onChange={onChange} />
         <LabelsBox pr={pr} onChange={onChange} />
+        <MaintainerEdits pr={pr} onChange={onChange} />
         <AssigneesBox fullPath={repo.full_path} base={`${pullsBase(repo.full_path)}/${pr.number}`} assignees={pr.assignees ?? []}
           canSet={atLeast(repo.role, "developer") && !repo.archived} onChange={onChange} />
         <MilestoneBox fullPath={repo.full_path} base={`${pullsBase(repo.full_path)}/${pr.number}`} milestone={pr.milestone}
@@ -588,6 +629,35 @@ function ReviewBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+// MaintainerEdits lets a fork pull request's author allow this
+// repository's developers to push to the source branch.
+function MaintainerEdits({ pr, onChange }: { pr: Pull; onChange: () => void }) {
+  const repo = useRepo();
+  const { data: me } = useProfile();
+  const set = useMutation({
+    mutationFn: (allow: boolean) => api("PATCH", `${pullsBase(repo.full_path)}/${pr.number}`, { allow_maintainer_edits: allow }),
+    onSuccess: onChange,
+  });
+  if (!pr.source_repository || pr.state !== "open") return null;
+  const isAuthor = !!me && me.username === pr.author;
+  return (
+    <div className="space-y-1">
+      <h3 className="font-medium">From a fork</h3>
+      {isAuthor ? (
+        <label className="flex items-start gap-2">
+          <input type="checkbox" className="mt-1" checked={pr.allow_maintainer_edits} disabled={set.isPending} onChange={(e) => set.mutate(e.target.checked)} />
+          <span>Allow edits by maintainers ({repo.full_path}'s developers can push to {pr.source_branch})</span>
+        </label>
+      ) : (
+        <p className="text-muted-foreground">
+          {pr.allow_maintainer_edits ? `Developers here can push to ${pr.source_repository}:${pr.source_branch}.` : "The author doesn't allow edits by maintainers."}
+        </p>
+      )}
+      <ErrorText error={set.error} />
     </div>
   );
 }
