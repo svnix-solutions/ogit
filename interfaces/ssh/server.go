@@ -49,6 +49,8 @@ type Server struct {
 	Webhooks *application.WebhookApp
 	// Protection checks pushes to protected branches; nil: none.
 	Protection *application.ProtectionApp
+	// Pulls updates pull requests from forks when their branch is pushed.
+	Pulls *application.PullRequestApp
 
 	config *gossh.ServerConfig
 }
@@ -167,7 +169,7 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 		return 1
 	}
 
-	repo, err := s.AuthApp.AuthorizeSSH(id, slug, service)
+	repo, pusher, err := s.AuthApp.AuthorizeSSHAs(id, slug, service)
 	switch {
 	case err == nil:
 	case errors.Is(err, application.ErrGitArchived):
@@ -211,8 +213,9 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 		err = serveUploadPack(ctx, srv, ep, objects, in, ch)
 	case "git-receive-pack":
 		var updates []application.RefUpdate
-		updates, err = serveReceivePack(ctx, ep, objects, in, ch, s.Protection.PushCheck(repo, id.Pusher(), objects))
-		s.Webhooks.Pushed(repo, id.Pusher(), objects, updates)
+		updates, err = serveReceivePack(ctx, ep, objects, in, ch, application.LimitPush(pusher, s.Protection.PushCheck(repo, pusher, objects)))
+		s.Webhooks.Pushed(repo, pusher, objects, updates)
+		s.Pulls.SourcePushed(repo, pusher, updates)
 	}
 	if err != nil {
 		logger.Warn().Err(err).Str("service", service).Str("repo", slug).Msg("git over ssh failed")

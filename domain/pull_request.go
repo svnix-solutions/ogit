@@ -13,9 +13,15 @@ type PullRequest struct {
 	AuthorId     *string // nil once the author's account is deleted
 	Author       *User   `gorm:"foreignKey:AuthorId"`
 	SourceBranch string
-	TargetBranch string
-	State        PullRequestState
-	Draft        bool
+	// SourceRepositoryId is the fork the source branch lives in (nil: this
+	// repository). Its head is copied here as refs/pull/<number>/head.
+	SourceRepositoryId *string
+	// AllowMaintainerEdits lets the target's developers push to the fork's
+	// source branch while the pull request is open.
+	AllowMaintainerEdits bool
+	TargetBranch         string
+	State                PullRequestState
+	Draft                bool
 
 	// Recorded when the pull request is merged or closed, so its commits
 	// and diff stay viewable after the branches move or are deleted.
@@ -52,8 +58,12 @@ type PullRequestPers interface {
 	// with a label ("" for any), newest first, with the number of pull
 	// requests in each state.
 	List(repositoryId string, state PullRequestState, labelId string, offset, limit int) ([]PullRequest, map[PullRequestState]int64, error)
-	// OpenFor returns the open pull request from source into target, if any.
-	OpenFor(repositoryId, source, target string) (*PullRequest, error)
+	// OpenFor returns the open pull request from source (in sourceRepoId's
+	// fork; "" for this repository) into target, if any.
+	OpenFor(repositoryId, sourceRepoId, source, target string) (*PullRequest, error)
+	// OpenFrom returns the open pull requests whose source is a branch of
+	// the fork sourceRepoId (in other repositories).
+	OpenFrom(sourceRepoId string) ([]PullRequest, error)
 	// Update sets fields on pr if its state is still from; false when it
 	// changed meanwhile (another request merged or closed it).
 	Update(id string, from PullRequestState, fields map[string]any) (bool, error)

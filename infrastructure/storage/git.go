@@ -17,7 +17,12 @@ type Config interface {
 	GetStorer(repoPath string) (storer.Storer, error)
 
 	// CreateRepository creates a new bare repository at the specified path
+	// with an initial commit on main.
 	CreateRepository(repoPath string) error
+
+	// InitRepository creates an empty bare repository (HEAD -> main, no
+	// commits), to be filled by a fork.
+	InitRepository(repoPath string) error
 
 	// RepositoryExists checks if a repository exists at the given path
 	RepositoryExists(repoPath string) bool

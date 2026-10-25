@@ -67,6 +67,16 @@ func (ls *LocalStorage) GetStorer(repoPath string) (storer.Storer, error) {
 	return newAtomicRefs(filesystem.NewStorage(fs, cache.NewObjectLRUDefault()), fullPath), nil
 }
 
+func (ls *LocalStorage) InitRepository(repoPath string) error {
+	if ls.RepositoryExists(repoPath) {
+		return errors.New("repository already exists")
+	}
+	_, err := git.PlainInitWithOptions(ls.getFullPath(repoPath), &git.PlainInitOptions{
+		Bare: true, InitOptions: git.InitOptions{DefaultBranch: plumbing.Main},
+	})
+	return err
+}
+
 func (ls *LocalStorage) CreateRepository(repoPath string) error {
 	fullPath := ls.getFullPath(repoPath)
 

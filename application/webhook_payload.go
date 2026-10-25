@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -184,6 +185,26 @@ func (c *WebhookApp) pingPayload(repo *domain.Repository, h *domain.Webhook, act
 type Pusher struct {
 	UserId string
 	Name   string
+	// OnlyBranches, when set, are the only branches this push may change
+	// (maintainer edits on a fork).
+	OnlyBranches []string
+}
+
+// LimitPush wraps next (nil: none) to refuse references outside
+// pusher.OnlyBranches, when set.
+func LimitPush(pusher Pusher, next func(plumbing.ReferenceName, plumbing.Hash, plumbing.Hash) error) func(plumbing.ReferenceName, plumbing.Hash, plumbing.Hash) error {
+	if pusher.OnlyBranches == nil {
+		return next
+	}
+	return func(name plumbing.ReferenceName, old, new plumbing.Hash) error {
+		if !name.IsBranch() || !slices.Contains(pusher.OnlyBranches, name.Short()) || new.IsZero() {
+			return fmt.Errorf("you may only push to the source branches of pull requests that allow edits by maintainers (%s)", strings.Join(pusher.OnlyBranches, ", "))
+		}
+		if next != nil {
+			return next(name, old, new)
+		}
+		return nil
+	}
 }
 
 // RefUpdate is a reference a push (or a merge) changed. A zero Old is a
@@ -398,6 +419,22 @@ func (c *WebhookApp) hookCommit(html string, cm *object.Commit) HookCommit {
 		}
 	}
 	return hc
+}
+
+// ForkPayload is GitHub's "fork" event, sent to the original's hooks.
+type ForkPayload struct {
+	Forkee     HookRepository `json:"forkee"`
+	Repository HookRepository `json:"repository"`
+	Sender     HookUser       `json:"sender"`
+}
+
+// ForkEvent queues a fork event on src's hooks. As on GitHub, the
+// original's maintainers learn about every fork, private ones included.
+func (c *WebhookApp) ForkEvent(src, fork *domain.Repository, actorId string) {
+	if c == nil {
+		return
+	}
+	c.emit(src, "fork", "", ForkPayload{Forkee: c.repositoryPayload(fork), Repository: c.repositoryPayload(src), Sender: c.sender(actorId, "")})
 }
 
 // RepositoryEvent queues a repository event (renamed, transferred,

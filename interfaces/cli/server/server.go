@@ -207,6 +207,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	}
 	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp,
 		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))
+	deps.AuthApp.ForkEdits = deps.PullApp.EditableBranches
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
 	if err != nil {
@@ -231,6 +232,7 @@ func startSSH(deps infrastructure.Deps) error {
 		srv.Limits = deps.Limits
 		srv.Webhooks = deps.WebhookApp
 		srv.Protection = deps.ProtectionApp
+		srv.Pulls = deps.PullApp
 	}
 	if err != nil {
 		return err

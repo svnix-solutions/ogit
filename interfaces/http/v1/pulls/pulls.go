@@ -46,6 +46,9 @@ type Summary struct {
 	ClosedAt     *time.Time `json:"closed_at,omitempty"`
 	Labels       []Label    `json:"labels"`
 	HeadCommit   string     `json:"head_commit,omitempty"` // the source tip (recorded once merged or closed)
+	// SourceRepository is the fork the source branch is in ("" for this
+	// repository, "deleted fork" when it is gone).
+	SourceRepository string `json:"source_repository,omitempty"`
 }
 
 type Label struct {
@@ -75,6 +78,12 @@ type CreateRequest struct {
 	Source     string `json:"source" validate:"required"`
 	Target     string `json:"target"` // default branch when empty
 	Draft      bool   `json:"draft"`
+	// SourceRepository is the fork the source branch is in (<owner>/<repo>
+	// or an id; empty for this repository).
+	SourceRepository string `json:"source_repository"`
+	// AllowMaintainerEdits (from forks; default true) lets this repository's
+	// developers push to the source branch.
+	AllowMaintainerEdits *bool `json:"allow_maintainer_edits"`
 }
 
 type NumberRequest struct {
@@ -88,6 +97,15 @@ type UpdateRequest struct {
 	Title      *string `json:"title"`
 	Body       *string `json:"body"`
 	Draft      *bool   `json:"draft"` // false marks a draft ready
+	// AllowMaintainerEdits: from forks, the author only.
+	AllowMaintainerEdits *bool `json:"allow_maintainer_edits"`
+}
+
+type PreviewRequest struct {
+	Identifier       string `path:"identifier" json:"-" validate:"required"`
+	SourceRepository string `query:"source_repository" json:"-"` // a fork (<owner>/<repo>); empty for this repository
+	Source           string `query:"source" json:"-" validate:"required"`
+	Target           string `query:"target" json:"-"` // default branch when empty
 }
 
 type MergeRequest struct {
@@ -122,6 +140,9 @@ type Detail struct {
 	// RequiredChecks are the protecting rule's required status contexts with
 	// their state on the head ("" when not reported).
 	RequiredChecks []RequiredCheck `json:"required_checks"`
+	// AllowMaintainerEdits: pull requests from forks; this repository's
+	// developers may push to the source branch.
+	AllowMaintainerEdits bool `json:"allow_maintainer_edits"`
 	// MergeBlocked says why the caller can't merge an open pull request.
 	MergeBlocked *MergeBlocked `json:"merge_blocked,omitempty"`
 	Assignees    []string      `json:"assignees"` // usernames
@@ -148,6 +169,7 @@ func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	}
 	fiberoapi.Get(repoGrp, "/:identifier/pulls", c.List, public("List pull requests", "pulls.list", "?state=open (default), closed, merged or all; newest first, with counts per state."))
 	fiberoapi.Post(repoGrp, "/:identifier/pulls", c.Create, private("Open a pull request", "pulls.create", "Developers and up. From source into target (the default branch when empty), between branches of this repository."))
+	fiberoapi.Get(repoGrp, "/:identifier/pulls/preview", c.Preview, public("Preview a pull request", "pulls.preview", "Commits and diff of ?source= (in ?source_repository=, a fork, or this repository) against ?target=, before opening it."))
 	fiberoapi.Get(repoGrp, "/:identifier/pulls/:number", c.Get, public("Get a pull request", "pulls.get", "With mergeability and conflicting files while open, and what the caller may do."))
 	fiberoapi.Patch(repoGrp, "/:identifier/pulls/:number", c.Update, private("Edit a pull request", "pulls.update", "The author and maintainers: title, body, draft (false marks it ready)."))
 	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/close", c.Close, private("Close a pull request", "pulls.close", "The author and maintainers."))
@@ -184,12 +206,18 @@ func summary(pr *domain.PullRequest) Summary {
 
 func detail(v *application.PullRequestView) *Detail {
 	d := &Detail{
-		Summary: summary(v.PullRequest), Body: v.Body, BaseCommit: v.BaseCommit, HeadCommit: v.HeadCommit,
+		Summary: summary(v.PullRequest), AllowMaintainerEdits: v.AllowMaintainerEdits, Body: v.Body, BaseCommit: v.BaseCommit, HeadCommit: v.HeadCommit,
 		MergeCommit: v.MergeCommit, MergeMethod: v.MergeMethod, Mergeable: v.Mergeable, Conflicts: v.Conflicts,
 		BranchesExist: v.BranchesExist, CanEdit: v.CanEdit, CanMerge: v.CanMerge,
 		Approved: v.Approvals.Approved, ChangesRequested: v.Approvals.ChangesRequested, RequiredApprovals: v.RequiredApprovals,
 	}
 	d.Assignees, d.Milestone = usernames(v.Assignees), toMilestone(v.Milestone)
+	if v.SourceRepositoryId != nil {
+		d.SourceRepository = "deleted fork"
+		if v.SourceRepository != nil {
+			d.SourceRepository = v.SourceRepository.FullPath()
+		}
+	}
 	d.RequiredChecks = []RequiredCheck{}
 	if v.Protection != nil {
 		d.ProtectedBy = v.Protection.Pattern
@@ -232,6 +260,7 @@ func (c Controller) List(ctx *fiber.Ctx, req ListRequest) (*ListResponse, *fiber
 	resp := &ListResponse{PullRequests: []Summary{}, Counts: map[string]int64{"open": 0, "closed": 0, "merged": 0}}
 	for i := range prs {
 		s := summary(&prs[i])
+		s.SourceRepository = c.Pulls.SourceName(&prs[i])
 		s.Labels = labels(prLabels[prs[i].Id])
 		resp.PullRequests = append(resp.PullRequests, s)
 	}
@@ -247,7 +276,8 @@ func (c Controller) Create(ctx *fiber.Ctx, req CreateRequest) (*Detail, *fiberoa
 		return nil, apierror.Unauthenticated()
 	}
 	id, path := repoid.Split(req.Identifier)
-	pr, err := c.Pulls.Create(id, path, auth.UserID, req.Title, req.Body, req.Source, req.Target, req.Draft)
+	pr, err := c.Pulls.Create(id, path, auth.UserID, application.NewPullRequest{Title: req.Title, Body: req.Body, Source: req.Source, Target: req.Target,
+		Draft: req.Draft, SourceRepository: req.SourceRepository, AllowMaintainerEdits: req.AllowMaintainerEdits})
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
@@ -281,7 +311,7 @@ func (c Controller) Update(ctx *fiber.Ctx, req UpdateRequest) (*Detail, *fiberoa
 	if errResp != nil {
 		return nil, errResp
 	}
-	view, err := c.Pulls.Update(id, path, auth.UserID, n, application.PullRequestUpdate{Title: req.Title, Body: req.Body, Draft: req.Draft})
+	view, err := c.Pulls.Update(id, path, auth.UserID, n, application.PullRequestUpdate{Title: req.Title, Body: req.Body, Draft: req.Draft, AllowMaintainerEdits: req.AllowMaintainerEdits})
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
@@ -328,6 +358,15 @@ func (c Controller) Merge(ctx *fiber.Ctx, req MergeRequest) (*Detail, *fiberoapi
 		return nil, apierror.From(err, c.Logger)
 	}
 	return detail(view), nil
+}
+
+func (c Controller) Preview(ctx *fiber.Ctx, req PreviewRequest) (*gitbrowse.Comparison, *fiberoapi.ErrorResponse) {
+	id, path := repoid.Split(req.Identifier)
+	cmp, err := c.Pulls.Preview(id, path, c.userId(ctx), req.SourceRepository, req.Source, req.Target)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return cmp, nil
 }
 
 func (c Controller) Compare(ctx *fiber.Ctx, req NumberRequest) (*gitbrowse.Comparison, *fiberoapi.ErrorResponse) {

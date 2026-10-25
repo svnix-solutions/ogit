@@ -138,7 +138,7 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 	var check helpergit.RefCheck
 	if repo, ok := c.Locals(repositoryLocal).(*domain.Repository); ok {
 		pusher, _ := c.Locals(pusherLocal).(application.Pusher)
-		check = ctrl.Protection.PushCheck(repo, pusher, st)
+		check = application.LimitPush(pusher, ctrl.Protection.PushCheck(repo, pusher, st))
 	}
 	sess, expect, err := helpergit.GuardedReceivePack(st, ep, check)
 	if err != nil {
@@ -161,7 +161,9 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 	report, err := sess.ReceivePack(context.Background(), req)
 	if repo, ok := c.Locals(repositoryLocal).(*domain.Repository); ok {
 		pusher, _ := c.Locals(pusherLocal).(application.Pusher)
-		ctrl.Webhooks.Pushed(repo, pusher, st, application.AppliedUpdates(req, report))
+		applied := application.AppliedUpdates(req, report)
+		ctrl.Webhooks.Pushed(repo, pusher, st, applied)
+		ctrl.Pulls.SourcePushed(repo, pusher, applied)
 	}
 	c.Set("Content-Type", "application/x-git-receive-pack-result")
 	if err != nil {

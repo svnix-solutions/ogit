@@ -306,51 +306,48 @@ func (c *AuthApp) IdentifySSHKey(keys domain.SSHKeyPers, fingerprint string) (*S
 // outcomes as AuthorizeGit: private repositories the key cannot read are
 // reported as not found.
 func (c *AuthApp) AuthorizeSSH(id *SSHIdentity, repoPath, operation string) (*domain.Repository, error) {
+	repo, _, err := c.AuthorizeSSHAs(id, repoPath, operation)
+	return repo, err
+}
+
+// AuthorizeSSHAs is AuthorizeSSH, also returning who pushes (with the
+// branches they are limited to, for maintainer edits on forks).
+func (c *AuthApp) AuthorizeSSHAs(id *SSHIdentity, repoPath, operation string) (*domain.Repository, Pusher, error) {
+	pusher := id.Pusher()
 	var write bool
 	switch operation {
 	case "git-upload-pack":
 	case "git-receive-pack":
 		write = true
 	default:
-		return nil, fmt.Errorf("invalid git operation: %s", operation)
+		return nil, Pusher{}, fmt.Errorf("invalid git operation: %s", operation)
 	}
 
 	repo, err := c.RepositoryApp.GetRepository(nil, &repoPath)
 	if err != nil {
-		return nil, ErrGitNotFound
+		return nil, Pusher{}, ErrGitNotFound
 	}
 
 	switch id.Key.OwnerType {
 	case domain.SSHKeyTypeUser:
-		canRead, err := c.RepositoryApp.CanUserAccess(repo.Id, *id.Key.UserId, "read")
+		only, err := c.userGitAccess(repo, *id.Key.UserId, write)
 		if err != nil {
-			return nil, err
+			return nil, Pusher{}, err
 		}
-		if !canRead {
-			return nil, ErrGitNotFound
-		}
-		if write {
-			canWrite, err := c.RepositoryApp.CanUserAccess(repo.Id, *id.Key.UserId, "write")
-			if err != nil {
-				return nil, err
-			}
-			if !canWrite {
-				return nil, ErrGitForbidden
-			}
-		}
+		pusher.OnlyBranches = only
 	case domain.SSHKeyTypeRepository:
 		if *id.Key.RepositoryId != repo.Id {
-			return nil, ErrGitNotFound
+			return nil, Pusher{}, ErrGitNotFound
 		}
 		if write && id.Key.ReadOnly {
-			return nil, ErrGitForbidden
+			return nil, Pusher{}, ErrGitForbidden
 		}
 	default:
-		return nil, ErrGitForbidden
+		return nil, Pusher{}, ErrGitForbidden
 	}
 	if write && repo.IsArchived {
-		return nil, ErrGitArchived
+		return nil, Pusher{}, ErrGitArchived
 	}
 
-	return repo, nil
+	return repo, pusher, nil
 }
