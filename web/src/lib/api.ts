@@ -85,7 +85,8 @@ export function atLeast(role: Role | undefined, min: Role): boolean {
   return roleLevel[role ?? "none"] >= roleLevel[min];
 }
 
-export type Repository = RepositorySummary & { owner_type: "user" | "group"; role?: Role; required_approvals?: number; has_issues?: boolean };
+export type Repository = RepositorySummary & { owner_type: "user" | "group"; role?: Role; required_approvals?: number; has_issues?: boolean;
+  is_fork?: boolean; fork_of?: { id: string; full_path: string } };
 
 export type Member = { id: string; type: "user" | "group"; username?: string; group?: string; role: Role };
 

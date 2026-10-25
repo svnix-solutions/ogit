@@ -1,4 +1,5 @@
 import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Settings } from "lucide-react";
+import { ForkButton, ForkedFrom, SyncButton } from "@/components/forks";
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
 import { ApiError, atLeast, type Repository } from "@/lib/api";
@@ -77,11 +78,14 @@ export function RepoLayout() {
             <Archive className="h-3 w-3" /> archived
           </Badge>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          <ForkButton repo={repo} />
           <CloneMenu repo={repo} />
         </div>
       </div>
+      <ForkedFrom repo={repo} />
       {repo.description && <p className="text-muted-foreground">{repo.description}</p>}
+      <SyncButton repo={repo} />
       {repo.archived && <Alert>This repository is archived: it can be cloned but not pushed to.</Alert>}
       <nav className="flex gap-1 overflow-x-auto border-b">
         <NavLink to={base} end className={({ isActive }) => tab({ isActive: isActive || /\/(tree|blob|blame)\//.test(location.pathname) })}>

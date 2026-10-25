@@ -51,6 +51,7 @@ export const routes: RouteObject[] = [
           { path: "issues/:number", lazy: page(issues, "IssuePage") },
           { path: "milestones", lazy: page(issues, "MilestonesPage") },
           { path: "milestones/:id", lazy: page(issues, "MilestonePage") },
+          { path: "forks", lazy: page(() => import("@/pages/repo-forks"), "RepoForksPage") },
           {
             element: <RequireAuth />,
             children: [
