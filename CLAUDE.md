@@ -50,7 +50,9 @@ web/                               React 19 + Vite + TS + Tailwind 4 app; web/em
                                    components/repo-layout.tsx; they read the repository
                                    with useRepo(), so wrappers like RequireAuth must pass
                                    the outlet context through),
-                                   routes in web/src/app.tsx (fixed
+                                   routes in web/src/app.tsx: pages past sign-in are lazy
+                                   (route.lazy) so the first load is small; keep new
+                                   heavy pages lazy too (fixed
                                    paths before /:owner, which the server reserves as names)
 interfaces/http/v1/site/           public routes with an optional session (shared helper: v1/optauth): /instance,
                                    /explore, /namespace/:name

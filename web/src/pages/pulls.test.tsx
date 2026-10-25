@@ -37,7 +37,7 @@ describe("pull requests", () => {
   it("lists them with counts and labels; developers can open one", async () => {
     fakeAPI({
       "/instance": instance, "/user/profile": me("dev"), "/repository/acme%2Fapp": repo("developer"),
-      "/repository/acme%2Fapp/pulls?state=open&limit=100": { pull_requests: [summary], counts: { open: 1, merged: 4, closed: 0 } },
+      "/repository/acme%2Fapp/pulls?state=open&limit=30&offset=0": { pull_requests: [summary], counts: { open: 1, merged: 4, closed: 0 } },
       "/repository/acme%2Fapp/labels": { labels: [bug] },
     });
     renderRoutes(routes, "/acme/app/pulls");

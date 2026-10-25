@@ -52,13 +52,13 @@ export type PullReview = { id: string; author: string; state: "approved" | "chan
 
 export const pullsBase = (fullPath: string) => `/repository/${repoId(fullPath)}/pulls`;
 
-export function usePulls(fullPath: string, state: string, label: string) {
+export function usePulls(fullPath: string, state: string, label: string, page = 0, perPage = 30) {
   return useQuery({
-    queryKey: ["pulls", fullPath, state, label],
+    queryKey: ["pulls", fullPath, state, label, page],
     queryFn: () =>
       api<{ pull_requests: PullSummary[]; counts: Record<string, number> }>(
         "GET",
-        `${pullsBase(fullPath)}?state=${state}&limit=100${label ? `&label=${encodeURIComponent(label)}` : ""}`,
+        `${pullsBase(fullPath)}?state=${state}&limit=${perPage}&offset=${page * perPage}${label ? `&label=${encodeURIComponent(label)}` : ""}`,
       ),
     placeholderData: keepPreviousData,
   });

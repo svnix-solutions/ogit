@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { useState } from "react";
 import { Link } from "react-router";
 import { ConfirmDelete } from "@/components/confirm-delete";
+import { Pager } from "@/components/pager";
 import { ErrorText, Section } from "@/components/section";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -30,9 +31,11 @@ export function AdminPage() {
 function Users() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(0);
+  const perPage = 50;
   const users = useQuery({
-    queryKey: ["admin-users", q],
-    queryFn: () => api<{ users: AdminUser[]; total: number }>("GET", `/admin/users?limit=100&q=${encodeURIComponent(q)}`),
+    queryKey: ["admin-users", q, page],
+    queryFn: () => api<{ users: AdminUser[]; total: number }>("GET", `/admin/users?limit=${perPage}&offset=${page * perPage}&q=${encodeURIComponent(q)}`),
     placeholderData: keepPreviousData,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["admin-users"] });
@@ -53,7 +56,7 @@ function Users() {
 
   return (
     <Section title="Users" description="Disabling an account signs it out everywhere. A user who still owns repositories or groups can't be deleted until they are handed over.">
-      <Input aria-label="Search users" placeholder="Search by username or email" value={q} onChange={(e) => setQ(e.target.value)} />
+      <Input aria-label="Search users" placeholder="Search by username or email" value={q} onChange={(e) => (setQ(e.target.value), setPage(0))} />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted-foreground">
@@ -100,6 +103,7 @@ function Users() {
           </tbody>
         </table>
       </div>
+      {users.data && <Pager page={page} perPage={perPage} count={users.data.users.length} total={users.data.total} onPage={setPage} />}
       <ErrorText error={update.error} />
       {deleting && (
         <div className="space-y-2 rounded-md border border-destructive/40 p-3">
@@ -132,7 +136,13 @@ function Users() {
 
 function Repositories() {
   const qc = useQueryClient();
-  const repos = useQuery({ queryKey: ["admin-repos"], queryFn: () => api<{ repositories: AdminRepo[]; total: number }>("GET", "/admin/repositories?limit=200") });
+  const [page, setPage] = useState(0);
+  const perPage = 50;
+  const repos = useQuery({
+    queryKey: ["admin-repos", page],
+    queryFn: () => api<{ repositories: AdminRepo[]; total: number }>("GET", `/admin/repositories?limit=${perPage}&offset=${page * perPage}`),
+    placeholderData: keepPreviousData,
+  });
   const [selected, setSelected] = useState<AdminRepo | null>(null);
   const [target, setTarget] = useState("");
   const done = () => {
@@ -151,7 +161,7 @@ function Repositories() {
 
   return (
     <Section title="Repositories" description={repos.data ? `${repos.data.total} in total.` : undefined}>
-      <ul className="max-h-80 divide-y overflow-y-auto text-sm">
+      <ul className="divide-y text-sm">
         {repos.data?.repositories.map((r) => (
           <li key={r.id}>
             <button className={`flex w-full items-center gap-2 px-2 py-2 text-left hover:bg-muted ${selected?.id === r.id ? "bg-muted" : ""}`} onClick={() => setSelected(r)}>
@@ -162,6 +172,7 @@ function Repositories() {
           </li>
         ))}
       </ul>
+      {repos.data && <Pager page={page} perPage={perPage} count={repos.data.repositories.length} total={repos.data.total} onPage={setPage} />}
       {selected && (
         <div className="space-y-3 rounded-md border p-3">
           <p className="text-sm font-medium">{selected.full_path}</p>

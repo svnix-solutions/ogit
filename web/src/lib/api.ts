@@ -98,6 +98,7 @@ export type NamespaceView = {
   description?: string;
   can_create: boolean;
   repositories: RepositorySummary[];
+  total: number;
 };
 
 export type Instance = { version: string; registration_enabled: boolean; ssh_enabled: boolean; ssh_port?: number };
