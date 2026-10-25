@@ -33,6 +33,11 @@ type Repository struct {
 	// the author) a pull request needs before it can be merged.
 	RequiredApprovals int
 
+	// HasIssues: the repository uses issues (owners turn them off; existing
+	// ones stay readable). No gorm default, for the reason above: callers
+	// set it (true for new repositories).
+	HasIssues bool
+
 	// DeployKeys DeployKeys `gorm:"foreignKey:RepositoryId"`
 	// WebHooks   WebHooks   `gorm:"foreignKey:RepositoryId"`
 

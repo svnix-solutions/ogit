@@ -162,3 +162,32 @@ func TestNamespacesMigrationNamesOrphans(t *testing.T) {
 	err = goose.UpToContext(ctx, sqlDB, "files", namespaces)
 	require.ErrorContains(t, err, "without a user owner can't be given a namespace: lost")
 }
+
+// Issues share pull requests' numbers: the counter starts after the
+// highest existing pull request, and issues are on for every repository.
+func TestIssueMigrationContinuesPullRequestNumbers(t *testing.T) {
+	const beforeIssues, issues = 20261025150000, 20261025160000
+	db, up, down := migratedTo(t, beforeIssues)
+	for _, q := range []string{
+		`INSERT INTO user (id, username, email, password) VALUES ('u1', 'alice', 'a@example.com', 'x')`,
+		`INSERT INTO repository (id, name, namespace, owner_type, owner_id, slug, storage_key) VALUES
+			('r1', 'One', 'alice', 'user', 'u1', 'one', 'r1'), ('r2', 'Two', 'alice', 'user', 'u1', 'two', 'r2')`,
+		`INSERT INTO pull_request (id, repository_id, number, title, source_branch, target_branch, state) VALUES
+			('p1', 'r1', 1, 'a', 'x', 'main', 'open'), ('p2', 'r1', 4, 'b', 'y', 'main', 'merged')`,
+	} {
+		require.NoError(t, db.Exec(q).Error)
+	}
+
+	up(issues)
+	type row struct {
+		Id         string
+		LastNumber int
+		HasIssues  bool
+	}
+	var rows []row
+	require.NoError(t, db.Raw(`SELECT id, last_number, has_issues FROM repository ORDER BY id`).Scan(&rows).Error)
+	assert.Equal(t, []row{{"r1", 4, true}, {"r2", 0, true}}, rows)
+
+	down(beforeIssues)
+	up(issues)
+}

@@ -76,6 +76,7 @@ func (c *RepositoryApp) Create(namespace, name, description, creator string, isP
 		Slug:          repoSlug,
 		StorageKey:    id, // never changes, so renames do not move data
 		DefaultBranch: "main",
+		HasIssues:     true,
 	}
 
 	err = c.RepoPres.Create(repo)

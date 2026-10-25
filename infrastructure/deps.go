@@ -36,4 +36,5 @@ type Deps struct {
 	WebhookApp    *application.WebhookApp
 	ProtectionApp *application.ProtectionApp
 	StatusApp     *application.StatusApp
+	IssueApp      *application.IssueApp
 }

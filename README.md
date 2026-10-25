@@ -10,6 +10,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
+- **Issues**: per repository, numbered with pull requests, with comments and labels
 - **Branch protection**: no force-pushes or deletion, pull-request-only branches, per-branch approvals, push and merge allowlists
 - **Commit statuses**: CI reports pass or fail per commit (GitHub-compatible API), and protected branches can require checks
 - **Webhooks**: GitHub-compatible push, pull request and repository events, signed and retried
@@ -189,6 +190,21 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 
 - **Renaming and moving:** the path changes, and the old one keeps working for the API, HTTP and SSH until another repository takes it. Git data never moves.
 - **Archiving:** an archived repository can be cloned and fetched, but refuses pushes from everyone until it's unarchived.
+
+### Issues
+
+```bash
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/issues -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"title": "Login fails on Safari", "body": "Steps: ..."}'
+curl "localhost:8080/api/v1/repository/me%2Fmy-project/issues?state=open&label=bug&q=safari"
+curl -X PATCH localhost:8080/api/v1/repository/me%2Fmy-project/issues/12 -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"state": "closed"}'
+```
+
+- **Numbers** are shared with pull requests, so `#12` is one or the other. `GET .../numbers/12` says which.
+- **Who:** anyone who can read the repository opens issues and comments. The author and developers and up edit, close and reopen. Developers and up set labels (the same labels as pull requests). Maintainers and up delete issues and others' comments.
+- **Filters:** `?state=open|closed|all`, `?label=`, `?author=`, `?q=` (title and body). Counts per state follow the other filters.
+- **Off switch:** owners set `"has_issues": false` on the repository. Existing issues stay readable, and nothing can be added or changed until issues are turned back on.
 
 ### Branch protection
 

@@ -21,13 +21,12 @@ func (p *pullRequestPers) Create(pr *domain.PullRequest) error {
 	var err error
 	for range 5 {
 		err = p.db.Transaction(func(tx *gorm.DB) error {
-			var last int
-			if err := tx.Model(&domain.PullRequest{}).Where("repository_id = ?", pr.RepositoryId).
-				Select("COALESCE(MAX(number), 0)").Scan(&last).Error; err != nil {
+			n, err := nextNumber(tx, pr.RepositoryId)
+			if err != nil {
 				return err
 			}
 			pr.Id = utils.UUIDv4()
-			pr.Number = last + 1
+			pr.Number = n
 			return tx.Omit("Author", "MergedBy").Create(pr).Error
 		})
 		if helperError.Catch(err) != gorm.ErrDuplicatedKey {
