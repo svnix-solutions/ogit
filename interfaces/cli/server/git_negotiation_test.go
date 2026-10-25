@@ -38,6 +38,9 @@ func objectCount(t *testing.T, g *gitCLI, dir string) int {
 // needed a second round of haves (SSH: "bad line length character: PACK"),
 // or re-sent most of the history (HTTP).
 func TestFetchNegotiation(t *testing.T) {
+	// Heavy and independent: runs alongside the other slow tests, after the
+	// sequential ones.
+	t.Parallel()
 	t.Run("local", func(t *testing.T) { testFetchNegotiation(t) })
 	t.Run("s3_fake", func(t *testing.T) { testFetchNegotiation(t, withS3(s3test.StartFake(t))) })
 }

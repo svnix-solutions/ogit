@@ -143,6 +143,7 @@ Repositories are addressed by **path, `<namespace>/<slug>`** (`application/names
 - S3 test endpoints come from `infrastructure/storage/s3/s3test`: `StartFake` (gofakes3), `StartMinIO` (`//go:build integration`), `Configure(cfg, ep)`, `NewStorage`. Tests in package `s3` must use package `s3_test` (`s3test` imports `s3`).
 - MinIO image: `cgr.dev/chainguard/minio` pinned by digest, because `minio/minio` is no longer pullable from Docker Hub or quay.io.
 - Pinned test deps: gofakes3 v1.0.0, testcontainers-go v0.40.0 (and its redis module), grpc-gateway/v2 v2.16.0, go-redis v9.22.0 (v9.23 needs Go 1.26). Newer ones (or `go mod tidy` resolving @latest) can raise the `go` directive and upgrade the AWS SDK. Check `go.mod` after any `go get`/`tidy`.
+- Speed: `main_test.go` sets `application.PasswordCost` to `bcrypt.MinCost` (at the default, every hash takes about 0.5s under `-race`). Keep any new password hashing on `PasswordCost`. Only the three heaviest tests (`TestFetchNegotiation`, `TestS3RequestBudget`, `TestLastOwnerConcurrentDemotion`) call `t.Parallel()`. Before adding more, check for process globals: goose's are why `RunMigration` takes a mutex.
 - For security fixes, check that reverting the fix makes the test fail on an assertion, not on `log.Fatal` or a build error.
 
 ## Docker

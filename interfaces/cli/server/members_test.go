@@ -319,6 +319,9 @@ func TestGroups(t *testing.T) {
 // repository without an owner (owner rows are locked on postgres; sqlite
 // serializes writes).
 func TestLastOwnerConcurrentDemotion(t *testing.T) {
+	// Heavy and independent: runs alongside the other slow tests, after the
+	// sequential ones.
+	t.Parallel()
 	srv := startTestServer(t)
 	a, b := srv.newUser(t, "a"), srv.newUser(t, "b")
 

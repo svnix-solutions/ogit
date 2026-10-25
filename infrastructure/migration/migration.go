@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"embed"
+	"sync"
 
 	"github.com/labbs/ogit/infrastructure/logger/zerolog"
 
@@ -16,7 +17,13 @@ import (
 //go:embed files/*
 var migrationFiles embed.FS
 
+// goose keeps its file system, dialect and logger in globals: migrations of
+// two databases in one process (parallel tests) must take turns.
+var gooseMu sync.Mutex
+
 func RunMigration(l z.Logger, db *gorm.DB) error {
+	gooseMu.Lock()
+	defer gooseMu.Unlock()
 	logger := l.With().Str("component", "infrastructure.migration").Logger()
 	goose.SetBaseFS(migrationFiles)
 	goose.SetLogger(&zerolog.ZerologGooseAdapter{Logger: logger})
