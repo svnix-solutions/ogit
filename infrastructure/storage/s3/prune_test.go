@@ -55,7 +55,7 @@ func TestPrune(t *testing.T) { testPrune(t, s3test.StartFake(t)) }
 
 func testPrune(t *testing.T, ep s3test.Endpoint) {
 	storage := s3test.NewStorage(t, ep)
-	require.NoError(t, storage.CreateRepository("r.git"))
+	require.NoError(t, storage.CreateRepository("r.git", "Test"))
 	st := storerOf(t, storage, "r.git")
 	ref, err := st.Reference("refs/heads/main")
 	require.NoError(t, err)

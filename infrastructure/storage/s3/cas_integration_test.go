@@ -18,7 +18,7 @@ import (
 // writes, so it runs against MinIO (gofakes3 ignores If-Match).
 func TestS3ConditionalRefWrites_MinIO(t *testing.T) {
 	st := s3test.NewStorage(t, s3test.StartMinIO(t))
-	require.NoError(t, st.CreateRepository("race.git"))
+	require.NoError(t, st.CreateRepository("race.git", "Test"))
 	a, err := st.GetStorer("race.git")
 	require.NoError(t, err)
 	b, err := st.GetStorer("race.git")

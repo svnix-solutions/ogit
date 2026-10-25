@@ -7,6 +7,8 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/domain"
+	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/storage/s3/s3test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -86,4 +88,19 @@ func TestRepositoryToken(t *testing.T) {
 
 	_, err = clone(t, srv.url+"/owner/other-repo.git", auth)
 	assert.ErrorIs(t, err, transport.ErrRepositoryNotFound, "token is limited to its repository")
+}
+
+// A new repository's README is titled with its name (it used to show the
+// storage key on local storage).
+func TestNewRepositoryReadme(t *testing.T) {
+	for name, opts := range map[string][]func(*config.Config){"local": nil, "s3_fake": {withS3(s3test.StartFake(t))}} {
+		t.Run(name, func(t *testing.T) {
+			srv := startTestServer(t, opts...)
+			alice := srv.newUser(t, "alice")
+			srv.createRepo(t, alice.session, "My Project", false)
+			status, body := srv.get(t, repoAPI("alice/my-project")+"/tree?spec=", "")
+			require.Equal(t, http.StatusOK, status, "%v", body)
+			assert.Equal(t, "# My Project\n", body["readme"].(map[string]any)["content"])
+		})
+	}
 }

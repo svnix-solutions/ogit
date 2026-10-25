@@ -27,7 +27,7 @@ func readFile(t *testing.T, st storer.EncodedObjectStorer, commit plumbing.Hash,
 
 func TestNewRepositoriesArePacked(t *testing.T) {
 	st := s3test.NewStorage(t, s3test.StartFake(t))
-	require.NoError(t, st.CreateRepository("new.git"))
+	require.NoError(t, st.CreateRepository("new.git", "Test"))
 	n, err := st.Repack("new.git")
 	require.NoError(t, err)
 	assert.Zero(t, n, "the initial commit is written as a pack: nothing loose to repack")

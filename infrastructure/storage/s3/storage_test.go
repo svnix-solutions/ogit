@@ -27,14 +27,14 @@ func testStorageSuite(t *testing.T, storage *s3.S3Storage) {
 
 	t.Run("create_and_exists", func(t *testing.T) {
 		assert.False(t, storage.RepositoryExists("alpha.git"))
-		require.NoError(t, storage.CreateRepository("alpha.git"))
+		require.NoError(t, storage.CreateRepository("alpha.git", "Test"))
 		assert.True(t, storage.RepositoryExists("alpha.git"))
 		// getRepoKey appends .git, so both spellings refer to the same repo
 		assert.True(t, storage.RepositoryExists("alpha"))
 	})
 
 	t.Run("create_duplicate_fails", func(t *testing.T) {
-		assert.Error(t, storage.CreateRepository("alpha.git"))
+		assert.Error(t, storage.CreateRepository("alpha.git", "Test"))
 	})
 
 	t.Run("initial_commit_is_readable", func(t *testing.T) {
@@ -59,7 +59,7 @@ func testStorageSuite(t *testing.T, storage *s3.S3Storage) {
 		require.NoError(t, err)
 		content, err := file.Contents()
 		require.NoError(t, err)
-		assert.Contains(t, content, "# Repository")
+		assert.Contains(t, content, "# Test\n")
 	})
 
 	t.Run("iter_references", func(t *testing.T) {
@@ -132,7 +132,7 @@ func testStorageSuite(t *testing.T, storage *s3.S3Storage) {
 	})
 
 	t.Run("list_multiple", func(t *testing.T) {
-		require.NoError(t, storage.CreateRepository("beta"))
+		require.NoError(t, storage.CreateRepository("beta", "Test"))
 		repos, err := storage.ListRepositories()
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []string{"alpha.git", "beta.git"}, repos)

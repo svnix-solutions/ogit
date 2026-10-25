@@ -11,7 +11,7 @@ L'interface `GitRepositoryStorage` définit les méthodes nécessaires pour gér
 ```go
 type GitRepositoryStorage interface {
     GetStorer(repoPath string) (storer.Storer, error)
-    CreateRepository(repoPath string) error
+    CreateRepository(repoPath, name string) error
     RepositoryExists(repoPath string) bool
     DeleteRepository(repoPath string) error
     ListRepositories() ([]string, error)
@@ -70,7 +70,7 @@ if err := gitStorage.Configure(); err != nil {
 
 ```go
 // Créer un nouveau dépôt
-err := gitStorage.CreateRepository("my-repo.git")
+err := gitStorage.CreateRepository("my-repo.git", "My repo")
 
 // Vérifier si un dépôt existe
 exists := gitStorage.RepositoryExists("my-repo.git")
