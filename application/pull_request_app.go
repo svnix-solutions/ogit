@@ -213,6 +213,17 @@ func (c *PullRequestApp) List(id, path *string, userId string, state domain.Pull
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	// Open pull requests' heads are their source tips (for status icons);
+	// merged and closed ones recorded theirs.
+	if st, err := c.Repositories.StorageConfig.GetStorer(repo.StorageKey); err == nil {
+		for i := range prs {
+			if prs[i].State == domain.PullRequestOpen {
+				if tip, err := branchTip(st, prs[i].SourceBranch); err == nil {
+					prs[i].HeadCommit = tip.Hash.String()
+				}
+			}
+		}
+	}
 	ids := make([]string, len(prs))
 	for i, pr := range prs {
 		ids[i] = pr.Id

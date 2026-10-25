@@ -10,12 +10,15 @@ import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { ApiError, atLeast } from "@/lib/api";
 import { ruleFor, ruleSummary, useBranchRules } from "@/lib/protection";
+import { useStatuses, type Combined } from "@/lib/statuses";
+import { CombinedIcon } from "@/components/status-icon";
 import { encodePath, relativeTime, shortHash, summary, useCommit, useCommits, useCompare, useRefs, type Commit } from "@/lib/browse";
 
-function CommitRow({ commit }: { commit: Commit }) {
+function CommitRow({ commit, status }: { commit: Commit; status?: Combined }) {
   const repo = useRepo();
   return (
     <div className="flex items-center gap-3 px-4 py-3">
+      <CombinedIcon combined={status} />
       <div className="min-w-0 flex-1">
         <Link to={`/${repo.full_path}/commit/${commit.hash}`} className="block truncate font-medium hover:text-primary hover:underline">
           {summary(commit.message)}
@@ -39,6 +42,7 @@ export function CommitsPage() {
   const spec = useParams()["*"] ?? "";
   const [page, setPage] = useState(0);
   const commits = useCommits(repo.full_path, spec, page);
+  const statuses = useStatuses(repo.id, commits.data?.commits.map((c) => c.hash) ?? []);
 
   if (commits.isError) return <Alert variant="destructive">{commits.error instanceof ApiError && commits.error.status === 404 ? "No such branch, tag or path." : commits.error.message}</Alert>;
   if (!commits.data) return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -59,7 +63,7 @@ export function CommitsPage() {
       ) : (
         <Card className="divide-y">
           {commits.data.commits.map((c) => (
-            <CommitRow key={c.hash} commit={c} />
+            <CommitRow key={c.hash} commit={c} status={statuses.data?.[c.hash]} />
           ))}
         </Card>
       )}
@@ -118,6 +122,7 @@ export function BranchesPage() {
   const refs = useRefs(repo.full_path);
   // Developers and up can read the rules.
   const rules = useBranchRules(repo.id, atLeast(repo.role, "developer"));
+  const statuses = useStatuses(repo.id, refs.data?.branches.map((b) => b.commit.hash) ?? []);
   if (refs.isError) return <Alert variant="destructive">{refs.error.message}</Alert>;
   if (!refs.data) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const archive = (name: string, fmt: string) => `/${repo.full_path}/archive/${encodePath(name)}.${fmt}`;
@@ -131,6 +136,7 @@ export function BranchesPage() {
         <Card className="divide-y">
           {list.map((r) => (
             <div key={r.name} className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm">
+              {branches && <CombinedIcon combined={statuses.data?.[r.commit.hash]} />}
               <Link to={`/${repo.full_path}/tree/${encodePath(r.name)}`} className="font-mono text-primary hover:underline">
                 {r.name}
               </Link>

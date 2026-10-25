@@ -45,6 +45,7 @@ type Summary struct {
 	MergedAt     *time.Time `json:"merged_at,omitempty"`
 	ClosedAt     *time.Time `json:"closed_at,omitempty"`
 	Labels       []Label    `json:"labels"`
+	HeadCommit   string     `json:"head_commit,omitempty"` // the source tip (recorded once merged or closed)
 }
 
 type Label struct {
@@ -169,7 +170,7 @@ func summary(pr *domain.PullRequest) Summary {
 	s := Summary{
 		Number: pr.Number, Title: pr.Title, State: string(pr.State), Draft: pr.Draft,
 		SourceBranch: pr.SourceBranch, TargetBranch: pr.TargetBranch,
-		CreatedAt: pr.CreatedAt, UpdatedAt: pr.UpdatedAt, MergedAt: pr.MergedAt, ClosedAt: pr.ClosedAt,
+		CreatedAt: pr.CreatedAt, UpdatedAt: pr.UpdatedAt, MergedAt: pr.MergedAt, ClosedAt: pr.ClosedAt, HeadCommit: pr.HeadCommit,
 	}
 	if pr.Author != nil {
 		s.Author = pr.Author.Username

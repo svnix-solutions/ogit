@@ -15,6 +15,7 @@ export type BranchRule = {
   dismiss_stale_approvals: boolean;
   allowed_users: string[];
   allowed_groups: string[];
+  required_contexts: string[];
   owners_bypass: boolean;
 };
 
@@ -60,6 +61,7 @@ export function ruleSummary(r: BranchRule): string[] {
   if (r.require_pull_request) out.push("pull requests only");
   if (r.required_approvals !== null) out.push(`${r.required_approvals} ${r.required_approvals === 1 ? "approval" : "approvals"}`);
   if (r.dismiss_stale_approvals) out.push("stale approvals dismissed");
+  if (r.required_contexts?.length) out.push(`requires ${r.required_contexts.join(", ")}`);
   const who = [...r.allowed_users, ...r.allowed_groups];
   if (who.length) out.push(`only ${who.join(", ")}`);
   if (r.owners_bypass) out.push("owners can bypass");

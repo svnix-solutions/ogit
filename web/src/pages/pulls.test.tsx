@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { routes } from "@/app";
@@ -101,6 +101,41 @@ describe("pull requests", () => {
     renderRoutes(routes, "/acme/app/pulls/7");
     expect(await screen.findByText(/merge anyway as an owner/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Merge" })).toBeEnabled();
+  });
+
+  it("lists the head's checks, required ones first, with safe links", async () => {
+    const st = (context: string, state: string, target_url = "") => ({ id: context, context, state, description: `${context} ${state}`, target_url, created_at: "2026-01-01T00:00:00Z" });
+    fakeAPI({
+      "/instance": instance, "/user/profile": me("maint"), "/repository/acme%2Fapp": repo("maintainer"),
+      "/repository/acme%2Fapp/pulls/7": pull({ protected_by: "main", required_checks: [{ context: "lint", state: "failure" }, { context: "e2e", state: "" }],
+        merge_blocked: { type: "CHECKS_REQUIRED", message: "required checks are not passing: lint (failure), e2e (not reported)" } }),
+      "/repository/acme%2Fapp/pulls/7/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [bug] },
+      [`/repository/r1/status?ref=${"h".repeat(40)}`]: { sha: "h".repeat(40), state: "failure", total_count: 2, statuses: [
+        st("build", "success", "https://ci.example.com/1"), st("lint", "failure", "javascript:alert(1)")] },
+    });
+    renderRoutes(routes, "/acme/app/pulls/7");
+    expect(await screen.findByText("0 of 2 required checks passed.")).toBeInTheDocument();
+    expect(await screen.findByText("build success")).toBeInTheDocument();
+    const box = within(screen.getByText("Checks").parentElement!);
+    expect(box.getAllByRole("listitem").map((li) => li.querySelector(".font-medium")?.textContent)).toEqual(["lint", "build", "e2e"]);
+    expect(screen.getByText("Waiting for a report.")).toBeInTheDocument();
+    const details = screen.getAllByRole("link", { name: "Details" });
+    expect(details).toHaveLength(1); // the javascript: URL gets no link
+    expect(details[0]).toHaveAttribute("href", "https://ci.example.com/1");
+    expect(details[0]).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByRole("button", { name: "Merge" })).toBeDisabled();
+  });
+
+  it("shows status icons in the list", async () => {
+    fakeAPI({
+      "/instance": instance, "/user/profile": me("dev"), "/repository/acme%2Fapp": repo("developer"),
+      "/repository/acme%2Fapp/pulls?state=open&limit=30&offset=0": { pull_requests: [{ ...summary, head_commit: "c".repeat(40) }], counts: { open: 1, merged: 0, closed: 0 } },
+      "/repository/acme%2Fapp/labels": { labels: [bug] },
+      [`/repository/r1/statuses?shas=${"c".repeat(40)}`]: { commits: { ["c".repeat(40)]: { sha: "c".repeat(40), state: "success", total_count: 2, statuses: [{ state: "success" }, { state: "success" }] } } },
+    });
+    renderRoutes(routes, "/acme/app/pulls");
+    expect(await screen.findByRole("img", { name: "2 of 2 checks passed" })).toBeInTheDocument();
   });
 
   it("shows conflicting files", async () => {

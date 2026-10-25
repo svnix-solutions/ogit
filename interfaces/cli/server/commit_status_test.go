@@ -271,6 +271,8 @@ func TestRequiredStatusChecks(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, "%v", pr)
 	n := pr["number"]
 	head := tip(t, srv, f.owner, "owner/app", "feature")
+	_, list := srv.get(t, pullsAPI("owner/app"), f.reporter.session)
+	assert.Equal(t, head, list["pull_requests"].([]any)[0].(map[string]any)["head_commit"], "lists give open pull requests' heads, for status icons")
 	report := func(sha, ctx, state string) {
 		status, body, _ := srv.do(t, http.MethodPost, repoAPI("owner/app")+"/statuses/"+sha, tokenHeader(ci), map[string]any{"state": state, "context": ctx})
 		require.Equal(t, http.StatusOK, status, "%v", body)

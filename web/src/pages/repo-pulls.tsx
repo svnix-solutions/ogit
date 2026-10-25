@@ -15,6 +15,8 @@ import { Label as FieldLabel } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError, atLeast } from "@/lib/api";
+import { safeLink, useCombined, useStatuses } from "@/lib/statuses";
+import { CombinedIcon, StatusIcon } from "@/components/status-icon";
 import { useProfile } from "@/lib/auth";
 import { relativeTime, shortHash, summary, useCompare, useRefs } from "@/lib/browse";
 import { renderMarkdown } from "@/lib/markdown";
@@ -51,6 +53,7 @@ export function PullsPage() {
   const page = pageParam(params);
   const perPage = 30;
   const pulls = usePulls(repo.full_path, state, label, page, perPage);
+  const statuses = useStatuses(repo.id, pulls.data?.pull_requests.map((p) => p.head_commit ?? "") ?? []);
   // Counts are per state for the whole repository; with a label we only
   // know whether more pages follow.
   const total = label || !pulls.data ? undefined : state === "all" ? Object.values(pulls.data.counts).reduce((a, b) => a + b, 0) : pulls.data.counts[state];
@@ -103,6 +106,7 @@ export function PullsPage() {
                     {p.labels.map((l) => (
                       <LabelBadge key={l.id} label={l} />
                     ))}
+                    {p.head_commit && <CombinedIcon combined={statuses.data?.[p.head_commit]} />}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     #{p.number} by {p.author || "ghost"} · {p.source_branch} → {p.target_branch} · updated {relativeTime(p.updated_at)}
@@ -437,6 +441,11 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
   if (pr.changes_requested.length) checks.push({ ok: false, text: `Changes requested by ${pr.changes_requested.join(", ")}.` });
   if (pr.draft) checks.push({ ok: false, text: "This is a draft." });
   if (pr.merge_blocked?.type === "BRANCH_PROTECTED") checks.push({ ok: false, text: pr.merge_blocked.message + "." });
+  const required = pr.required_checks ?? [];
+  if (required.length) {
+    const passing = required.filter((c) => c.state === "success").length;
+    checks.push({ ok: passing === required.length, text: `${passing} of ${required.length} required checks passed.` });
+  }
   // An owner may merge although a check fails, when the rule lets them.
   const bypassing = pr.can_merge && pr.protected_by && checks.some((c) => !c.ok);
 
@@ -450,6 +459,7 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
           </li>
         ))}
       </ul>
+      <Checks pr={pr} />
       {pr.protected_by && (
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <ShieldCheck className="h-3 w-3" /> {pr.target_branch} is protected by the rule <code className="rounded bg-muted px-1">{pr.protected_by}</code>.
@@ -478,6 +488,49 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
       )}
       <ErrorText error={merge.error ?? ready.error} />
     </Card>
+  );
+}
+
+// Checks lists the head commit's statuses (latest per context), required
+// ones first, including required checks nobody reported yet.
+function Checks({ pr }: { pr: Pull }) {
+  const repo = useRepo();
+  const combined = useCombined(repo.id, pr.state === "open" ? pr.head_commit : undefined);
+  const required = new Set((pr.required_checks ?? []).map((c) => c.context));
+  const reported = combined.data?.statuses ?? [];
+  const missing = [...required].filter((ctx) => !reported.some((s) => s.context === ctx));
+  if (reported.length === 0 && missing.length === 0) return null;
+  const rows = [...reported].sort((a, b) => Number(required.has(b.context)) - Number(required.has(a.context)) || a.context.localeCompare(b.context));
+  return (
+    <div className="space-y-1 rounded-md border p-2 text-sm">
+      <p className="text-xs font-medium text-muted-foreground">Checks</p>
+      <ul className="space-y-1">
+        {rows.map((s) => {
+          const link = safeLink(s.target_url);
+          return (
+            <li key={s.context} className="flex items-center gap-2">
+              <StatusIcon state={s.state} />
+              <span className="font-medium">{s.context}</span>
+              {required.has(s.context) && <span className="rounded border px-1 text-[10px] uppercase text-muted-foreground">required</span>}
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{s.description}</span>
+              {link && (
+                <a href={link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">
+                  Details
+                </a>
+              )}
+            </li>
+          );
+        })}
+        {missing.map((ctx) => (
+          <li key={ctx} className="flex items-center gap-2">
+            <StatusIcon state="pending" title="not reported" />
+            <span className="font-medium">{ctx}</span>
+            <span className="rounded border px-1 text-[10px] uppercase text-muted-foreground">required</span>
+            <span className="text-muted-foreground">Waiting for a report.</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

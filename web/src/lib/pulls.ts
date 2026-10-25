@@ -16,6 +16,7 @@ export type PullSummary = {
   merged_at?: string;
   closed_at?: string;
   labels: Label[];
+  head_commit?: string;
 };
 export type Pull = PullSummary & {
   body: string;
@@ -34,6 +35,7 @@ export type Pull = PullSummary & {
   changes_requested: string[];
   required_approvals: number;
   protected_by?: string; // the rule protecting the target branch
+  required_checks: { context: string; state: "" | "pending" | "success" | "failure" | "error" }[];
   merge_blocked?: { type: string; message: string }; // why the viewer can't merge
 };
 export type PullComment = {

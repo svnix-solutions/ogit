@@ -12,7 +12,7 @@ const repo = { id: "r1", namespace: "alice", slug: "site", full_path: "alice/sit
 const refs = { default_branch: "main", branches: [], tags: [] };
 const mainRule = {
   id: "p1", pattern: "main", allow_force_push: false, allow_deletion: false, require_pull_request: true, required_approvals: 2,
-  dismiss_stale_approvals: false, allowed_users: ["bob"], allowed_groups: [], owners_bypass: false,
+  dismiss_stale_approvals: false, allowed_users: ["bob"], allowed_groups: [], required_contexts: ["ci/build"], owners_bypass: false,
 };
 
 function show(isOwner: boolean) {
@@ -43,10 +43,11 @@ describe("branch protection settings", () => {
   it("adds a rule with the chosen options", async () => {
     const fetch = fakeAPI({
       "/repository/r1/branch-protection": { rules: [mainRule] }, "/repository/alice%2Fsite/refs": refs,
-      "POST /repository/r1/branch-protection": mainRule,
+      "POST /repository/r1/branch-protection": mainRule, "/repository/r1/status-contexts": { contexts: ["ci/build", "lint"] },
     });
     show(true);
     expect(await screen.findByText("pull requests only")).toBeInTheDocument();
+    expect(screen.getByText("requires ci/build")).toBeInTheDocument();
     expect(screen.getByText("only bob")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Protect main" })).not.toBeInTheDocument();
 
@@ -58,11 +59,16 @@ describe("branch protection settings", () => {
     await userEvent.click(screen.getByLabelText("Dismiss approvals when new commits are pushed"));
     await userEvent.type(screen.getByLabelText("…and members of these groups"), "release-team, ops");
     await userEvent.click(screen.getByLabelText(/Owners can bypass/));
+    await userEvent.type(screen.getByLabelText("Required checks"), "e2e");
+    await userEvent.click(await screen.findByRole("button", { name: "Require lint" }));
+    expect(screen.getByLabelText("Required checks")).toHaveValue("e2e, lint");
+    expect(screen.queryByRole("button", { name: "Require lint" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
     await waitFor(() => expect(sent(fetch, "POST", "/repository/r1/branch-protection")).toHaveLength(1));
     expect(sent(fetch, "POST", "/repository/r1/branch-protection")[0]).toEqual({
       pattern: "release/*", allow_force_push: false, allow_deletion: false, require_pull_request: false,
-      required_approvals: 3, dismiss_stale_approvals: true, allowed_users: [], allowed_groups: ["release-team", "ops"], owners_bypass: true,
+      required_approvals: 3, dismiss_stale_approvals: true, allowed_users: [], allowed_groups: ["release-team", "ops"],
+      required_contexts: ["e2e", "lint"], owners_bypass: true,
     });
   });
 
