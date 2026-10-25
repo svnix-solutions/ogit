@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
+import { pageParam, Pager } from "@/components/pager";
 import { RepoList } from "@/components/repo-list";
 import { Alert } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
@@ -10,17 +11,20 @@ import { api, type RepositorySummary } from "@/lib/api";
 export function ExplorePage() {
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
+  const page = pageParam(params);
+  const perPage = 30;
   const [text, setText] = useState(q);
 
   // Search as you type, a moment after typing stops.
   useEffect(() => {
-    const t = setTimeout(() => setParams(text ? { q: text } : {}, { replace: true }), 250);
+    if (text === q) return;
+    const t = setTimeout(() => setParams(text ? { q: text } : {}, { replace: true }), 250); // a new search starts at page 1
     return () => clearTimeout(t);
-  }, [text, setParams]);
+  }, [text, q, setParams]);
 
   const repos = useQuery({
-    queryKey: ["explore", q],
-    queryFn: () => api<{ repositories: RepositorySummary[]; total: number }>("GET", `/explore?limit=50&q=${encodeURIComponent(q)}`),
+    queryKey: ["explore", q, page],
+    queryFn: () => api<{ repositories: RepositorySummary[]; total: number }>("GET", `/explore?limit=${perPage}&offset=${page * perPage}&q=${encodeURIComponent(q)}`),
     placeholderData: keepPreviousData,
   });
 
@@ -36,9 +40,15 @@ export function ExplorePage() {
         <>
           <p className="text-sm text-muted-foreground">
             {repos.data.total} {repos.data.total === 1 ? "repository" : "repositories"}
-            {repos.data.total > repos.data.repositories.length && `, showing the first ${repos.data.repositories.length}`}
           </p>
           <RepoList repos={repos.data.repositories} empty={q ? "Nothing matches." : "No public repositories yet."} />
+          <Pager
+            page={page}
+            perPage={perPage}
+            count={repos.data.repositories.length}
+            total={repos.data.total}
+            onPage={(p) => setParams({ ...(q ? { q } : {}), page: String(p + 1) })}
+          />
         </>
       )}
     </div>

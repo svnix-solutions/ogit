@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Settings, User, Users } from "lucide-react";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
+import { pageParam, Pager } from "@/components/pager";
 import { RepoList } from "@/components/repo-list";
 import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
@@ -12,9 +13,12 @@ import { NotFoundPage } from "./not-found";
 export function NamespacePage() {
   const { owner = "" } = useParams();
   const { data: profile } = useProfile();
+  const [params, setParams] = useSearchParams();
+  const page = pageParam(params);
+  const perPage = 30;
   const ns = useQuery({
-    queryKey: ["namespace", owner],
-    queryFn: () => api<NamespaceView>("GET", `/namespace/${encodeURIComponent(owner)}`),
+    queryKey: ["namespace", owner, page],
+    queryFn: () => api<NamespaceView>("GET", `/namespace/${encodeURIComponent(owner)}?limit=${perPage}&offset=${page * perPage}`),
     retry: false,
   });
   const groups = useMyGroups(!!profile && ns.data?.type === "group");
@@ -49,6 +53,7 @@ export function NamespacePage() {
         </div>
       </div>
       <RepoList repos={ns.data.repositories} showNamespace={false} empty="No repositories you can see here." />
+      <Pager page={page} perPage={perPage} count={ns.data.repositories.length} total={ns.data.total} onPage={(p) => setParams({ page: String(p + 1) })} />
     </div>
   );
 }

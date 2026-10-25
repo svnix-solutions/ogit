@@ -69,6 +69,11 @@ func TestSitePages(t *testing.T) {
 		assert.Equal(t, []string{"alice/public-tools"}, repoPaths(body))
 		assert.Equal(t, false, body["can_create"])
 
+		status, body = srv.get(t, "/api/v1/namespace/alice?limit=1&offset=1", alice.session)
+		require.Equal(t, http.StatusOK, status)
+		assert.EqualValues(t, 2, body["total"])
+		assert.Len(t, body["repositories"], 1, "paged")
+
 		status, _ = srv.get(t, "/api/v1/namespace/alice", "not-a-token")
 		assert.Equal(t, http.StatusOK, status, "a bad token is just anonymous")
 	})

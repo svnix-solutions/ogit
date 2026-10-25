@@ -51,7 +51,9 @@ type ExploreResponse struct {
 }
 
 type NamespaceRequest struct {
-	Name string `path:"name" json:"-" validate:"required"`
+	Name   string `path:"name" json:"-" validate:"required"`
+	Offset int    `query:"offset" json:"-"`
+	Limit  int    `query:"limit" json:"-"` // default 100, at most 100
 }
 
 type NamespaceResponse struct {
@@ -60,6 +62,7 @@ type NamespaceResponse struct {
 	Description  string       `json:"description,omitempty"`
 	CanCreate    bool         `json:"can_create"`
 	Repositories []Repository `json:"repositories"`
+	Total        int          `json:"total"` // repositories visible to the caller
 }
 
 func Setup(c Controller, grp *fiberoapi.OApiGroup) {
@@ -105,12 +108,20 @@ func (c Controller) Namespace(ctx *fiber.Ctx, req NamespaceRequest) (*NamespaceR
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
+	limit := req.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	repos := view.Repositories
+	start := min(max(req.Offset, 0), len(repos))
+	end := min(start+limit, len(repos))
 	return &NamespaceResponse{
 		Name:         view.Path,
 		Type:         string(view.Type),
 		Description:  view.Description,
 		CanCreate:    view.CanCreate,
-		Repositories: summaries(view.Repositories),
+		Repositories: summaries(repos[start:end]),
+		Total:        len(repos),
 	}, nil
 }
 

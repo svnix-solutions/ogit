@@ -3,6 +3,7 @@ import { Check, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDr
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from "react-router";
 import { DiffView } from "@/components/diff-view";
+import { pageParam, Pager } from "@/components/pager";
 import { LabelBadge } from "@/components/label-badge";
 import { useRepo } from "@/components/repo-layout";
 import { ErrorText } from "@/components/section";
@@ -47,12 +48,18 @@ export function PullsPage() {
   const [params, setParams] = useSearchParams();
   const state = params.get("state") ?? "open";
   const label = params.get("label") ?? "";
-  const pulls = usePulls(repo.full_path, state, label);
+  const page = pageParam(params);
+  const perPage = 30;
+  const pulls = usePulls(repo.full_path, state, label, page, perPage);
+  // Counts are per state for the whole repository; with a label we only
+  // know whether more pages follow.
+  const total = label || !pulls.data ? undefined : state === "all" ? Object.values(pulls.data.counts).reduce((a, b) => a + b, 0) : pulls.data.counts[state];
   const labels = useLabels(repo.full_path);
   const set = (k: string, v: string) => {
     const next = new URLSearchParams(params);
     if (v) next.set(k, v);
     else next.delete(k);
+    if (k !== "page") next.delete("page");
     setParams(next);
   };
 
@@ -105,6 +112,9 @@ export function PullsPage() {
             ))}
           </Card>
         ))}
+      {pulls.data && (
+        <Pager page={page} perPage={perPage} count={pulls.data.pull_requests.length} total={total} onPage={(p) => set("page", String(p + 1))} />
+      )}
     </div>
   );
 }

@@ -46,7 +46,7 @@ describe("routing", () => {
     fakeAPI({
       "/instance": instance,
       "/user/profile": [401, { code: 401, details: "authentication required", type: "x" }],
-      "/namespace/alice": { name: "alice", type: "user", can_create: false, repositories: [
+      "/namespace/alice?limit=30&offset=0": { name: "alice", type: "user", can_create: false, total: 1, repositories: [
         { id: "r", namespace: "alice", slug: "tools", full_path: "alice/tools", name: "Tools", description: "", is_private: false, archived: false },
       ] },
     });

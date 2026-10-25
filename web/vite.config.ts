@@ -12,6 +12,18 @@ export default defineConfig({
   server: {
     proxy: { "/api": backend, "/documentation": backend, "/api-spec.json": backend },
   },
-  build: { outDir: "dist", emptyOutDir: true },
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        // Libraries change less often than the app: keep them in their own
+        // file so browsers keep it cached across deployments.
+        advancedChunks: {
+          groups: [{ name: "vendor", test: /node_modules[\\/](react|react-dom|react-router|scheduler|@tanstack)[\\/]/ }],
+        },
+      },
+    },
+  },
   test: { environment: "jsdom", globals: true, setupFiles: ["./src/test/setup.ts"] },
 });
