@@ -90,7 +90,7 @@ func pushOnto(t *testing.T, url string, auth *githttp.BasicAuth, branch, msg str
 		_, err := wt.Add(name)
 		require.NoError(t, err)
 	}
-	h, err := wt.Commit(msg, &git.CommitOptions{Author: &object.Signature{Name: "Dev", Email: "dev@example.com", When: time.Now()}})
+	h, err := wt.Commit(msg, &git.CommitOptions{AllowEmptyCommits: true, Author: &object.Signature{Name: "Dev", Email: "dev@example.com", When: time.Now()}})
 	require.NoError(t, err)
 	require.NoError(t, repo.Push(&git.PushOptions{Auth: auth}))
 	return h.String()

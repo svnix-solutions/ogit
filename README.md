@@ -205,6 +205,10 @@ curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/pi
 ```
 
 - **Events:** `push` (the default; HTTP, SSH and pull request merges, including deleted branches), `repository` (renamed, transferred, publicized, privatized, archived, unarchived, edited), or `*` for all. A `ping` is sent when a hook is created.
+  - `pull_request`: opened, edited, closed (with `merged: true` for merges), reopened, synchronize (a push to the source branch), converted_to_draft, ready_for_review, labeled, unlabeled.
+  - `pull_request_review`: submitted. `pull_request_review_comment`: inline comments created, edited, deleted (also those of a review).
+  - `issue_comment`: conversation comments created, edited, deleted; the `issue` has a `pull_request` field, as on GitHub.
+  - Deliveries are sent in parallel, so their order is not guaranteed.
 - **Signing:** with a secret, `X-Hub-Signature-256` is `sha256=` plus the HMAC-SHA256 of the body. Secrets are write-only.
 - **Delivery:** events are queued in the database and sent in the background by every server, each delivery by one of them. A 2xx answer is a success; anything else is retried after 30s, 2m, 10m and 30m, then marked failed. Redirects are not followed.
 - **Private networks:** targets on private, loopback or link-local addresses are refused unless listed in `webhooks.allowed_hosts`.

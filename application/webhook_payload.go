@@ -217,11 +217,18 @@ func (c *WebhookApp) Pushed(repo *domain.Repository, pusher Pusher, objects stor
 		return
 	}
 	hooks, err := c.Hooks.List(repo.Id)
-	if err != nil || !anyWants(hooks, "push") {
-		return // nothing subscribed: skip walking commits
+	if err != nil {
+		return
 	}
-	for _, u := range updates {
-		c.emit(repo, "push", "", c.pushPayload(repo, pusher, objects, u))
+	if anyWants(hooks, "push") { // otherwise skip walking commits
+		for _, u := range updates {
+			c.emit(repo, "push", "", c.pushPayload(repo, pusher, objects, u))
+		}
+	}
+	if anyWants(hooks, "pull_request") {
+		if refs, ok := objects.(storer.ReferenceStorer); ok {
+			c.synchronize(repo, pusher, refs, updates)
+		}
 	}
 }
 

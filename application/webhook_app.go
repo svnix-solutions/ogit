@@ -46,8 +46,11 @@ type WebhookApp struct {
 	Repositories *RepositoryApp
 	Users        domain.UserPers
 	Hooks        domain.WebhookPers
-	Sender       *webhook.Sender
-	now          func() time.Time
+	// Pulls and Labels describe pull requests in synchronize events.
+	Pulls  domain.PullRequestPers
+	Labels domain.LabelPers
+	Sender *webhook.Sender
+	now    func() time.Time
 }
 
 func (c *WebhookApp) clock() time.Time {
