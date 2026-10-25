@@ -107,7 +107,7 @@ func (c *AdminApp) CreateUser(actorId, username, email, password string) (*domai
 		return nil, err
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), PasswordCost)
 	if err != nil {
 		return nil, err
 	}

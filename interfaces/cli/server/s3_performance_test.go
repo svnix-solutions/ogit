@@ -26,6 +26,9 @@ const requestBudget = 25
 // TestS3RequestBudget keeps S3 request counts from creeping back up: a
 // regression here means seconds per git operation against real S3.
 func TestS3RequestBudget(t *testing.T) {
+	// Heavy and independent: runs alongside the other slow tests, after the
+	// sequential ones.
+	t.Parallel()
 	for _, cacheType := range []string{"memory", "none"} {
 		t.Run(cacheType, func(t *testing.T) {
 			ep, counter := s3test.StartCountingFake(t)

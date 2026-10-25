@@ -26,6 +26,11 @@ var (
 	ErrAccountDisabled    = errors.New("account is disabled")
 )
 
+// PasswordCost is bcrypt's cost for new password hashes. Tests lower it to
+// bcrypt.MinCost before running: at the default, one hash takes half a
+// second under the race detector, and every test user needs one.
+var PasswordCost = bcrypt.DefaultCost
+
 var (
 	dummyHashOnce sync.Once
 	dummyHash     []byte
@@ -35,7 +40,7 @@ var (
 // against when no user matches, so that the response takes as long.
 func dummyPasswordHash() []byte {
 	dummyHashOnce.Do(func() {
-		dummyHash, _ = bcrypt.GenerateFromPassword([]byte("ogit-dummy-password"), bcrypt.DefaultCost)
+		dummyHash, _ = bcrypt.GenerateFromPassword([]byte("ogit-dummy-password"), PasswordCost)
 	})
 	return dummyHash
 }
@@ -275,7 +280,7 @@ func (c *AuthApp) ChangePassword(userId, sessionId, current, next string) error 
 	if err := checkPasswordPolicy(c.Config, next); err != nil {
 		return err
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(next), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(next), PasswordCost)
 	if err != nil {
 		return err
 	}
@@ -313,7 +318,7 @@ func (c *AuthApp) Register(username, email, password string) error {
 		return fmt.Errorf("email is already in use")
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), PasswordCost)
 	if err != nil {
 		logger.Error().Err(err).Str("email", email).Msg("failed to hash password")
 		return fmt.Errorf("failed to hash password: %w", err)
