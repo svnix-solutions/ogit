@@ -177,6 +177,11 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	}
 	deps.RepoApp.Webhooks = deps.WebhookApp
 	deps.PullApp.Webhooks = deps.WebhookApp
+	deps.ProtectionApp = &application.ProtectionApp{
+		Logger: deps.Logger, Repositories: deps.RepoApp, Rules: persistence.NewBranchProtectionPers(deps.Database.Db),
+		Users: userPers, Groups: groupPers,
+	}
+	deps.PullApp.Protection = deps.ProtectionApp
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
 	deps.AdminApp = &application.AdminApp{
@@ -212,6 +217,7 @@ func startSSH(deps infrastructure.Deps) error {
 	if srv != nil {
 		srv.Limits = deps.Limits
 		srv.Webhooks = deps.WebhookApp
+		srv.Protection = deps.ProtectionApp
 	}
 	if err != nil {
 		return err

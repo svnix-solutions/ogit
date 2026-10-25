@@ -134,7 +134,13 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 	}
 
 	// Ref updates are checked against the old values in the request.
-	sess, expect, err := helpergit.GuardedReceivePack(st, ep)
+	// Protected branches are checked per reference, as go-git applies them.
+	var check helpergit.RefCheck
+	if repo, ok := c.Locals(repositoryLocal).(*domain.Repository); ok {
+		pusher, _ := c.Locals(pusherLocal).(application.Pusher)
+		check = ctrl.Protection.PushCheck(repo, pusher, st)
+	}
+	sess, expect, err := helpergit.GuardedReceivePack(st, ep, check)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create receive pack session")
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
@@ -145,6 +151,9 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 	if err := req.Decode(bytes.NewReader(c.Body())); err != nil {
 		logger.Error().Err(err).Msg("Failed to decode receive pack request")
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
+	}
+	if helpergit.OnlyDeletes(req) {
+		req.Packfile = nil
 	}
 	expect(req)
 

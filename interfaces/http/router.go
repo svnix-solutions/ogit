@@ -30,6 +30,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 		AuthApp:       deps.AuthApp,
 		Limits:        deps.Limits,
 		Webhooks:      deps.WebhookApp,
+		Protection:    deps.ProtectionApp,
 	}
 	git.SetupGitRouter(gitCtrl)
 

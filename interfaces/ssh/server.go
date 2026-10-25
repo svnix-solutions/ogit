@@ -47,6 +47,8 @@ type Server struct {
 	Limits *ratelimit.Guard
 	// Webhooks receives push events; nil: none.
 	Webhooks *application.WebhookApp
+	// Protection checks pushes to protected branches; nil: none.
+	Protection *application.ProtectionApp
 
 	config *gossh.ServerConfig
 }
@@ -209,7 +211,7 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 		err = serveUploadPack(ctx, srv, ep, objects, in, ch)
 	case "git-receive-pack":
 		var updates []application.RefUpdate
-		updates, err = serveReceivePack(ctx, ep, objects, in, ch)
+		updates, err = serveReceivePack(ctx, ep, objects, in, ch, s.Protection.PushCheck(repo, id.Pusher(), objects))
 		s.Webhooks.Pushed(repo, id.Pusher(), objects, updates)
 	}
 	if err != nil {

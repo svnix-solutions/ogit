@@ -116,6 +116,15 @@ type Detail struct {
 	Approved          []string `json:"approved"`
 	ChangesRequested  []string `json:"changes_requested"`
 	RequiredApprovals int      `json:"required_approvals"`
+	// ProtectedBy is the pattern of the rule protecting the target branch.
+	ProtectedBy string `json:"protected_by,omitempty"`
+	// MergeBlocked says why the caller can't merge an open pull request.
+	MergeBlocked *MergeBlocked `json:"merge_blocked,omitempty"`
+}
+
+type MergeBlocked struct {
+	Type    string `json:"type"` // as in API errors: NEEDS_APPROVAL, BRANCH_PROTECTED, ...
+	Message string `json:"message"`
 }
 
 func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
@@ -166,7 +175,14 @@ func detail(v *application.PullRequestView) *Detail {
 		Summary: summary(v.PullRequest), Body: v.Body, BaseCommit: v.BaseCommit, HeadCommit: v.HeadCommit,
 		MergeCommit: v.MergeCommit, MergeMethod: v.MergeMethod, Mergeable: v.Mergeable, Conflicts: v.Conflicts,
 		BranchesExist: v.BranchesExist, CanEdit: v.CanEdit, CanMerge: v.CanMerge,
-		Approved: v.Approvals.Approved, ChangesRequested: v.Approvals.ChangesRequested, RequiredApprovals: v.Repository.RequiredApprovals,
+		Approved: v.Approvals.Approved, ChangesRequested: v.Approvals.ChangesRequested, RequiredApprovals: v.RequiredApprovals,
+	}
+	if v.Protection != nil {
+		d.ProtectedBy = v.Protection.Pattern
+	}
+	if v.MergeBlocked != nil {
+		e := apierror.From(v.MergeBlocked, zerolog.Nop())
+		d.MergeBlocked = &MergeBlocked{Type: e.Type, Message: v.MergeBlocked.Error()}
 	}
 	d.Labels = labels(v.Labels)
 	d.CanReview = v.Role.CanRead() && v.State == domain.PullRequestOpen && !v.Repository.IsArchived && v.Viewer() != "" &&

@@ -10,6 +10,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
+- **Branch protection**: no force-pushes or deletion, pull-request-only branches, per-branch approvals, push and merge allowlists
 - **Webhooks**: GitHub-compatible push, pull request and repository events, signed and retried
 - **REST API** with OpenAPI documentation at `/documentation`
 
@@ -187,6 +188,25 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 
 - **Renaming and moving:** the path changes, and the old one keeps working for the API, HTTP and SSH until another repository takes it. Git data never moves.
 - **Archiving:** an archived repository can be cloned and fetched, but refuses pushes from everyone until it's unarchived.
+
+### Branch protection
+
+Owners protect branches by name or glob pattern (`main`, `release/*`, `hotfix/**`;
+`*` stays within a path segment, `**` crosses them). When several rules match a
+branch, the most specific one applies.
+
+```bash
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/branch-protection -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' \
+  -d '{"pattern": "main", "require_pull_request": true, "required_approvals": 2, "dismiss_stale_approvals": true, "allowed_groups": ["release-team"]}'
+```
+
+- **Always:** a protected branch refuses force-pushes and deletion, unless the rule sets `allow_force_push` or `allow_deletion`. A push that breaks a rule is refused for that branch only; git shows the reason.
+- `require_pull_request`: no direct pushes. The branch only moves by merging pull requests (pushing it into existence is still allowed).
+- `required_approvals` (`-1` or omitted: the repository's setting) and `dismiss_stale_approvals` (only approvals of the current head commit count) apply to merges into the branch.
+- `allowed_users` / `allowed_groups`: when set, only they may push to the branch or merge into it. They still need write access; deploy keys and repository tokens are never on the list.
+- `owners_bypass`: repository owners may break the rule. Each bypass is logged with `"component":"audit"`.
+- A pull request's `merge_blocked` says why the caller can't merge it, and `protected_by` names the rule. A protected source branch is kept after a merge, even with `delete_branch`.
 
 ### Webhooks
 

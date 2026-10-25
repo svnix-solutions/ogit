@@ -72,6 +72,10 @@ func New(store Store, logger zerolog.Logger) *Limiter {
 	return &Limiter{Store: store, Logger: logger, now: time.Now}
 }
 
+// SetClock replaces the clock (tests: windows are aligned to the clock, so
+// a test crossing a window boundary would see its counters reset).
+func (l *Limiter) SetClock(now func() time.Time) { l.now = now }
+
 func (l *Limiter) window(rule Rule, key string) (string, time.Duration) {
 	now := l.now()
 	start := now.Truncate(rule.Window)

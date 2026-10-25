@@ -21,17 +21,18 @@ type Deps struct {
 	Storage       storage.Config
 	Mailer        mail.Sender
 
-	UserApp    *application.UserApp
-	SessionApp *application.SessionApp
-	AuthApp    *application.AuthApp
-	RepoApp    *application.RepositoryApp
-	BrowseApp  *application.BrowseApp
-	PullApp    *application.PullRequestApp
-	Limits     *ratelimit.Guard
-	GitApp     *application.GitApp
-	TokenApp   *application.TokenApp
-	GroupApp   *application.GroupApp
-	AdminApp   *application.AdminApp
-	SSHKeyApp  *application.SSHKeyApp
-	WebhookApp *application.WebhookApp
+	UserApp       *application.UserApp
+	SessionApp    *application.SessionApp
+	AuthApp       *application.AuthApp
+	RepoApp       *application.RepositoryApp
+	BrowseApp     *application.BrowseApp
+	PullApp       *application.PullRequestApp
+	Limits        *ratelimit.Guard
+	GitApp        *application.GitApp
+	TokenApp      *application.TokenApp
+	GroupApp      *application.GroupApp
+	AdminApp      *application.AdminApp
+	SSHKeyApp     *application.SSHKeyApp
+	WebhookApp    *application.WebhookApp
+	ProtectionApp *application.ProtectionApp
 }
