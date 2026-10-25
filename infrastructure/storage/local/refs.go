@@ -1,6 +1,7 @@
 package local
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -27,6 +28,39 @@ var repoLocks sync.Map // repository directory -> *sync.Mutex
 func newAtomicRefs(st *filesystem.Storage, dir string) *atomicRefs {
 	mu, _ := repoLocks.LoadOrStore(dir, &sync.Mutex{})
 	return &atomicRefs{Storage: st, dir: dir, mu: mu.(*sync.Mutex)}
+}
+
+// go-git's filesystem storer lists the packs once, on the first object it
+// reads, and keeps that list. A push or merge served by another request
+// writes a new pack and then moves a branch to a commit in it, so a request
+// that reads the branch afterwards would not find the commit (reported as
+// "branch not found"). On a miss, list the packs again and retry once.
+
+func (s *atomicRefs) EncodedObject(t plumbing.ObjectType, h plumbing.Hash) (plumbing.EncodedObject, error) {
+	obj, err := s.Storage.EncodedObject(t, h)
+	if errors.Is(err, plumbing.ErrObjectNotFound) {
+		s.Storage.Reindex()
+		obj, err = s.Storage.EncodedObject(t, h)
+	}
+	return obj, err
+}
+
+func (s *atomicRefs) HasEncodedObject(h plumbing.Hash) error {
+	err := s.Storage.HasEncodedObject(h)
+	if errors.Is(err, plumbing.ErrObjectNotFound) {
+		s.Storage.Reindex()
+		err = s.Storage.HasEncodedObject(h)
+	}
+	return err
+}
+
+func (s *atomicRefs) EncodedObjectSize(h plumbing.Hash) (int64, error) {
+	size, err := s.Storage.EncodedObjectSize(h)
+	if errors.Is(err, plumbing.ErrObjectNotFound) {
+		s.Storage.Reindex()
+		size, err = s.Storage.EncodedObjectSize(h)
+	}
+	return size, err
 }
 
 func (s *atomicRefs) SetReference(ref *plumbing.Reference) error {
