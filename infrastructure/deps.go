@@ -37,4 +37,5 @@ type Deps struct {
 	ProtectionApp *application.ProtectionApp
 	StatusApp     *application.StatusApp
 	IssueApp      *application.IssueApp
+	MilestoneApp  *application.MilestoneApp
 }

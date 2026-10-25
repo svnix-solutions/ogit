@@ -88,6 +88,12 @@ func (u *userPers) Purge(userId string) error {
 				return err
 			}
 		}
+		// They are no longer assigned to anything.
+		for _, table := range []string{"issue_assignee", "pull_request_assignee"} {
+			if err := tx.Exec("DELETE FROM "+table+" WHERE user_id = ?", userId).Error; err != nil {
+				return err
+			}
+		}
 		for _, q := range []struct {
 			model any
 			where string

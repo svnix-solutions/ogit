@@ -28,34 +28,41 @@ type HookBranch struct {
 }
 
 type HookPullRequest struct {
-	URL            string      `json:"url"`
-	Id             string      `json:"id"`
-	Number         int         `json:"number"`
-	State          string      `json:"state"` // open or closed
-	Locked         bool        `json:"locked"`
-	Title          string      `json:"title"`
-	User           *HookUser   `json:"user"` // null once the author's account is deleted
-	Body           string      `json:"body"`
-	Labels         []HookLabel `json:"labels"`
-	Draft          bool        `json:"draft"`
-	HTMLURL        string      `json:"html_url"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
-	ClosedAt       *time.Time  `json:"closed_at"`
-	MergedAt       *time.Time  `json:"merged_at"`
-	Merged         bool        `json:"merged"`
-	MergeCommitSHA *string     `json:"merge_commit_sha"`
-	MergedBy       *HookUser   `json:"merged_by"`
-	Head           HookBranch  `json:"head"`
-	Base           HookBranch  `json:"base"`
+	URL            string         `json:"url"`
+	Id             string         `json:"id"`
+	Number         int            `json:"number"`
+	State          string         `json:"state"` // open or closed
+	Locked         bool           `json:"locked"`
+	Title          string         `json:"title"`
+	User           *HookUser      `json:"user"` // null once the author's account is deleted
+	Body           string         `json:"body"`
+	Labels         []HookLabel    `json:"labels"`
+	Draft          bool           `json:"draft"`
+	HTMLURL        string         `json:"html_url"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	ClosedAt       *time.Time     `json:"closed_at"`
+	MergedAt       *time.Time     `json:"merged_at"`
+	Merged         bool           `json:"merged"`
+	MergeCommitSHA *string        `json:"merge_commit_sha"`
+	MergedBy       *HookUser      `json:"merged_by"`
+	Assignee       *HookUser      `json:"assignee"`
+	Assignees      []HookUser     `json:"assignees"`
+	Milestone      *HookMilestone `json:"milestone"`
+	Head           HookBranch     `json:"head"`
+	Base           HookBranch     `json:"base"`
 }
 
+// PullRequestPayload: Assignee is set for assigned and unassigned,
+// Milestone (top level) for milestoned and demilestoned.
 type PullRequestPayload struct {
 	Action      string          `json:"action"`
 	Number      int             `json:"number"`
 	PullRequest HookPullRequest `json:"pull_request"`
 	Changes     map[string]any  `json:"changes,omitempty"`
 	Label       *HookLabel      `json:"label,omitempty"`
+	Assignee    *HookUser       `json:"assignee,omitempty"`
+	Milestone   *HookMilestone  `json:"milestone,omitempty"`
 	Before      string          `json:"before,omitempty"` // synchronize
 	After       string          `json:"after,omitempty"`
 	Repository  HookRepository  `json:"repository"`
@@ -106,19 +113,22 @@ type ReviewCommentPayload struct {
 // HookIssue is a pull request seen as an issue, as in GitHub's
 // issue_comment events (pull_request is set).
 type HookIssue struct {
-	URL         string          `json:"url"`
-	Id          string          `json:"id"`
-	Number      int             `json:"number"`
-	Title       string          `json:"title"`
-	User        *HookUser       `json:"user"`
-	Labels      []HookLabel     `json:"labels"`
-	State       string          `json:"state"`
-	Body        string          `json:"body"`
-	HTMLURL     string          `json:"html_url"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	ClosedAt    *time.Time      `json:"closed_at"`
-	PullRequest HookIssuePullRq `json:"pull_request"`
+	URL         string           `json:"url"`
+	Id          string           `json:"id"`
+	Number      int              `json:"number"`
+	Title       string           `json:"title"`
+	User        *HookUser        `json:"user"`
+	Labels      []HookLabel      `json:"labels"`
+	State       string           `json:"state"`
+	Body        string           `json:"body"`
+	HTMLURL     string           `json:"html_url"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	ClosedAt    *time.Time       `json:"closed_at"`
+	Assignee    *HookUser        `json:"assignee"`
+	Assignees   []HookUser       `json:"assignees"`
+	Milestone   *HookMilestone   `json:"milestone"`
+	PullRequest *HookIssuePullRq `json:"pull_request,omitempty"` // pull requests only
 }
 
 type HookIssuePullRq struct {
@@ -195,6 +205,8 @@ func (c *WebhookApp) pullRequest(repo *domain.Repository, pr *domain.PullRequest
 	if pr.State != domain.PullRequestOpen {
 		p.State = "closed"
 	}
+	p.Assignee, p.Assignees = c.assignees(domain.AssignPullRequest, pr.Id)
+	p.Milestone = c.milestone(repo, pr.MilestoneId)
 	if p.Merged {
 		p.MergeCommitSHA, p.MergedBy = &pr.MergeCommit, c.user(pr.MergedById)
 		if p.ClosedAt == nil {
@@ -261,7 +273,9 @@ func (c *WebhookApp) CommentEvent(view *PullRequestView, comment *domain.Comment
 	pr := view.PullRequest
 	issue := HookIssue{URL: api, Id: pr.Id, Number: pr.Number, Title: pr.Title, User: c.user(pr.AuthorId), Labels: hookLabels(view.Labels),
 		State: "open", Body: pr.Body, HTMLURL: html, CreatedAt: pr.CreatedAt, UpdatedAt: pr.UpdatedAt, ClosedAt: pr.ClosedAt,
-		PullRequest: HookIssuePullRq{URL: api, HTMLURL: html, MergedAt: pr.MergedAt}}
+		PullRequest: &HookIssuePullRq{URL: api, HTMLURL: html, MergedAt: pr.MergedAt}}
+	issue.Assignee, issue.Assignees = c.assignees(domain.AssignPullRequest, pr.Id)
+	issue.Milestone = c.milestone(view.Repository, pr.MilestoneId)
 	if pr.State != domain.PullRequestOpen {
 		issue.State = "closed"
 	}

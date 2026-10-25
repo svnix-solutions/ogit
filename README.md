@@ -10,7 +10,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
-- **Issues**: per repository, numbered with pull requests, with comments and labels
+- **Issues**: per repository, numbered with pull requests, with comments, labels, assignees, milestones and "Fixes #N"
 - **Branch protection**: no force-pushes or deletion, pull-request-only branches, per-branch approvals, push and merge allowlists
 - **Commit statuses**: CI reports pass or fail per commit (GitHub-compatible API), and protected branches can require checks
 - **Webhooks**: GitHub-compatible push, pull request and repository events, signed and retried
@@ -204,6 +204,11 @@ curl -X PATCH localhost:8080/api/v1/repository/me%2Fmy-project/issues/12 -H "Aut
 - **Numbers** are shared with pull requests, so `#12` is one or the other. `GET .../numbers/12` says which.
 - **Who:** anyone who can read the repository opens issues and comments. The author and developers and up edit, close and reopen. Developers and up set labels (the same labels as pull requests). Maintainers and up delete issues and others' comments.
 - **Filters:** `?state=open|closed|all`, `?label=`, `?author=`, `?q=` (title and body). Counts per state follow the other filters.
+- **Assignees and milestones** (issues and pull requests): developers and up set them with `PUT .../issues/12/assignees` (`{"assignees": ["alice"]}`, users with write access, at most 10) and `PUT .../issues/12/milestone` (`{"milestone_id": "..."}`; same paths under `pulls`). Maintainers and up manage milestones at `.../milestones` (title, description, `due_on`, `state`). Each milestone counts its open and closed issues and pull requests.
+- **"Fixes #12"** (also close/closes/closed/fix/fixed/resolve/resolves/resolved) in a pull request's title or body closes the issue when the pull request is merged into the default branch.
+- **More filters:** `?assignee=<user>|none`, `?milestone=<id>|none`, `?mine=assigned|created`.
+- **Email:** when SMTP is configured, the author, assignees, commenters and @mentioned users (if they can read the repository) hear about others' activity.
+- **Webhooks:** GitHub's `issues` event (opened, edited, closed, reopened, labeled, unlabeled, assigned, unassigned, milestoned, demilestoned, deleted), `issue_comment` for issue comments (the issue has no `pull_request` field), and `milestone` (created, edited, closed, opened, deleted). Pull requests also send assigned, unassigned, milestoned and demilestoned.
 - **Off switch:** owners set `"has_issues": false` on the repository. Existing issues stay readable, and nothing can be added or changed until issues are turned back on.
 
 ### Branch protection
@@ -269,7 +274,8 @@ curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/pi
 - **Events:** `status` (commit statuses), `push` (the default; HTTP, SSH and pull request merges, including deleted branches), `repository` (renamed, transferred, publicized, privatized, archived, unarchived, edited), or `*` for all. A `ping` is sent when a hook is created.
   - `pull_request`: opened, edited, closed (with `merged: true` for merges), reopened, synchronize (a push to the source branch), converted_to_draft, ready_for_review, labeled, unlabeled.
   - `pull_request_review`: submitted. `pull_request_review_comment`: inline comments created, edited, deleted (also those of a review).
-  - `issue_comment`: conversation comments created, edited, deleted; the `issue` has a `pull_request` field, as on GitHub.
+  - `issue_comment`: conversation comments created, edited, deleted; for pull requests the `issue` has a `pull_request` field, as on GitHub.
+  - `issues` and `milestone`: see [Issues](#issues).
   - Deliveries are sent in parallel, so their order is not guaranteed.
 - **Signing:** with a secret, `X-Hub-Signature-256` is `sha256=` plus the HMAC-SHA256 of the body. Secrets are write-only.
 - **Delivery:** events are queued in the database and sent in the background by every server, each delivery by one of them. A 2xx answer is a success; anything else is retried after 30s, 2m, 10m and 30m, then marked failed. Redirects are not followed.

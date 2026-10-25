@@ -38,16 +38,26 @@ type Summary struct {
 	UpdatedAt time.Time  `json:"updated_at"`
 	ClosedAt  *time.Time `json:"closed_at,omitempty"`
 	Labels    []Label    `json:"labels"`
+	Assignees []string   `json:"assignees"` // usernames
+	Milestone *Milestone `json:"milestone,omitempty"`
+}
+
+type Milestone struct {
+	Id    string `json:"id"`
+	Title string `json:"title"`
+	State string `json:"state"`
 }
 
 type Detail struct {
 	Summary
-	Body       string `json:"body"`
-	ClosedBy   string `json:"closed_by,omitempty"`
-	CanEdit    bool   `json:"can_edit"`    // title, body, close and reopen
-	CanComment bool   `json:"can_comment"` // signed in, issues on, not archived
-	CanLabel   bool   `json:"can_label"`
-	CanDelete  bool   `json:"can_delete"`
+	Body     string `json:"body"`
+	ClosedBy string `json:"closed_by,omitempty"`
+	// ClosedByPull is the pull request whose merge closed it ("Fixes #N").
+	ClosedByPull *int `json:"closed_by_pull,omitempty"`
+	CanEdit      bool `json:"can_edit"`    // title, body, close and reopen
+	CanComment   bool `json:"can_comment"` // signed in, issues on, not archived
+	CanLabel     bool `json:"can_label"`
+	CanDelete    bool `json:"can_delete"`
 }
 
 type Comment struct {
@@ -64,8 +74,11 @@ type ListRequest struct {
 	Identifier string `path:"identifier" json:"-" validate:"required"`
 	State      string `query:"state" json:"-"` // open (default), closed or all
 	Label      string `query:"label" json:"-"`
-	Author     string `query:"author" json:"-"` // username
-	Query      string `query:"q" json:"-"`      // in titles and bodies
+	Author     string `query:"author" json:"-"`    // username
+	Assignee   string `query:"assignee" json:"-"`  // username, or none
+	Milestone  string `query:"milestone" json:"-"` // id, or none
+	Mine       string `query:"mine" json:"-"`      // assigned or created (needs a session)
+	Query      string `query:"q" json:"-"`         // in titles and bodies
 	Offset     int    `query:"offset" json:"-"`
 	Limit      int    `query:"limit" json:"-"`
 }
@@ -121,6 +134,22 @@ type LabelsResponse struct {
 	Labels []Label `json:"labels"`
 }
 
+type AssigneesRequest struct {
+	Identifier string   `path:"identifier" json:"-" validate:"required"`
+	Number     string   `path:"number" json:"-" validate:"required"`
+	Assignees  []string `json:"assignees"` // usernames with write access, at most 10
+}
+
+type AssigneesResponse struct {
+	Assignees []string `json:"assignees"`
+}
+
+type MilestoneRequest struct {
+	Identifier  string `path:"identifier" json:"-" validate:"required"`
+	Number      string `path:"number" json:"-" validate:"required"`
+	MilestoneId string `json:"milestone_id"` // "" removes it
+}
+
 type ResolveResponse struct {
 	Type string `json:"type"` // issue or pull
 }
@@ -137,7 +166,7 @@ func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	private := func(summary, id, desc string) fiberoapi.OpenAPIOptions {
 		return fiberoapi.OpenAPIOptions{Summary: summary, OperationID: id, Tags: tags, Description: desc}
 	}
-	fiberoapi.Get(repoGrp, "/:identifier/issues", c.List, public("List issues", "issues.list", "?state=open (default), closed or all; ?label=, ?author=, ?q= (title and body); newest first, with counts per state."))
+	fiberoapi.Get(repoGrp, "/:identifier/issues", c.List, public("List issues", "issues.list", "?state=open (default), closed or all; ?label=, ?author=, ?assignee= (or none), ?milestone=<id> (or none), ?mine=assigned|created, ?q= (title and body); newest first, with counts per state."))
 	fiberoapi.Post(repoGrp, "/:identifier/issues", c.Create, private("Open an issue", "issues.create", "Anyone who can read the repository. Numbers are shared with pull requests."))
 	fiberoapi.Get(repoGrp, "/:identifier/issues/:number", c.Get, public("Get an issue", "issues.get", "With what the caller may do."))
 	fiberoapi.Patch(repoGrp, "/:identifier/issues/:number", c.Update, private("Edit, close or reopen an issue", "issues.update", "The author and developers and up: title, body, state (open or closed)."))
@@ -147,6 +176,8 @@ func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Patch(repoGrp, "/:identifier/issues/:number/comments/:comment_id", c.EditComment, private("Edit an issue comment", "issues.comment.edit", "Its author."))
 	fiberoapi.Delete(repoGrp, "/:identifier/issues/:number/comments/:comment_id", c.DeleteComment, private("Delete an issue comment", "issues.comment.delete", "Its author, or a maintainer."))
 	fiberoapi.Put(repoGrp, "/:identifier/issues/:number/labels", c.SetLabels, private("Set an issue's labels", "issues.labels", "Developers and up. Replaces the labels by name."))
+	fiberoapi.Put(repoGrp, "/:identifier/issues/:number/assignees", c.SetAssignees, private("Set an issue's assignees", "issues.assignees", "Developers and up. Usernames of users with write access (at most 10)."))
+	fiberoapi.Put(repoGrp, "/:identifier/issues/:number/milestone", c.SetMilestone, private("Set an issue's milestone", "issues.milestone", "Developers and up. milestone_id, or \"\" to remove it."))
 	fiberoapi.Get(repoGrp, "/:identifier/numbers/:number", c.Resolve, public("Issue or pull request?", "numbers.resolve", "Whether #number is an issue or a pull request (they share numbers)."))
 }
 
@@ -184,25 +215,48 @@ func username(u *domain.User) string {
 	return u.Username
 }
 
-func summary(is *domain.Issue, ls []domain.Label) Summary {
+func Usernames(users []domain.User) []string {
+	out := make([]string, 0, len(users))
+	for _, u := range users {
+		out = append(out, u.Username)
+	}
+	return out
+}
+
+func ToMilestone(m *domain.Milestone) *Milestone {
+	if m == nil {
+		return nil
+	}
+	return &Milestone{Id: m.Id, Title: m.Title, State: string(m.State)}
+}
+
+func summary(is *domain.Issue, ls []domain.Label, assignees []domain.User, m *domain.Milestone) Summary {
 	return Summary{Number: is.Number, Title: is.Title, State: string(is.State), Author: username(is.Author),
-		CreatedAt: is.CreatedAt, UpdatedAt: is.UpdatedAt, ClosedAt: is.ClosedAt, Labels: labels(ls)}
+		CreatedAt: is.CreatedAt, UpdatedAt: is.UpdatedAt, ClosedAt: is.ClosedAt, Labels: labels(ls), Assignees: Usernames(assignees), Milestone: ToMilestone(m)}
 }
 
 func detail(v *application.IssueView) *Detail {
-	return &Detail{Summary: summary(v.Issue, v.Labels), Body: v.Body, ClosedBy: username(v.ClosedBy),
+	return &Detail{Summary: summary(v.Issue, v.Labels, v.Assignees, v.Milestone), Body: v.Body, ClosedBy: username(v.ClosedBy), ClosedByPull: v.ClosedByPull,
 		CanEdit: v.CanEdit, CanComment: v.CanComment, CanLabel: v.CanLabel, CanDelete: v.CanDelete}
 }
 
 func (c Controller) List(ctx *fiber.Ctx, req ListRequest) (*ListResponse, *fiberoapi.ErrorResponse) {
 	id, path := repoid.Split(req.Identifier)
-	list, err := c.Issues.List(id, path, c.userId(ctx), application.IssueQuery{State: req.State, Label: req.Label, Author: req.Author, Query: req.Query}, req.Offset, req.Limit)
+	list, err := c.Issues.List(id, path, c.userId(ctx), application.IssueQuery{State: req.State, Label: req.Label, Author: req.Author,
+		Assignee: req.Assignee, Milestone: req.Milestone, Mine: req.Mine, Query: req.Query}, req.Offset, req.Limit)
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
 	resp := &ListResponse{Issues: make([]Summary, 0, len(list.Issues)), Counts: map[string]int64{"open": 0, "closed": 0}}
 	for i := range list.Issues {
-		resp.Issues = append(resp.Issues, summary(&list.Issues[i], list.Labels[list.Issues[i].Id]))
+		is := &list.Issues[i]
+		var m *domain.Milestone
+		if is.MilestoneId != nil {
+			if found, ok := list.Milestones[*is.MilestoneId]; ok {
+				m = &found
+			}
+		}
+		resp.Issues = append(resp.Issues, summary(is, list.Labels[is.Id], list.Assignees[is.Id], m))
 	}
 	for s, n := range list.Counts {
 		resp.Counts[string(s)] = n
@@ -365,4 +419,38 @@ func (c Controller) Resolve(ctx *fiber.Ctx, req NumberRequest) (*ResolveResponse
 		return nil, apierror.From(err, c.Logger)
 	}
 	return &ResolveResponse{Type: t}, nil
+}
+
+func (c Controller) SetAssignees(ctx *fiber.Ctx, req AssigneesRequest) (*AssigneesResponse, *fiberoapi.ErrorResponse) {
+	user, e := authed(ctx)
+	if e != nil {
+		return nil, e
+	}
+	n, e := number(req.Number)
+	if e != nil {
+		return nil, e
+	}
+	id, path := repoid.Split(req.Identifier)
+	users, err := c.Issues.SetAssignees(id, path, user, n, req.Assignees)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return &AssigneesResponse{Assignees: Usernames(users)}, nil
+}
+
+func (c Controller) SetMilestone(ctx *fiber.Ctx, req MilestoneRequest) (*Detail, *fiberoapi.ErrorResponse) {
+	user, e := authed(ctx)
+	if e != nil {
+		return nil, e
+	}
+	n, e := number(req.Number)
+	if e != nil {
+		return nil, e
+	}
+	id, path := repoid.Split(req.Identifier)
+	v, err := c.Issues.SetMilestone(id, path, user, n, req.MilestoneId)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return detail(v), nil
 }

@@ -186,10 +186,15 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Logger: deps.Logger, Repositories: deps.RepoApp, Statuses: persistence.NewCommitStatusPers(deps.Database.Db), Webhooks: deps.WebhookApp,
 	}
 	deps.PullApp.Statuses = deps.StatusApp
+	assignees, milestones := persistence.NewAssigneePers(deps.Database.Db), persistence.NewMilestonePers(deps.Database.Db)
+	deps.WebhookApp.Assignees, deps.WebhookApp.Milestones = assignees, milestones
 	deps.IssueApp = &application.IssueApp{
-		Logger: deps.Logger, Repositories: deps.RepoApp, Issues: persistence.NewIssuePers(deps.Database.Db),
-		Pulls: deps.PullApp.Pulls, Labels: deps.PullApp.Labels,
+		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Issues: persistence.NewIssuePers(deps.Database.Db),
+		Pulls: deps.PullApp.Pulls, Labels: deps.PullApp.Labels, Assignees: assignees, Milestones: milestones,
+		Webhooks: deps.WebhookApp, Mailer: deps.Mailer,
 	}
+	deps.PullApp.Assignees, deps.PullApp.Milestones, deps.PullApp.Issues = assignees, milestones, deps.IssueApp
+	deps.MilestoneApp = &application.MilestoneApp{Logger: deps.Logger, Repositories: deps.RepoApp, Milestones: milestones, Webhooks: deps.WebhookApp}
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
 	deps.AdminApp = &application.AdminApp{

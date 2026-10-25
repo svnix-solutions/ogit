@@ -3,10 +3,14 @@ package application
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labbs/ogit/domain"
+	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/mail"
 	"github.com/rs/zerolog"
 )
 
@@ -21,7 +25,14 @@ import (
 //   - developers and up set labels (the repository's, shared with pull
 //     requests);
 //   - owners turn issues off per repository: existing issues stay readable
-//     and nothing can be written; archived repositories are read-only too.
+//     and nothing can be written; archived repositories are read-only too;
+//   - developers and up set assignees and the milestone (milestone_app.go);
+//   - "Fixes #N" (close, closes, closed, fix, fixes, fixed, resolve,
+//     resolves, resolved) in a pull request's title or body closes issue #N
+//     when the pull request is merged into the default branch;
+//   - participants (author, assignees, commenters, @mentioned) are emailed
+//     about others' activity when SMTP is configured, if they can read the
+//     repository.
 
 var (
 	ErrIssueNotFound  = errors.New("issue not found")
@@ -31,11 +42,16 @@ var (
 )
 
 type IssueApp struct {
+	Config       config.Config
 	Logger       zerolog.Logger
 	Repositories *RepositoryApp
 	Issues       domain.IssuePers
 	Pulls        domain.PullRequestPers
 	Labels       domain.LabelPers
+	Assignees    domain.AssigneePers
+	Milestones   domain.MilestonePers
+	Webhooks     *WebhookApp
+	Mailer       mail.Sender // nil or without smtp.host: no emails
 }
 
 // IssueView is an issue with what the viewer may do.
@@ -44,6 +60,8 @@ type IssueView struct {
 	Repository *domain.Repository
 	Role       domain.AccessType
 	Labels     []domain.Label
+	Assignees  []domain.User
+	Milestone  *domain.Milestone
 	// CanEdit: change the title and body, close and reopen.
 	CanEdit bool
 	// CanComment: signed in, and the repository takes writes.
@@ -97,22 +115,38 @@ func (c *IssueApp) Create(id, path *string, actorId, title, body string) (*Issue
 	if err := c.Issues.Create(issue); err != nil {
 		return nil, err
 	}
-	return c.Get(&repo.Id, nil, actorId, issue.Number)
+	v, err := c.Get(&repo.Id, nil, actorId, issue.Number)
+	if err != nil {
+		return nil, err
+	}
+	c.Webhooks.IssuesEvent(v, "opened", actorId, IssuesPayload{})
+	if len(Mentions(body)) > 0 {
+		c.notify(v, actorId, "opened", body, nil)
+	}
+	return v, nil
 }
 
-// IssueList is a page of issues with their labels and counts per state.
+// IssueList is a page of issues with their labels, assignees and
+// milestones, and counts per state.
 type IssueList struct {
-	Issues []domain.Issue
-	Labels map[string][]domain.Label
-	Counts map[domain.IssueState]int64
+	Issues     []domain.Issue
+	Labels     map[string][]domain.Label
+	Assignees  map[string][]domain.User
+	Milestones map[string]domain.Milestone
+	Counts     map[domain.IssueState]int64
 }
 
-// IssueQuery filters List: label and author are names.
+// IssueQuery filters List: label, author and assignee are names
+// (assignee "none": unassigned), milestone an id ("none": without one);
+// mine is "assigned" or "created" (the caller's).
 type IssueQuery struct {
-	State  string // open (default), closed or all
-	Label  string
-	Author string
-	Query  string
+	State     string // open (default), closed or all
+	Label     string
+	Author    string
+	Assignee  string
+	Milestone string
+	Mine      string
+	Query     string
 }
 
 func (c *IssueApp) List(id, path *string, userId string, q IssueQuery, offset, limit int) (*IssueList, error) {
@@ -130,7 +164,8 @@ func (c *IssueApp) List(id, path *string, userId string, q IssueQuery, offset, l
 	default:
 		return nil, ErrInvalidState
 	}
-	empty := &IssueList{Issues: []domain.Issue{}, Labels: map[string][]domain.Label{}, Counts: map[domain.IssueState]int64{}}
+	empty := &IssueList{Issues: []domain.Issue{}, Labels: map[string][]domain.Label{}, Assignees: map[string][]domain.User{},
+		Milestones: map[string]domain.Milestone{}, Counts: map[domain.IssueState]int64{}}
 	if q.Label != "" {
 		labels, err := c.Labels.List(repo.Id)
 		if err != nil {
@@ -152,6 +187,39 @@ func (c *IssueApp) List(id, path *string, userId string, q IssueQuery, offset, l
 		}
 		f.AuthorId = u.Id
 	}
+	switch q.Assignee {
+	case "", domain.NoneFilter:
+		f.AssigneeId = q.Assignee
+	default:
+		u, err := c.Repositories.UserPers.GetByUsername(q.Assignee)
+		if err != nil {
+			return empty, nil
+		}
+		f.AssigneeId = u.Id
+	}
+	switch q.Milestone {
+	case "", domain.NoneFilter:
+		f.MilestoneId = q.Milestone
+	default:
+		if _, err := c.Milestones.Get(repo.Id, q.Milestone); err != nil {
+			return empty, nil // not this repository's (or not a UUID on Postgres)
+		}
+		f.MilestoneId = q.Milestone
+	}
+	switch q.Mine {
+	case "":
+	case "assigned", "created":
+		if userId == "" {
+			return nil, ErrForbidden
+		}
+		if q.Mine == "assigned" {
+			f.AssigneeId = userId
+		} else {
+			f.AuthorId = userId
+		}
+	default:
+		return nil, ErrInvalidState
+	}
 	issues, counts, err := c.Issues.List(repo.Id, f, max(offset, 0), clampLimit(limit))
 	if err != nil {
 		return nil, err
@@ -164,7 +232,17 @@ func (c *IssueApp) List(id, path *string, userId string, q IssueQuery, offset, l
 	if err != nil {
 		return nil, err
 	}
-	return &IssueList{Issues: issues, Labels: labels, Counts: counts}, nil
+	assignees, err := c.Assignees.For(domain.AssignIssue, ids)
+	if err != nil {
+		return nil, err
+	}
+	milestones := map[string]domain.Milestone{}
+	if ms, err := c.Milestones.List(repo.Id, ""); err == nil {
+		for _, m := range ms {
+			milestones[m.Id] = m
+		}
+	}
+	return &IssueList{Issues: issues, Labels: labels, Assignees: assignees, Milestones: milestones, Counts: counts}, nil
 }
 
 func (c *IssueApp) Get(id, path *string, userId string, number int) (*IssueView, error) {
@@ -185,6 +263,16 @@ func (c *IssueApp) Get(id, path *string, userId string, number int) (*IssueView,
 	v := &IssueView{Issue: issue, Repository: repo, Role: role, Labels: labels[issue.Id], viewerId: userId}
 	if v.Labels == nil {
 		v.Labels = []domain.Label{}
+	}
+	assignees, err := c.Assignees.For(domain.AssignIssue, []string{issue.Id})
+	if err != nil {
+		return nil, err
+	}
+	v.Assignees = assignees[issue.Id]
+	if issue.MilestoneId != nil {
+		if m, err := c.Milestones.Get(repo.Id, *issue.MilestoneId); err == nil {
+			v.Milestone = m
+		}
 	}
 	open := writable(repo) == nil && userId != ""
 	isAuthor := userId != "" && issue.AuthorId != nil && *issue.AuthorId == userId
@@ -252,7 +340,26 @@ func (c *IssueApp) Update(id, path *string, actorId string, number int, upd Issu
 	if err := c.Issues.Update(v.Id, fields); err != nil {
 		return nil, err
 	}
-	return c.Get(&v.RepositoryId, nil, actorId, number)
+	nv, err := c.Get(&v.RepositoryId, nil, actorId, number)
+	if err != nil {
+		return nil, err
+	}
+	changes := map[string]any{}
+	if nv.Title != v.Title {
+		changes["title"] = map[string]string{"from": v.Title}
+	}
+	if nv.Body != v.Body {
+		changes["body"] = map[string]string{"from": v.Body}
+	}
+	if len(changes) > 0 {
+		c.Webhooks.IssuesEvent(nv, "edited", actorId, IssuesPayload{Changes: changes})
+	}
+	if nv.State != v.State {
+		action := map[domain.IssueState]string{domain.IssueClosed: "closed", domain.IssueOpen: "reopened"}[nv.State]
+		c.Webhooks.IssuesEvent(nv, action, actorId, IssuesPayload{})
+		c.notify(nv, actorId, action, "", nil)
+	}
+	return nv, nil
 }
 
 func (c *IssueApp) Delete(id, path *string, actorId string, number int) error {
@@ -260,7 +367,11 @@ func (c *IssueApp) Delete(id, path *string, actorId string, number int) error {
 	if err != nil {
 		return err
 	}
-	return c.Issues.Delete(v.Id)
+	if err := c.Issues.Delete(v.Id); err != nil {
+		return err
+	}
+	c.Webhooks.IssuesEvent(v, "deleted", actorId, IssuesPayload{})
+	return nil
 }
 
 // Comments returns an issue and its comments, oldest first.
@@ -286,6 +397,8 @@ func (c *IssueApp) AddComment(id, path *string, actorId string, number int, body
 		return nil, err
 	}
 	_ = c.Issues.Update(v.Id, map[string]any{"updated_at": time.Now()})
+	c.Webhooks.IssueCommentEvent(v, comment, "created", actorId, nil)
+	c.notify(v, actorId, "commented on", body, nil)
 	return comment, nil
 }
 
@@ -312,7 +425,13 @@ func (c *IssueApp) EditComment(id, path *string, actorId string, number int, com
 	if strings.TrimSpace(body) == "" {
 		return ErrEmptyComment
 	}
-	return c.Issues.UpdateComment(commentId, body)
+	if err := c.Issues.UpdateComment(commentId, body); err != nil {
+		return err
+	}
+	changes := map[string]any{"body": map[string]string{"from": comment.Body}}
+	comment.Body, comment.UpdatedAt = body, time.Now()
+	c.Webhooks.IssueCommentEvent(v, comment, "edited", actorId, changes)
+	return nil
 }
 
 func (c *IssueApp) DeleteComment(id, path *string, actorId string, number int, commentId string) error {
@@ -327,7 +446,11 @@ func (c *IssueApp) DeleteComment(id, path *string, actorId string, number int, c
 	if (comment.AuthorId == nil || *comment.AuthorId != actorId) && !v.Role.CanAdmin() {
 		return ErrForbidden
 	}
-	return c.Issues.DeleteComment(commentId)
+	if err := c.Issues.DeleteComment(commentId); err != nil {
+		return err
+	}
+	c.Webhooks.IssueCommentEvent(v, comment, "deleted", actorId, nil)
+	return nil
 }
 
 // SetLabels replaces an issue's labels by name.
@@ -355,6 +478,28 @@ func (c *IssueApp) SetLabels(id, path *string, actorId string, number int, names
 	if err := c.Issues.SetLabels(v.Id, ids); err != nil {
 		return nil, err
 	}
+	before := map[string]bool{}
+	for _, l := range v.Labels {
+		before[l.Id] = true
+	}
+	after := map[string]bool{}
+	for _, l := range set {
+		after[l.Id] = true
+	}
+	old := v.Labels
+	v.Labels = set
+	for _, l := range set {
+		if !before[l.Id] {
+			label := hookLabel(l)
+			c.Webhooks.IssuesEvent(v, "labeled", actorId, IssuesPayload{Label: &label})
+		}
+	}
+	for _, l := range old {
+		if !after[l.Id] {
+			label := hookLabel(l)
+			c.Webhooks.IssuesEvent(v, "unlabeled", actorId, IssuesPayload{Label: &label})
+		}
+	}
 	return set, nil
 }
 
@@ -376,4 +521,117 @@ func (c *IssueApp) Resolve(id, path *string, userId string, number int) (string,
 		return "", err
 	}
 	return "", ErrNumberNotFound
+}
+
+// SetAssignees replaces an issue's assignees by username.
+func (c *IssueApp) SetAssignees(id, path *string, actorId string, number int, names []string) ([]domain.User, error) {
+	v, err := c.editable(id, path, actorId, number, func(v *IssueView) bool { return v.CanLabel })
+	if err != nil {
+		return nil, err
+	}
+	users, err := c.Repositories.assignees(v.Repository, names)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Assignees.Set(domain.AssignIssue, v.Id, userIds(users)); err != nil {
+		return nil, err
+	}
+	added, removed := assignmentDiff(v.Assignees, users)
+	v.Assignees = users
+	for _, u := range added {
+		hu := c.Webhooks.hookUserOrNil(u)
+		c.Webhooks.IssuesEvent(v, "assigned", actorId, IssuesPayload{Assignee: hu})
+	}
+	for _, u := range removed {
+		hu := c.Webhooks.hookUserOrNil(u)
+		c.Webhooks.IssuesEvent(v, "unassigned", actorId, IssuesPayload{Assignee: hu})
+	}
+	if len(added) > 0 {
+		c.notify(v, actorId, "assigned "+usernames(added)+" to", "", added)
+	}
+	if users == nil {
+		users = []domain.User{}
+	}
+	return users, nil
+}
+
+func usernames(users []domain.User) string {
+	names := make([]string, len(users))
+	for i, u := range users {
+		names[i] = u.Username
+	}
+	return strings.Join(names, ", ")
+}
+
+// SetMilestone sets an issue's milestone ("" removes it).
+func (c *IssueApp) SetMilestone(id, path *string, actorId string, number int, milestoneId string) (*IssueView, error) {
+	v, err := c.editable(id, path, actorId, number, func(v *IssueView) bool { return v.CanLabel })
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if milestoneId != "" {
+		m, err := c.Milestones.Get(v.RepositoryId, milestoneId)
+		if err != nil {
+			return nil, ErrMilestoneNotFound
+		}
+		value = m.Id
+	}
+	if err := c.Issues.Update(v.Id, map[string]any{"milestone_id": value, "updated_at": time.Now()}); err != nil {
+		return nil, err
+	}
+	nv, err := c.Get(&v.RepositoryId, nil, actorId, number)
+	if err != nil {
+		return nil, err
+	}
+	old := v.MilestoneId
+	switch {
+	case nv.MilestoneId != nil && (old == nil || *old != *nv.MilestoneId):
+		c.Webhooks.IssuesEvent(nv, "milestoned", actorId, IssuesPayload{Milestone: c.Webhooks.milestone(nv.Repository, nv.MilestoneId)})
+	case nv.MilestoneId == nil && old != nil:
+		c.Webhooks.IssuesEvent(nv, "demilestoned", actorId, IssuesPayload{Milestone: c.Webhooks.milestone(nv.Repository, old)})
+	}
+	return nv, nil
+}
+
+var closingPattern = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b`)
+
+// ClosingReferences returns the issue numbers text closes ("Fixes #12").
+func ClosingReferences(text string) []int {
+	var out []int
+	seen := map[int]bool{}
+	for _, m := range closingPattern.FindAllStringSubmatch(text, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// CloseFromPull closes the open issues a merged pull request references
+// ("Fixes #N"), as actorId, the merger. Errors are logged: the merge
+// happened.
+func (c *IssueApp) CloseFromPull(repo *domain.Repository, pr *domain.PullRequest, actorId string) {
+	if c == nil {
+		return
+	}
+	for _, n := range ClosingReferences(pr.Title + "\n" + pr.Body) {
+		issue, err := c.Issues.Get(repo.Id, n)
+		if err != nil || issue.State != domain.IssueOpen {
+			continue // a pull request, unknown, or already closed
+		}
+		now, prNumber := time.Now(), pr.Number
+		if err := c.Issues.Update(issue.Id, map[string]any{"state": domain.IssueClosed, "closed_at": now, "closed_by_id": actorId,
+			"closed_by_pull": prNumber, "updated_at": now}); err != nil {
+			c.Logger.Error().Err(err).Str("component", "application.issue").Int("issue", n).Msg("failed to close issue from pull request")
+			continue
+		}
+		v, err := c.Get(&repo.Id, nil, actorId, n)
+		if err != nil {
+			continue
+		}
+		c.Webhooks.IssuesEvent(v, "closed", actorId, IssuesPayload{})
+		c.notify(v, actorId, fmt.Sprintf("closed (with pull request #%d)", prNumber), "", nil)
+	}
 }

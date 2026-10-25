@@ -124,6 +124,8 @@ type Detail struct {
 	RequiredChecks []RequiredCheck `json:"required_checks"`
 	// MergeBlocked says why the caller can't merge an open pull request.
 	MergeBlocked *MergeBlocked `json:"merge_blocked,omitempty"`
+	Assignees    []string      `json:"assignees"` // usernames
+	Milestone    *Milestone    `json:"milestone,omitempty"`
 }
 
 type RequiredCheck struct {
@@ -152,6 +154,7 @@ func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/reopen", c.Reopen, private("Reopen a pull request", "pulls.reopen", "The author and maintainers, while both branches exist."))
 	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/merge", c.Merge, private("Merge a pull request", "pulls.merge", "Maintainers and owners. method: merge, squash or rebase. Refused for drafts, conflicts, archived repositories, or if the target branch moves meanwhile."))
 	setupReviews(c, repoGrp)
+	setupAssignees(c, repoGrp)
 	fiberoapi.Get(repoGrp, "/:identifier/pulls/:number/compare", c.Compare, public("Commits and diff", "pulls.compare", "The source's commits since the merge base and the diff, as for compare; recorded tips once merged or closed."))
 }
 
@@ -186,6 +189,7 @@ func detail(v *application.PullRequestView) *Detail {
 		BranchesExist: v.BranchesExist, CanEdit: v.CanEdit, CanMerge: v.CanMerge,
 		Approved: v.Approvals.Approved, ChangesRequested: v.Approvals.ChangesRequested, RequiredApprovals: v.RequiredApprovals,
 	}
+	d.Assignees, d.Milestone = usernames(v.Assignees), toMilestone(v.Milestone)
 	d.RequiredChecks = []RequiredCheck{}
 	if v.Protection != nil {
 		d.ProtectedBy = v.Protection.Pattern

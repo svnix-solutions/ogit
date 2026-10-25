@@ -28,6 +28,7 @@ type PullRequest struct {
 	MergedBy    *User `gorm:"foreignKey:MergedById"`
 	MergedAt    *time.Time
 	ClosedAt    *time.Time
+	MilestoneId *string
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
