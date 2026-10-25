@@ -204,6 +204,12 @@ func startTestServer(t *testing.T, opts ...func(*config.Config)) *testServer {
 
 	deps, err := setupDeps(cfg)
 	require.NoError(t, err)
+	if cfg.RateLimit.Enabled {
+		// Windows are aligned to the clock: freeze it in the middle of every
+		// window used by the tests, so none ends during a test.
+		frozen := time.Now().Truncate(time.Hour).Add(7*time.Minute + 30*time.Second)
+		deps.Limits.SetClock(func() time.Time { return frozen })
+	}
 	t.Cleanup(func() { _ = deps.CronScheduler.CronScheduler.Shutdown() })
 	t.Cleanup(func() {
 		if sqlDB, err := deps.Database.Db.DB(); err == nil {
