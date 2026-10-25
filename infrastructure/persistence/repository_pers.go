@@ -53,6 +53,12 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.Label{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Exec("DELETE FROM webhook_delivery WHERE webhook_id IN (SELECT id FROM webhook WHERE repository_id = ?)", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("repository_id = ?", id).Delete(&domain.Webhook{}).Error; err != nil {
+			return err
+		}
 		for _, q := range []struct {
 			model any
 			where string

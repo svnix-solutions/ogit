@@ -24,6 +24,8 @@ type RepositoryApp struct {
 	UserPers             domain.UserPers
 	SSHKeyPres           domain.SSHKeyPers
 	StorageConfig        storage.Config
+	// Webhooks receives repository events; nil: none.
+	Webhooks *WebhookApp
 }
 
 func NewRepositoryApp(config config.Config, logger zerolog.Logger, repoPers domain.RepositoryPers, repositoryMemberPers domain.RepositoryMemberPers, groupPers domain.GroupPers, userPers domain.UserPers, sshKeyPers domain.SSHKeyPers, storageConfig storage.Config) *RepositoryApp {

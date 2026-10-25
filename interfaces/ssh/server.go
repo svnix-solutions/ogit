@@ -45,6 +45,8 @@ type Server struct {
 	Storage storage.Config
 	// Limits counts git operations per key (ratelimit.git_user); nil: none.
 	Limits *ratelimit.Guard
+	// Webhooks receives push events; nil: none.
+	Webhooks *application.WebhookApp
 
 	config *gossh.ServerConfig
 }
@@ -206,7 +208,9 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 	case "git-upload-pack":
 		err = serveUploadPack(ctx, srv, ep, objects, in, ch)
 	case "git-receive-pack":
-		err = serveReceivePack(ctx, ep, objects, in, ch)
+		var updates []application.RefUpdate
+		updates, err = serveReceivePack(ctx, ep, objects, in, ch)
+		s.Webhooks.Pushed(repo, id.Pusher(), objects, updates)
 	}
 	if err != nil {
 		logger.Warn().Err(err).Str("service", service).Str("repo", slug).Msg("git over ssh failed")

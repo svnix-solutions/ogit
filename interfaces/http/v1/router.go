@@ -47,6 +47,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		FiberOapi:     repoGrp,
 		RepositoryApp: deps.RepoApp,
 		SessionApp:    deps.SessionApp,
+		WebhookApp:    deps.WebhookApp,
 	}
 	repository.SetupRepositoryRouter(repoCtrl)
 

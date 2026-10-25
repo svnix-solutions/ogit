@@ -8,6 +8,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/labbs/ogit/application"
 	helpergit "github.com/labbs/ogit/infrastructure/helpers/git"
 )
 
@@ -35,32 +36,33 @@ func serveUploadPack(ctx context.Context, srv transport.Transport, ep *transport
 }
 
 // serveReceivePack runs git-receive-pack (push) over one SSH channel.
-func serveReceivePack(ctx context.Context, ep *transport.Endpoint, objects storer.Storer, in *bufio.Reader, out io.Writer) error {
+// It returns the reference updates that were applied.
+func serveReceivePack(ctx context.Context, ep *transport.Endpoint, objects storer.Storer, in *bufio.Reader, out io.Writer) ([]application.RefUpdate, error) {
 	// Ref updates are checked against the old values in the request.
 	sess, expect, err := helpergit.GuardedReceivePack(objects, ep)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer sess.Close()
 
 	adv, err := sess.AdvertisedReferences()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := helpergit.AdvertiseNoThin(adv); err != nil {
-		return err
+		return nil, err
 	}
 	if err := adv.Encode(out); err != nil {
-		return err
+		return nil, err
 	}
 
 	if done, err := isFlush(in); err != nil || done {
-		return err // nothing to push
+		return nil, err // nothing to push
 	}
 
 	req := packp.NewReferenceUpdateRequest()
 	if err := req.Decode(in); err != nil {
-		return err
+		return nil, err
 	}
 	// The decoder always treats the rest of the stream as the packfile. A
 	// push that only deletes refs sends none and then waits for the report,
@@ -75,7 +77,7 @@ func serveReceivePack(ctx context.Context, ep *transport.Endpoint, objects store
 			err = encErr
 		}
 	}
-	return err
+	return application.AppliedUpdates(req, report), err
 }
 
 func onlyDeletes(req *packp.ReferenceUpdateRequest) bool {

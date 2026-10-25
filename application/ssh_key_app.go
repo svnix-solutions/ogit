@@ -266,6 +266,14 @@ type SSHIdentity struct {
 	Name string // username, or "deploy key <name>"
 }
 
+// Pusher is who a push with this key is attributed to.
+func (id *SSHIdentity) Pusher() Pusher {
+	if id.Key.UserId != nil {
+		return Pusher{UserId: *id.Key.UserId, Name: id.Name}
+	}
+	return Pusher{Name: id.Name}
+}
+
 // IdentifySSHKey resolves an offered public key during the SSH handshake.
 // Unknown keys and keys of disabled (or, when required, unverified) users
 // are rejected.
