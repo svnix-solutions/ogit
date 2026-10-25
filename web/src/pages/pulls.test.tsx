@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { routes } from "@/app";
@@ -125,6 +125,30 @@ describe("pull requests", () => {
     expect(details[0]).toHaveAttribute("href", "https://ci.example.com/1");
     expect(details[0]).toHaveAttribute("rel", "noopener noreferrer");
     expect(screen.getByRole("button", { name: "Merge" })).toBeDisabled();
+  });
+
+  it("reloads the merge box when checks change", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const st = (state: string) => ({ sha: "h".repeat(40), state, total_count: 1, statuses: [{ id: "s", context: "lint", state, description: "", target_url: "", created_at: "2026-01-01T00:00:00Z" }] });
+    const table: Record<string, unknown> = {
+      "/instance": instance, "/user/profile": me("maint"), "/repository/acme%2Fapp": repo("maintainer"),
+      "/repository/acme%2Fapp/pulls/7": pull({ protected_by: "main", required_checks: [{ context: "lint", state: "pending" }], can_merge: false }),
+      "/repository/acme%2Fapp/pulls/7/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [bug] },
+      [`/repository/r1/status?ref=${"h".repeat(40)}`]: st("pending"),
+    };
+    fakeAPI(table);
+    renderRoutes(routes, "/acme/app/pulls/7");
+    expect(await screen.findByText("0 of 1 required checks passed.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Merge" })).toBeDisabled();
+
+    // CI reports success: the checks poll picks it up, and the pull request follows.
+    table[`/repository/r1/status?ref=${"h".repeat(40)}`] = st("success");
+    table["/repository/acme%2Fapp/pulls/7"] = pull({ protected_by: "main", required_checks: [{ context: "lint", state: "success" }], can_merge: true });
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(await screen.findByText("1 of 1 required checks passed.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Merge" })).toBeEnabled());
+    vi.useRealTimers();
   });
 
   it("shows status icons in the list", async () => {

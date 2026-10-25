@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError, atLeast, repoId } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
 import { relativeTime } from "@/lib/browse";
-import { issuesBase, progress, useIssue, useIssueComments, useIssues, useMilestones, type Issue, type IssueFilters, type IssueSummary, type Milestone } from "@/lib/issues";
+import { issuesBase, progress, useIssue, useIssueComments, useIssues, useMilestones, type Issue, type IssueComment, type IssueFilters, type IssueSummary, type Milestone } from "@/lib/issues";
 import { renderMarkdown } from "@/lib/markdown";
 import { useLabels } from "@/lib/pulls";
 import { formatDate } from "@/lib/queries";
@@ -348,21 +348,7 @@ function Comments({ issue, onChange, onState }: { issue: Issue; onChange: () => 
   return (
     <div className="space-y-4">
       {comments.data?.map((c) => (
-        <Card key={c.id}>
-          <div className="flex items-center justify-between border-b px-3 py-2 text-sm">
-            <span>
-              <span className="font-medium">{c.author || "ghost"}</span> <span className="text-muted-foreground">{relativeTime(c.created_at)}</span>
-            </span>
-            {c.can_delete && (
-              <Button variant="ghost" size="sm" onClick={() => remove.mutate(c.id)}>
-                Delete
-              </Button>
-            )}
-          </div>
-          <div className="p-3">
-            <Markdown text={c.body} fullPath={repo.full_path} />
-          </div>
-        </Card>
+        <CommentCard key={c.id} comment={c} base={base} onChange={onChange} onDelete={() => remove.mutate(c.id)} />
       ))}
       {issue.can_comment && (
         <Card className="space-y-2 p-3">
@@ -387,6 +373,52 @@ function Comments({ issue, onChange, onState }: { issue: Issue; onChange: () => 
         </Card>
       )}
     </div>
+  );
+}
+
+function CommentCard({ comment: c, base, onChange, onDelete }: { comment: IssueComment; base: string; onChange: () => void; onDelete: () => void }) {
+  const repo = useRepo();
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(c.body);
+  const save = useMutation({ mutationFn: () => api("PATCH", `${base}/${c.id}`, { body: text }), onSuccess: () => (setEditing(false), onChange()) });
+  return (
+    <Card>
+      <div className="flex items-center justify-between border-b px-3 py-2 text-sm">
+        <span>
+          <span className="font-medium">{c.author || "ghost"}</span> <span className="text-muted-foreground">{relativeTime(c.created_at)}</span>
+        </span>
+        <span className="flex gap-1">
+          {c.can_edit && !editing && (
+            <Button variant="ghost" size="sm" onClick={() => (setText(c.body), setEditing(true))}>
+              Edit
+            </Button>
+          )}
+          {c.can_delete && (
+            <Button variant="ghost" size="sm" onClick={onDelete}>
+              Delete
+            </Button>
+          )}
+        </span>
+      </div>
+      <div className="p-3">
+        {editing ? (
+          <form className="space-y-2" onSubmit={(e) => (e.preventDefault(), save.mutate())}>
+            <Textarea aria-label="Edit comment" value={text} onChange={(e) => setText(e.target.value)} />
+            <ErrorText error={save.error} />
+            <div className="flex gap-2">
+              <Button type="submit" size="sm" disabled={!text.trim() || save.isPending}>
+                Save
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <Markdown text={c.body} fullPath={repo.full_path} />
+        )}
+      </div>
+    </Card>
   );
 }
 

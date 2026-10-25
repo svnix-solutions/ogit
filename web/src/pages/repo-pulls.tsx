@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MessageSquare, ShieldCheck, X } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from "react-router";
 import { DiffView } from "@/components/diff-view";
 import { pageParam, Pager } from "@/components/pager";
@@ -467,8 +467,11 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
       <Checks pr={pr} />
       {pr.protected_by && (
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
-          <ShieldCheck className="h-3 w-3" /> {pr.target_branch} is protected by the rule <code className="rounded bg-muted px-1">{pr.protected_by}</code>.
-          {bypassing && " You can merge anyway as an owner; this is recorded."}
+          <ShieldCheck className="h-3 w-3 shrink-0" />
+          <span>
+            {pr.target_branch} is protected by the rule <code className="rounded bg-muted px-1">{pr.protected_by}</code>.
+            {bypassing && " You can merge anyway as an owner; this is recorded."}
+          </span>
         </p>
       )}
       {pr.draft && pr.can_edit && (
@@ -500,7 +503,17 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
 // ones first, including required checks nobody reported yet.
 function Checks({ pr }: { pr: Pull }) {
   const repo = useRepo();
+  const qc = useQueryClient();
   const combined = useCombined(repo.id, pr.state === "open" ? pr.head_commit : undefined);
+  // The checks refresh on their own while some are pending; when they
+  // change, reload the pull request too, so the merge box follows.
+  const signature = (combined.data?.statuses ?? []).map((s) => s.context + "=" + s.state).join(",");
+  const seen = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!combined.data) return;
+    if (seen.current !== undefined && seen.current !== signature) qc.invalidateQueries({ queryKey: ["pull", repo.full_path, pr.number] });
+    seen.current = signature;
+  }, [signature, combined.data, qc, repo.full_path, pr.number]);
   const required = new Set((pr.required_checks ?? []).map((c) => c.context));
   const reported = combined.data?.statuses ?? [];
   const missing = [...required].filter((ctx) => !reported.some((s) => s.context === ctx));

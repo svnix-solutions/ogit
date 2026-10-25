@@ -345,7 +345,7 @@ function Labels({ repo }: { repo: Repository }) {
   const remove = useMutation({ mutationFn: (id: string) => api("DELETE", `${base}/${id}`), onSettled: done });
   return (
     <div id="labels">
-      <Section title="Labels" description="For pull requests. Developers set them; maintainers manage them here.">
+      <Section title="Labels" description="For issues and pull requests. Developers set them; maintainers manage them here.">
         {labels.data && labels.data.length > 0 && (
           <ul className="divide-y text-sm">
             {labels.data.map((l) => (
