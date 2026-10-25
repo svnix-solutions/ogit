@@ -73,6 +73,7 @@ function ChangePassword() {
 const scopeChoices = [
   { scope: "read:repository", label: "Clone and fetch" },
   { scope: "write:repository", label: "Push" },
+  { scope: "write:status", label: "Commit statuses (CI)" },
 ];
 
 function Tokens() {

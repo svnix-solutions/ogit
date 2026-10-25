@@ -86,7 +86,8 @@ describe("repository pages", () => {
       required_approvals: null, dismiss_stale_approvals: false, allowed_users: [], allowed_groups: [], owners_bypass: false });
     return { "/instance": instance, "/user/profile": alice, "/repository/platform%2Finfra": repo(role),
       "/repository/platform%2Finfra/refs": { default_branch: "main", branches: [ref("main"), ref("release/v1"), ref("feature")], tags: [] },
-      "/repository/r1/branch-protection": { rules: [rule("main"), rule("release/*")] } };
+      "/repository/r1/branch-protection": { rules: [rule("main"), rule("release/*")] },
+      [`/repository/r1/statuses?shas=${"a".repeat(40)}`]: { commits: { ["a".repeat(40)]: { sha: "a".repeat(40), state: "failure", total_count: 1, statuses: [{ state: "failure" }] } } } };
   };
 
   it("marks protected branches for developers", async () => {
@@ -95,6 +96,7 @@ describe("repository pages", () => {
     expect(await screen.findByRole("link", { name: "release/v1" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("protected")).toHaveLength(2));
     expect(screen.getAllByText("protected")[1].closest("span")).toHaveAttribute("title", "release/*: no force-push, no deletion");
+    expect(await screen.findAllByRole("img", { name: "0 of 1 checks passed" })).toHaveLength(3); // one per branch
   });
 
   it("doesn't ask for the rules as a reporter", async () => {

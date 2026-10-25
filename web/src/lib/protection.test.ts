@@ -3,7 +3,7 @@ import { matchBranch, ruleFor, ruleSummary, type BranchRule } from "./protection
 
 const rule = (pattern: string, over: Partial<BranchRule> = {}): BranchRule => ({
   id: pattern, pattern, allow_force_push: false, allow_deletion: false, require_pull_request: false, required_approvals: null,
-  dismiss_stale_approvals: false, allowed_users: [], allowed_groups: [], owners_bypass: false, ...over,
+  dismiss_stale_approvals: false, allowed_users: [], allowed_groups: [], required_contexts: [], owners_bypass: false, ...over,
 });
 
 describe("branch protection matching (as domain/branch_protection.go)", () => {

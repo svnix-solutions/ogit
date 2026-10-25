@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { api, type Repository } from "@/lib/api";
 import { useRefs } from "@/lib/browse";
 import { ruleFor, rulesKey, ruleSummary, useBranchRules, type BranchRule } from "@/lib/protection";
+import { useRecentContexts } from "@/lib/statuses";
 
 // Branch protection rules in repository settings: owners edit them,
 // maintainers see them.
@@ -103,6 +104,8 @@ function RuleForm({ repo, rule, onDone }: { repo: Repository; rule?: BranchRule;
   const [users, setUsers] = useState(rule?.allowed_users.join(", ") ?? "");
   const [groups, setGroups] = useState(rule?.allowed_groups.join(", ") ?? "");
   const [bypass, setBypass] = useState(rule?.owners_bypass ?? false);
+  const [contexts, setContexts] = useState(rule?.required_contexts?.join(", ") ?? "");
+  const recent = useRecentContexts(repo.id);
 
   const done = () => {
     qc.invalidateQueries({ queryKey: rulesKey(repo.id) });
@@ -114,7 +117,7 @@ function RuleForm({ repo, rule, onDone }: { repo: Repository; rule?: BranchRule;
       const body = {
         pattern, allow_force_push: forcePush, allow_deletion: deletion, require_pull_request: prOnly,
         required_approvals: ownApprovals ? Number(approvals) : -1, dismiss_stale_approvals: stale,
-        allowed_users: list(users), allowed_groups: list(groups), owners_bypass: bypass,
+        allowed_users: list(users), allowed_groups: list(groups), required_contexts: list(contexts), owners_bypass: bypass,
       };
       return rule ? api("PATCH", `/repository/${repo.id}/branch-protection/${rule.id}`, body) : api("POST", `/repository/${repo.id}/branch-protection`, body);
     },
@@ -162,6 +165,35 @@ function RuleForm({ repo, rule, onDone }: { repo: Repository; rule?: BranchRule;
         )}
       </div>
       {check("Dismiss approvals when new commits are pushed", stale, setStale)}
+      <div className="space-y-1">
+        <Label htmlFor={`rule-checks-${id}`}>Required checks</Label>
+        <Input
+          id={`rule-checks-${id}`}
+          placeholder="ci/build, lint"
+          value={contexts}
+          onChange={(e) => setContexts(e.target.value)}
+          className="font-mono"
+        />
+        <p className="text-xs text-muted-foreground">Commit status contexts that must pass on a pull request's latest commit before it can be merged.</p>
+        {recent.data && recent.data.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <span className="text-muted-foreground">Recently reported:</span>
+            {recent.data
+              .filter((ctx) => !list(contexts).includes(ctx))
+              .map((ctx) => (
+                <button
+                  key={ctx}
+                  type="button"
+                  className="rounded border px-1.5 py-0.5 font-mono hover:bg-muted"
+                  aria-label={`Require ${ctx}`}
+                  onClick={() => setContexts(list(contexts).concat(ctx).join(", "))}
+                >
+                  + {ctx}
+                </button>
+              ))}
+          </div>
+        )}
+      </div>
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="space-y-1">
           <Label htmlFor={`rule-users-${id}`}>Only these users can push and merge</Label>
