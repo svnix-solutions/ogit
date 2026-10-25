@@ -9,6 +9,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/v1/issues"
 	"github.com/labbs/ogit/interfaces/http/v1/milestones"
 	"github.com/labbs/ogit/interfaces/http/v1/pulls"
+	"github.com/labbs/ogit/interfaces/http/v1/releases"
 	"github.com/labbs/ogit/interfaces/http/v1/repository"
 	"github.com/labbs/ogit/interfaces/http/v1/site"
 	"github.com/labbs/ogit/interfaces/http/v1/sshkey"
@@ -75,6 +76,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	browse.Setup(browse.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, BrowseApp: deps.BrowseApp}, repoGrp)
 
 	statuses.Setup(statuses.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Limits: deps.Limits, Statuses: deps.StatusApp}, repoGrp)
+
+	releases.Setup(releases.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Limits: deps.Limits, Releases: deps.ReleaseApp}, repoGrp)
 
 	milestones.Setup(milestones.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Milestones: deps.MilestoneApp}, repoGrp)
 
