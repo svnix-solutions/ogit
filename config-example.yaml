@@ -56,6 +56,9 @@ webhooks:
   allowed_hosts: []    # e.g. [ci.internal, 10.0.5.0/24]
   timeout: 10s         # per delivery attempt
 
+releases:
+  max_asset_size: 104857600   # bytes (100 MB) per uploaded asset
+
 ssh:                   # git over SSH: ssh://git@host:2222/<repo>.git
   enabled: false
   port: 2222

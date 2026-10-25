@@ -77,7 +77,10 @@ func SetupRouterV1(deps infrastructure.Deps) {
 
 	statuses.Setup(statuses.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Limits: deps.Limits, Statuses: deps.StatusApp}, repoGrp)
 
-	releases.Setup(releases.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Limits: deps.Limits, Releases: deps.ReleaseApp}, repoGrp)
+	releaseCtrl := releases.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Limits: deps.Limits,
+		Releases: deps.ReleaseApp, PublicURL: deps.Config.Server.PublicURL}
+	releases.Setup(releaseCtrl, repoGrp)
+	releases.SetupFiles(releaseCtrl, deps.Http.Fiber)
 
 	milestones.Setup(milestones.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Milestones: deps.MilestoneApp}, repoGrp)
 

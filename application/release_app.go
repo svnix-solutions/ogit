@@ -28,6 +28,7 @@ import (
 //   - pre-releases are published but never "latest";
 //   - notes can be generated from the pull requests merged since the
 //     previous release;
+//   - assets: see release_asset.go;
 //   - "release" webhook events (published, released, prereleased, created,
 //     edited, deleted) are sent for published releases only: drafts stay
 //     between writers.
@@ -43,6 +44,8 @@ type ReleaseApp struct {
 	Logger       zerolog.Logger
 	Repositories *RepositoryApp
 	Releases     domain.ReleasePers
+	Assets       domain.ReleaseAssetPers // release_asset.go
+	MaxAssetSize int64                   // bytes; 0: 100 MB
 	Pulls        domain.PullRequestPers
 	Users        domain.UserPers
 	Webhooks     *WebhookApp
@@ -56,6 +59,7 @@ type ReleaseView struct {
 	*domain.Release
 	Repository *domain.Repository
 	CanEdit    bool
+	Assets     []domain.ReleaseAsset
 }
 
 func (c *ReleaseApp) open(id, path *string, caller StatusCaller) (*domain.Repository, storer.Storer, bool, error) {
@@ -100,7 +104,7 @@ func (c *ReleaseApp) List(id, path *string, caller StatusCaller, offset, limit i
 	for i := range releases {
 		out = append(out, ReleaseView{Release: &releases[i], Repository: repo, CanEdit: writer})
 	}
-	return out, nil
+	return out, c.withAssets(out)
 }
 
 func (c *ReleaseApp) view(repo *domain.Repository, writer bool, r *domain.Release, err error) (*ReleaseView, error) {
@@ -109,7 +113,11 @@ func (c *ReleaseApp) view(repo *domain.Repository, writer bool, r *domain.Releas
 	} else if err != nil {
 		return nil, err
 	}
-	return &ReleaseView{Release: r, Repository: repo, CanEdit: writer}, nil
+	views := []ReleaseView{{Release: r, Repository: repo, CanEdit: writer}}
+	if err := c.withAssets(views); err != nil {
+		return nil, err
+	}
+	return &views[0], nil
 }
 
 func (c *ReleaseApp) Get(id, path *string, caller StatusCaller, releaseId string) (*ReleaseView, error) {
@@ -127,6 +135,16 @@ func (c *ReleaseApp) ByTag(id, path *string, caller StatusCaller, tag string) (*
 		return nil, err
 	}
 	r, err := c.Releases.ByTag(repo.Id, tag)
+	return c.view(repo, writer, r, err)
+}
+
+// ByApiId: Get by the GitHub-compatible numeric id.
+func (c *ReleaseApp) ByApiId(id, path *string, caller StatusCaller, apiId int64) (*ReleaseView, error) {
+	repo, _, writer, err := c.open(id, path, caller)
+	if err != nil {
+		return nil, err
+	}
+	r, err := c.Releases.ByApiId(repo.Id, apiId)
 	return c.view(repo, writer, r, err)
 }
 
@@ -372,6 +390,7 @@ func (c *ReleaseApp) Delete(id, path *string, caller StatusCaller, releaseId str
 	if err := c.Releases.Delete(r.Id); err != nil {
 		return err
 	}
+	c.deleteFiles(repo, v.Assets)
 	if !r.Draft {
 		c.Webhooks.ReleaseEvent(v, "deleted", c.sender(caller), nil)
 	}

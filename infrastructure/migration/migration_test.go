@@ -191,3 +191,47 @@ func TestIssueMigrationContinuesPullRequestNumbers(t *testing.T) {
 	down(beforeIssues)
 	up(issues)
 }
+
+// Releases that exist before assets get a numeric api_id each.
+func TestReleaseAssetsMigrationBackfillsApiIds(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "ogit.sqlite")), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	goose.SetBaseFS(migrationFiles)
+	require.NoError(t, goose.SetDialect("sqlite3"))
+	ctx := context.WithValue(context.Background(), "dbDialect", "sqlite")
+	checkReleaseAssetsMigration(t, ctx, db)
+}
+
+func checkReleaseAssetsMigration(t *testing.T, ctx context.Context, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	const before, assets = 20261025200000, 20261026100000
+	const repo = "33333333-3333-4333-8333-333333333333"
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", before))
+	require.NoError(t, db.Exec(`INSERT INTO repository (id, name, namespace, owner_type, owner_id, slug, storage_key)
+		VALUES (?, 'App', 'alice', 'user', ?, 'app', 'k')`, repo, "11111111-1111-4111-8111-111111111111").Error)
+	for i, id := range []string{"44444444-4444-4444-8444-444444444441", "44444444-4444-4444-8444-444444444442"} {
+		require.NoError(t, db.Exec(`INSERT INTO repository_release (id, repository_id, tag_name) VALUES (?, ?, ?)`, id, repo, []string{"v1", "v2"}[i]).Error)
+	}
+
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", assets))
+	var ids []int64
+	require.NoError(t, db.Raw(`SELECT api_id FROM repository_release`).Scan(&ids).Error)
+	require.Len(t, ids, 2)
+	for _, id := range ids {
+		assert.Positive(t, id)
+		assert.Less(t, id, int64(1)<<53)
+	}
+	assert.NotEqual(t, ids[0], ids[1])
+	assert.True(t, db.Migrator().HasTable("release_asset"))
+	assert.True(t, db.Migrator().HasTable("protected_tag"))
+
+	require.NoError(t, goose.DownToContext(ctx, sqlDB, "files", before))
+	assert.False(t, db.Migrator().HasColumn("repository_release", "api_id"))
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", assets))
+}

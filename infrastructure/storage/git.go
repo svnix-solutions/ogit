@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
@@ -29,6 +30,13 @@ type Config interface {
 
 	// DeleteRepository removes a repository at the given path
 	DeleteRepository(repoPath string) error
+
+	// PutAsset stores a release asset with the repository (deleted with
+	// it); OpenAsset reads it back and DeleteAsset removes it (no error if
+	// it is missing). Sizes are the caller's business.
+	PutAsset(repoPath, id string, r io.Reader) error
+	OpenAsset(repoPath, id string) (io.ReadCloser, error)
+	DeleteAsset(repoPath, id string) error
 
 	// ListRepositories returns a list of all repository paths
 	ListRepositories() ([]string, error)

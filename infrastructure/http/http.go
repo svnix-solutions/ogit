@@ -32,6 +32,12 @@ func Configure(_cfg config.Config, logger z.Logger, session application.SessionA
 		// Proxy headers (X-Forwarded-Proto, ...) only from http.trusted_proxies.
 		EnableTrustedProxyCheck: true,
 		TrustedProxies:          _cfg.Server.TrustedProxies,
+		// Large bodies (release assets) are streamed; interfaces/http's
+		// bodyLimit keeps every other route to the usual BodyLimit.
+		StreamRequestBody: true,
+		// fasthttp would otherwise spool multipart bodies of any size to
+		// disk before bodyLimit runs; nothing here takes multipart forms.
+		DisablePreParseMultipartForm: true,
 	}
 
 	r := fiber.New(fiberConfig)

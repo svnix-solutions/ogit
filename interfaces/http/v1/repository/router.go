@@ -22,6 +22,7 @@ type Controller struct {
 func SetupRepositoryRouter(controller Controller) {
 	setupWebhookRoutes(controller)
 	setupBranchProtectionRoutes(controller)
+	setupProtectedTagRoutes(controller)
 	setupForkRoutes(controller)
 	setupTokenRoutes(controller)
 

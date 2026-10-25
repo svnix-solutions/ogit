@@ -32,6 +32,7 @@ import (
 //     apply to merging pull requests into the branch;
 //   - with owners_bypass, owners may break the rule; every bypass is logged
 //     ("component":"audit");
+//   - protected tags (protected_tag.go) are checked in the same push check;
 //   - checks run per reference on HTTP and SSH pushes (a refused reference
 //     is reported to git, the others are applied) and on merges, including
 //     deleting the source branch afterwards.
@@ -61,6 +62,7 @@ type ProtectionApp struct {
 	Logger       zerolog.Logger
 	Repositories *RepositoryApp
 	Rules        domain.BranchProtectionPers
+	Tags         domain.ProtectedTagPers // protected_tag.go
 	Users        domain.UserPers
 	Groups       domain.GroupPers
 }
@@ -380,9 +382,21 @@ func (c *ProtectionApp) PushCheck(repo *domain.Repository, pusher Pusher, object
 		return nil
 	}
 	var rules []domain.BranchProtection
+	var tags []domain.ProtectedTag
 	var loadErr error
-	loaded := false
+	loaded, tagsLoaded := false, false
 	return func(name plumbing.ReferenceName, old, new plumbing.Hash) error {
+		if name.IsTag() && c.Tags != nil {
+			if !tagsLoaded {
+				tags, loadErr = c.Tags.List(repo.Id)
+				tagsLoaded = true
+			}
+			if loadErr != nil {
+				return loadErr
+			}
+			tag := name.Short()
+			return c.checkTag(repo, domain.TagRuleFor(tags, tag), pusher.UserId, tag, old, new)
+		}
 		if !name.IsBranch() {
 			return nil
 		}

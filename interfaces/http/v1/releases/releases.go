@@ -22,6 +22,7 @@ type Controller struct {
 	TokenApp   *application.TokenApp
 	Limits     *ratelimit.Guard
 	Releases   *application.ReleaseApp
+	PublicURL  string // http.public_url, for download links ("" : relative)
 }
 
 type Release struct {
@@ -36,6 +37,7 @@ type Release struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	PublishedAt     *time.Time `json:"published_at"`
 	CanEdit         bool       `json:"can_edit"`
+	Assets          []Asset    `json:"assets"`
 }
 
 type ListRequest struct {
@@ -114,7 +116,8 @@ func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Get(repoGrp, "/:identifier/releases/:release_id", c.Get, opts("Get a release", "releases.get", ""))
 	fiberoapi.Patch(repoGrp, "/:identifier/releases/:release_id", c.Update, opts("Edit or publish a release", "releases.update",
 		"Writers. draft=false publishes a draft (creating its tag if needed); a published release keeps its tag."))
-	fiberoapi.Delete(repoGrp, "/:identifier/releases/:release_id", c.Delete, opts("Delete a release", "releases.delete", "Writers. The tag stays."))
+	fiberoapi.Delete(repoGrp, "/:identifier/releases/:release_id", c.Delete, opts("Delete a release", "releases.delete", "Writers. The tag stays; the assets go."))
+	setupAssets(c, repoGrp, opts)
 }
 
 func (c Controller) caller(ctx *fiber.Ctx) (application.StatusCaller, *fiberoapi.ErrorResponse) {
@@ -129,9 +132,9 @@ func (c Controller) caller(ctx *fiber.Ctx) (application.StatusCaller, *fiberoapi
 	return caller, nil
 }
 
-func ToRelease(v *application.ReleaseView) Release {
+func (c Controller) toRelease(v *application.ReleaseView) Release {
 	out := Release{Id: v.Id, TagName: v.TagName, TargetCommitish: v.TargetCommitish, Name: v.Name, Body: v.Body, Draft: v.Draft,
-		Prerelease: v.Prerelease, CreatedAt: v.CreatedAt, PublishedAt: v.PublishedAt, CanEdit: v.CanEdit}
+		Prerelease: v.Prerelease, CreatedAt: v.CreatedAt, PublishedAt: v.PublishedAt, CanEdit: v.CanEdit, Assets: c.assets(v)}
 	if v.Author != nil {
 		out.Author = v.Author.Username
 	}
@@ -154,7 +157,7 @@ func (c Controller) List(ctx *fiber.Ctx, req ListRequest) (*ListResponse, *fiber
 	}
 	resp := &ListResponse{Releases: make([]Release, 0, len(views))}
 	for i := range views {
-		resp.Releases = append(resp.Releases, ToRelease(&views[i]))
+		resp.Releases = append(resp.Releases, c.toRelease(&views[i]))
 	}
 	return resp, nil
 }
@@ -168,7 +171,7 @@ func (c Controller) one(ctx *fiber.Ctx, get func(application.StatusCaller) (*app
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
-	out := ToRelease(v)
+	out := c.toRelease(v)
 	return &out, nil
 }
 
