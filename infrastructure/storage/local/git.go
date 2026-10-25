@@ -64,7 +64,7 @@ func (ls *LocalStorage) GetStorer(repoPath string) (storer.Storer, error) {
 	}
 
 	fs := billyos.New(fullPath)
-	return filesystem.NewStorage(fs, cache.NewObjectLRUDefault()), nil
+	return newAtomicRefs(filesystem.NewStorage(fs, cache.NewObjectLRUDefault()), fullPath), nil
 }
 
 func (ls *LocalStorage) CreateRepository(repoPath string) error {
