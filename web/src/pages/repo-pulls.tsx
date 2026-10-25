@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError, atLeast } from "@/lib/api";
 import { safeLink, useCombined, useStatuses } from "@/lib/statuses";
 import { CombinedIcon, StatusIcon } from "@/components/status-icon";
+import { AssigneesBox, MilestoneBox } from "@/components/tracking";
 import { useProfile } from "@/lib/auth";
 import { relativeTime, shortHash, summary, useCompare, useRefs } from "@/lib/browse";
 import { renderMarkdown } from "@/lib/markdown";
@@ -395,6 +396,10 @@ function Conversation({ pr, onChange }: { pr: Pull; onChange: () => void }) {
       <aside className="space-y-4 text-sm">
         <ReviewBox pr={pr} onChange={onChange} />
         <LabelsBox pr={pr} onChange={onChange} />
+        <AssigneesBox fullPath={repo.full_path} base={`${pullsBase(repo.full_path)}/${pr.number}`} assignees={pr.assignees ?? []}
+          canSet={atLeast(repo.role, "developer") && !repo.archived} onChange={onChange} />
+        <MilestoneBox fullPath={repo.full_path} base={`${pullsBase(repo.full_path)}/${pr.number}`} milestone={pr.milestone}
+          canSet={atLeast(repo.role, "developer") && !repo.archived} onChange={onChange} />
       </aside>
     </div>
   );

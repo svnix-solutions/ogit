@@ -41,7 +41,8 @@ export function renderMarkdown(source: string, opts: { fullPath: string; ref: st
 }
 
 // linkify turns @user into a link to their page and #123 into a link to the
-// repository's pull request, outside code and existing links.
+// repository's issue page (which forwards to the pull request when #123 is
+// one: they share numbers), outside code and existing links.
 function linkify(root: DocumentFragment, fullPath: string) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (n) => (n.parentElement?.closest("a, code, pre") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
@@ -60,7 +61,7 @@ function linkify(root: DocumentFragment, fullPath: string) {
       frag.append(value.slice(last, start));
       const a = document.createElement("a");
       const user = m[3]?.replace(/\.+$/, "");
-      a.href = user ? `/${user}` : `/${fullPath}/pulls/${m[4]}`;
+      a.href = user ? `/${user}` : `/${fullPath}/issues/${m[4]}`;
       a.textContent = user ? `@${user}` : `#${m[4]}`;
       frag.append(a);
       last = start + a.textContent.length;

@@ -22,7 +22,7 @@ describe("markdown links", () => {
   it("links mentions and pull requests outside code", () => {
     const html = renderMarkdown("Thanks @bob! See #12 and `#13`, mail bob@example.com", { fullPath: "a/b", ref: "main", dir: "", links: true });
     expect(html).toContain('<a href="/bob">@bob</a>');
-    expect(html).toContain('<a href="/a/b/pulls/12">#12</a>');
+    expect(html).toContain('<a href="/a/b/issues/12">#12</a>');
     expect(html).toContain("<code>#13</code>");
     expect(html).toContain("bob@example.com");
     expect(html).not.toContain('href="/example.com"');
@@ -58,7 +58,7 @@ describe("pull requests", () => {
     expect(await screen.findByText("1 of 2 required approvals.")).toBeInTheDocument();
     expect(screen.getByText("Changes requested by qa.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Merge" })).toBeDisabled();
-    expect(screen.getByRole("link", { name: "#3" })).toHaveAttribute("href", "/acme/app/pulls/3");
+    expect(screen.getByRole("link", { name: "#3" })).toHaveAttribute("href", "/acme/app/issues/3");
     expect(screen.getByRole("button", { name: "Submit review" })).toBeInTheDocument();
   });
 
