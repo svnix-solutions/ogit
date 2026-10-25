@@ -33,6 +33,8 @@ export type Pull = PullSummary & {
   approved: string[];
   changes_requested: string[];
   required_approvals: number;
+  protected_by?: string; // the rule protecting the target branch
+  merge_blocked?: { type: string; message: string }; // why the viewer can't merge
 };
 export type PullComment = {
   id: string;

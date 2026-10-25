@@ -191,7 +191,8 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 
 ### Branch protection
 
-Owners protect branches by name or glob pattern (`main`, `release/*`, `hotfix/**`;
+Owners protect branches in the repository's **Settings** page (which offers to
+protect the default branch) or through the API, by name or glob pattern (`main`, `release/*`, `hotfix/**`;
 `*` stays within a path segment, `**` crosses them). When several rules match a
 branch, the most specific one applies.
 

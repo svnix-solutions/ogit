@@ -1,4 +1,4 @@
-import { ArrowRight, Download } from "lucide-react";
+import { ArrowRight, Download, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { DiffView } from "@/components/diff-view";
@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
-import { ApiError } from "@/lib/api";
+import { ApiError, atLeast } from "@/lib/api";
+import { ruleFor, ruleSummary, useBranchRules } from "@/lib/protection";
 import { encodePath, relativeTime, shortHash, summary, useCommit, useCommits, useCompare, useRefs, type Commit } from "@/lib/browse";
 
 function CommitRow({ commit }: { commit: Commit }) {
@@ -115,6 +116,8 @@ export function CommitPage() {
 export function BranchesPage() {
   const repo = useRepo();
   const refs = useRefs(repo.full_path);
+  // Developers and up can read the rules.
+  const rules = useBranchRules(repo.id, atLeast(repo.role, "developer"));
   if (refs.isError) return <Alert variant="destructive">{refs.error.message}</Alert>;
   if (!refs.data) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const archive = (name: string, fmt: string) => `/${repo.full_path}/archive/${encodePath(name)}.${fmt}`;
@@ -132,6 +135,11 @@ export function BranchesPage() {
                 {r.name}
               </Link>
               {r.name === refs.data!.default_branch && <Badge>default</Badge>}
+              {branches && rules.data && ruleFor(rules.data, r.name) && (
+                <Badge title={`${ruleFor(rules.data, r.name)!.pattern}: ${ruleSummary(ruleFor(rules.data, r.name)!).join(", ")}`}>
+                  <ShieldCheck className="h-3 w-3" /> protected
+                </Badge>
+              )}
               <span className="min-w-0 flex-1 truncate text-muted-foreground">
                 {summary(r.commit.message)} · {relativeTime(r.commit.committer.when)}
               </span>

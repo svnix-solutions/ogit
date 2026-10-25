@@ -80,6 +80,31 @@ describe("repository pages", () => {
     expect(screen.getByLabelText("SSH clone URL")).toHaveValue(`ssh://git@${window.location.hostname}:2222/platform/infra.git`);
   });
 
+  const ref = (name: string) => ({ name, commit: tree.commit });
+  const branchesTable = (role: string) => {
+    const rule = (pattern: string) => ({ id: pattern, pattern, allow_force_push: false, allow_deletion: false, require_pull_request: false,
+      required_approvals: null, dismiss_stale_approvals: false, allowed_users: [], allowed_groups: [], owners_bypass: false });
+    return { "/instance": instance, "/user/profile": alice, "/repository/platform%2Finfra": repo(role),
+      "/repository/platform%2Finfra/refs": { default_branch: "main", branches: [ref("main"), ref("release/v1"), ref("feature")], tags: [] },
+      "/repository/r1/branch-protection": { rules: [rule("main"), rule("release/*")] } };
+  };
+
+  it("marks protected branches for developers", async () => {
+    fakeAPI(branchesTable("developer"));
+    renderRoutes(routes, "/platform/infra/branches");
+    expect(await screen.findByRole("link", { name: "release/v1" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText("protected")).toHaveLength(2));
+    expect(screen.getAllByText("protected")[1].closest("span")).toHaveAttribute("title", "release/*: no force-push, no deletion");
+  });
+
+  it("doesn't ask for the rules as a reporter", async () => {
+    const fetch = fakeAPI(branchesTable("reporter"));
+    renderRoutes(routes, "/platform/infra/branches");
+    expect(await screen.findByRole("link", { name: "feature" })).toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("branch-protection"))).toBe(false);
+    expect(screen.queryByText("protected")).not.toBeInTheDocument();
+  });
+
   it("hides settings from developers", async () => {
     fakeAPI({ "/instance": instance, "/user/profile": alice, "/repository/platform%2Finfra": repo("developer"), "/repository/platform%2Finfra/tree?spec=": tree });
     renderRoutes(routes, "/platform/infra");
