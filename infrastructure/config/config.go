@@ -29,6 +29,12 @@ type Config struct {
 		Timeout      time.Duration
 	}
 
+	// Git: a push (its pack, over HTTP or SSH) is at most MaxPushSize
+	// bytes; 0 means no limit.
+	Git struct {
+		MaxPushSize int64
+	}
+
 	// Releases: uploaded assets are at most MaxAssetSize bytes.
 	Releases struct {
 		MaxAssetSize int64

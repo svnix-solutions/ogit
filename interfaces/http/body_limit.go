@@ -9,8 +9,9 @@ import (
 )
 
 // streamedRoutes may read request bodies larger than fiber's BodyLimit, as
-// a stream: release asset uploads (they enforce releases.max_asset_size).
-var streamedRoutes = regexp.MustCompile(`^/api/(v1/repository/[^/]+|v3/repos/[^/]+/[^/]+|uploads/repos/[^/]+/[^/]+)/releases/[^/]+/assets/?$`)
+// a stream: release asset uploads (they enforce releases.max_asset_size)
+// and git pushes (git.max_push_size).
+var streamedRoutes = regexp.MustCompile(`^(/api/(v1/repository/[^/]+|v3/repos/[^/]+/[^/]+|uploads/repos/[^/]+/[^/]+)/releases/[^/]+/assets/?|/[^/]+/[^/]+/git-receive-pack)$`)
 
 // bodyLimit restores the BodyLimit that StreamRequestBody lifts: fasthttp
 // streams bodies over the limit (and chunked ones) instead of refusing
@@ -19,8 +20,17 @@ var streamedRoutes = regexp.MustCompile(`^/api/(v1/repository/[^/]+|v3/repos/[^/
 func bodyLimit(limit int) fiber.Handler {
 	return func(ctx *fiber.Ctx) error {
 		req := ctx.Request()
-		if !req.IsBodyStream() || (ctx.Method() == fiber.MethodPost && streamedRoutes.MatchString(ctx.Path())) {
+		if !req.IsBodyStream() {
 			return ctx.Next()
+		}
+		if ctx.Method() == fiber.MethodPost && streamedRoutes.MatchString(ctx.Path()) {
+			// A handler may answer without reading the whole body (refused,
+			// not found). fasthttp would then parse the rest as the next
+			// request on this connection, a desync behind a proxy that
+			// reuses connections: close it instead.
+			err := ctx.Next()
+			ctx.Context().SetConnectionClose()
+			return err
 		}
 		var buf bytes.Buffer
 		n, err := io.Copy(&buf, io.LimitReader(req.BodyStream(), int64(limit)+1))

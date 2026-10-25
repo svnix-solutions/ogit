@@ -51,6 +51,8 @@ type Server struct {
 	Protection *application.ProtectionApp
 	// Pulls updates pull requests from forks when their branch is pushed.
 	Pulls *application.PullRequestApp
+	// MaxPushSize bounds a push's pack in bytes (git.max_push_size); 0: none.
+	MaxPushSize int64
 
 	config *gossh.ServerConfig
 }
@@ -213,7 +215,7 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 		err = serveUploadPack(ctx, srv, ep, objects, in, ch)
 	case "git-receive-pack":
 		var updates []application.RefUpdate
-		updates, err = serveReceivePack(ctx, ep, objects, in, ch, application.LimitPush(pusher, s.Protection.PushCheck(repo, pusher, objects)))
+		updates, err = serveReceivePack(ctx, ep, objects, in, ch, application.LimitPush(pusher, s.Protection.PushCheck(repo, pusher, objects)), s.MaxPushSize)
 		s.Webhooks.Pushed(repo, pusher, objects, updates)
 		s.Pulls.SourcePushed(repo, pusher, updates)
 	}

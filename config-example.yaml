@@ -59,6 +59,9 @@ webhooks:
 releases:
   max_asset_size: 104857600   # bytes (100 MB) per uploaded asset
 
+git:
+  max_push_size: 2147483648   # bytes (2 GB) per push, over HTTP and SSH; 0 for no limit
+
 ssh:                   # git over SSH: ssh://git@host:2222/<repo>.git
   enabled: false
   port: 2222

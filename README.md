@@ -193,6 +193,10 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 - **Renaming and moving:** the path changes, and the old one keeps working for the API, HTTP and SSH until another repository takes it. Git data never moves.
 - **Archiving:** an archived repository can be cloned and fetched, but refuses pushes from everyone until it's unarchived.
 
+### Push size
+
+Pushes over HTTP and SSH are streamed (never held in memory) and refused above `git.max_push_size` (2 GB by default, `0` for no limit); git shows `push is larger than the limit`. A refused or interrupted push leaves nothing behind in storage.
+
 ### Releases
 
 ```bash

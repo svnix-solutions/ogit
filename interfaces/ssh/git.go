@@ -3,6 +3,7 @@ package ssh
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
@@ -37,7 +38,7 @@ func serveUploadPack(ctx context.Context, srv transport.Transport, ep *transport
 
 // serveReceivePack runs git-receive-pack (push) over one SSH channel.
 // It returns the reference updates that were applied.
-func serveReceivePack(ctx context.Context, ep *transport.Endpoint, objects storer.Storer, in *bufio.Reader, out io.Writer, check helpergit.RefCheck) ([]application.RefUpdate, error) {
+func serveReceivePack(ctx context.Context, ep *transport.Endpoint, objects storer.Storer, in *bufio.Reader, out io.Writer, check helpergit.RefCheck, maxPush int64) ([]application.RefUpdate, error) {
 	// Ref updates are checked against the old values in the request, and
 	// against branch protection.
 	sess, expect, err := helpergit.GuardedReceivePack(objects, ep, check)
@@ -70,6 +71,11 @@ func serveReceivePack(ctx context.Context, ep *transport.Endpoint, objects store
 	// so reading a pack would block forever (over HTTP the body just ends).
 	if helpergit.OnlyDeletes(req) {
 		req.Packfile = nil
+	}
+	if err := helpergit.SpoolPack(req, maxPush); errors.Is(err, helpergit.ErrPushTooLarge) {
+		return nil, helpergit.RefusedReport(req, err).Encode(out)
+	} else if err != nil {
+		return nil, err
 	}
 	expect(req)
 	report, err := sess.ReceivePack(ctx, req)

@@ -6,6 +6,21 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+func GitFlags(cfg *Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.Int64Flag{
+			Name:        "git.max_push_size",
+			Usage:       "Largest push accepted over HTTP or SSH, in bytes (its pack; streamed, never held in memory); 0 for no limit",
+			Value:       2 << 30,
+			Destination: &cfg.Git.MaxPushSize,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("GIT_MAX_PUSH_SIZE"),
+				altsrcyaml.YAML("git.max_push_size", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+	}
+}
+
 func ReleaseFlags(cfg *Config) []cli.Flag {
 	return []cli.Flag{
 		&cli.Int64Flag{

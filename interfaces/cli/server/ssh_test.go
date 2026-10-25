@@ -34,6 +34,7 @@ func (s *testServer) startSSH(t *testing.T) int {
 		srv.Webhooks = s.deps.WebhookApp
 		srv.Protection = s.deps.ProtectionApp
 		srv.Pulls = s.deps.PullApp
+		srv.MaxPushSize = s.deps.Config.Git.MaxPushSize
 	}
 	require.NoError(t, err)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -101,6 +102,11 @@ func (g *gitCLI) run(dir string, args ...string) (string, error) {
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"HOME="+g.home, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0",
+		// No background maintenance: recent git (2.54) starts it after a
+		// few hundred commits and it races with the next commit ("fatal:
+		// could not parse HEAD" at commit 297 of TestFetchNegotiation).
+		"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false",
+		"GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0",
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
 		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
 		"GIT_SSH_COMMAND=ssh -i "+g.key.privatePath+" -F /dev/null -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR",
