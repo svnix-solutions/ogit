@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MessageSquare, X } from "lucide-react";
+import { Check, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MessageSquare, ShieldCheck, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from "react-router";
 import { DiffView } from "@/components/diff-view";
@@ -436,6 +436,9 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
   });
   if (pr.changes_requested.length) checks.push({ ok: false, text: `Changes requested by ${pr.changes_requested.join(", ")}.` });
   if (pr.draft) checks.push({ ok: false, text: "This is a draft." });
+  if (pr.merge_blocked?.type === "BRANCH_PROTECTED") checks.push({ ok: false, text: pr.merge_blocked.message + "." });
+  // An owner may merge although a check fails, when the rule lets them.
+  const bypassing = pr.can_merge && pr.protected_by && checks.some((c) => !c.ok);
 
   return (
     <Card className="space-y-3 p-4">
@@ -447,6 +450,12 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
           </li>
         ))}
       </ul>
+      {pr.protected_by && (
+        <p className="flex items-center gap-1 text-xs text-muted-foreground">
+          <ShieldCheck className="h-3 w-3" /> {pr.target_branch} is protected by the rule <code className="rounded bg-muted px-1">{pr.protected_by}</code>.
+          {bypassing && " You can merge anyway as an owner; this is recorded."}
+        </p>
+      )}
       {pr.draft && pr.can_edit && (
         <Button size="sm" variant="outline" onClick={() => ready.mutate()}>
           Ready for review

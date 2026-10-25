@@ -76,6 +76,33 @@ describe("pull requests", () => {
     expect(screen.getByRole("button", { name: "Close pull request" })).toBeInTheDocument();
   });
 
+  it("names the protecting rule, its refusal, and an owner's bypass", async () => {
+    fakeAPI({
+      "/instance": instance, "/user/profile": me("maint"), "/repository/acme%2Fapp": repo("maintainer"),
+      "/repository/acme%2Fapp/pulls/7": pull({ protected_by: "main", can_merge: false,
+        merge_blocked: { type: "BRANCH_PROTECTED", message: "branch main is protected: you are not allowed to merge into it" } }),
+      "/repository/acme%2Fapp/pulls/7/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [bug] },
+    });
+    renderRoutes(routes, "/acme/app/pulls/7");
+    expect(await screen.findByText("branch main is protected: you are not allowed to merge into it.")).toBeInTheDocument();
+    expect(screen.getByText(/is protected by the rule/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Merge" })).toBeDisabled();
+    expect(screen.queryByText(/merge anyway as an owner/)).not.toBeInTheDocument();
+  });
+
+  it("tells owners when they would bypass a rule", async () => {
+    fakeAPI({
+      "/instance": instance, "/user/profile": me("boss"), "/repository/acme%2Fapp": repo("owner"),
+      "/repository/acme%2Fapp/pulls/7": pull({ protected_by: "main", can_merge: true, required_approvals: 2, approved: [] }),
+      "/repository/acme%2Fapp/pulls/7/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [bug] },
+    });
+    renderRoutes(routes, "/acme/app/pulls/7");
+    expect(await screen.findByText(/merge anyway as an owner/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Merge" })).toBeEnabled();
+  });
+
   it("shows conflicting files", async () => {
     fakeAPI({
       "/instance": instance, "/user/profile": me("maint"), "/repository/acme%2Fapp": repo("maintainer"),
