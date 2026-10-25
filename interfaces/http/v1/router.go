@@ -6,6 +6,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/v1/auth"
 	"github.com/labbs/ogit/interfaces/http/v1/browse"
 	"github.com/labbs/ogit/interfaces/http/v1/group"
+	"github.com/labbs/ogit/interfaces/http/v1/issues"
 	"github.com/labbs/ogit/interfaces/http/v1/pulls"
 	"github.com/labbs/ogit/interfaces/http/v1/repository"
 	"github.com/labbs/ogit/interfaces/http/v1/site"
@@ -71,6 +72,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	browse.Setup(browse.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp}, repoGrp)
 
 	statuses.Setup(statuses.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Limits: deps.Limits, Statuses: deps.StatusApp}, repoGrp)
+
+	issues.Setup(issues.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, Issues: deps.IssueApp}, repoGrp)
 
 	pulls.Setup(pulls.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, Pulls: deps.PullApp}, repoGrp)
 

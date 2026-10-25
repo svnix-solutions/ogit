@@ -36,6 +36,8 @@ type RepositoryUpdate struct {
 	Archived    *bool
 	// RequiredApprovals for merging pull requests (owners; 0 to 10).
 	RequiredApprovals *int
+	// HasIssues turns issues on or off (owners).
+	HasIssues *bool
 }
 
 func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryUpdate) (*domain.Repository, error) {
@@ -44,7 +46,7 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 		return nil, err
 	}
 
-	ownerOnly := upd.Name != nil || upd.IsPrivate != nil || upd.Archived != nil || upd.RequiredApprovals != nil
+	ownerOnly := upd.Name != nil || upd.IsPrivate != nil || upd.Archived != nil || upd.RequiredApprovals != nil || upd.HasIssues != nil
 	if ownerOnly && role != domain.AccessTypeOwner {
 		return nil, ErrForbidden
 	}
@@ -88,6 +90,10 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 		}
 		fields["required_approvals"] = *upd.RequiredApprovals
 		repo.RequiredApprovals = *upd.RequiredApprovals
+	}
+	if upd.HasIssues != nil {
+		fields["has_issues"] = *upd.HasIssues
+		repo.HasIssues = *upd.HasIssues
 	}
 	if upd.IsPrivate != nil {
 		if *upd.IsPrivate != repo.IsPrivate {

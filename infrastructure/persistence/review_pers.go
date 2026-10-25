@@ -94,6 +94,9 @@ func (p *labelPers) Update(id string, fields map[string]any) error {
 // the cascade here).
 func (p *labelPers) Delete(id string) error {
 	return p.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("DELETE FROM issue_label WHERE label_id = ?", id).Error; err != nil {
+			return err
+		}
 		if err := tx.Exec("DELETE FROM pull_request_label WHERE label_id = ?", id).Error; err != nil {
 			return err
 		}
