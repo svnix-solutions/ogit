@@ -25,6 +25,8 @@ import (
 //   - allowed users and groups (when any are listed) are the only ones who
 //     may push to the branch or merge into it; deploy keys and repository
 //     tokens are never on that list;
+//   - required_contexts must each be success (commit statuses) on a pull
+//     request's head before it is merged into the branch;
 //   - required_approvals (else the repository's) and
 //     dismiss_stale_approvals (only approvals of the current head count)
 //     apply to merging pull requests into the branch;
@@ -81,6 +83,7 @@ type RuleChange struct {
 	DismissStaleApprovals *bool
 	AllowedUsers          []string // usernames; nil keeps, empty clears
 	AllowedGroups         []string // group names
+	RequiredContexts      []string // nil keeps, empty clears
 	OwnersBypass          *bool
 }
 
@@ -266,6 +269,19 @@ func (c *ProtectionApp) apply(rule *domain.BranchProtection, ch RuleChange) (map
 			}
 		}
 		rule.AllowedGroupIds, fields["allowed_group_ids"] = ids, ids
+	}
+	if ch.RequiredContexts != nil {
+		contexts := domain.StringList{}
+		for _, ctx := range ch.RequiredContexts {
+			ctx = strings.TrimSpace(ctx)
+			if ctx == "" || len(ctx) > 255 || len(contexts) >= 20 {
+				return nil, ErrInvalidRule
+			}
+			if !slices.Contains(contexts, ctx) {
+				contexts = append(contexts, ctx)
+			}
+		}
+		rule.RequiredContexts, fields["required_contexts"] = contexts, contexts
 	}
 	return fields, nil
 }

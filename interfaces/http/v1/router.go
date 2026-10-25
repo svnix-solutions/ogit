@@ -10,6 +10,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/v1/repository"
 	"github.com/labbs/ogit/interfaces/http/v1/site"
 	"github.com/labbs/ogit/interfaces/http/v1/sshkey"
+	"github.com/labbs/ogit/interfaces/http/v1/statuses"
 	"github.com/labbs/ogit/interfaces/http/v1/user"
 )
 
@@ -68,6 +69,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	sshkey.Setup(sshkey.Controller{Logger: deps.Logger, SSHKeyApp: deps.SSHKeyApp}, userGrp, repoGrp, adminGrp)
 
 	browse.Setup(browse.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp}, repoGrp)
+
+	statuses.Setup(statuses.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Limits: deps.Limits, Statuses: deps.StatusApp}, repoGrp)
 
 	pulls.Setup(pulls.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, Pulls: deps.PullApp}, repoGrp)
 

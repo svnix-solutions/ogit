@@ -2,6 +2,7 @@ package http
 
 import (
 	"github.com/labbs/ogit/infrastructure"
+	"github.com/labbs/ogit/interfaces/http/ghcompat"
 	"github.com/labbs/ogit/interfaces/http/git"
 	"github.com/labbs/ogit/interfaces/http/raw"
 	v1 "github.com/labbs/ogit/interfaces/http/v1"
@@ -36,6 +37,11 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// Setup v1 routes
 	v1.SetupRouterV1(deps)
+
+	// GitHub-compatible commit statuses for CI plugins (tokens only).
+	deps.Http.Fiber.Use("/api/v3", apiLimit(deps.Config, deps.Limits))
+	ghcompat.Setup(ghcompat.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp,
+		Limits: deps.Limits, Statuses: deps.StatusApp}, deps.Http.Fiber)
 
 	// Raw files and archives: /<owner>/<repo>/raw/... and /archive/...
 	raw.Setup(raw.Controller{Logger: deps.Logger, AuthApp: deps.AuthApp, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp, Limits: deps.Limits}, deps.Http.Fiber)

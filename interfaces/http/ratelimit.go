@@ -7,6 +7,7 @@ import (
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/helpers/tokenutil"
 	"github.com/labbs/ogit/infrastructure/ratelimit"
+	"github.com/labbs/ogit/interfaces/http/v1/optauth"
 )
 
 // apiLimit applies ratelimit.api_user to requests with a validly signed
@@ -17,7 +18,12 @@ import (
 func apiLimit(cfg config.Config, guard *ratelimit.Guard) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		rule, key := guard.Rules.APIAnonymous, "api:ip:"+guard.ClientIP(c)
-		if token, ok := strings.CutPrefix(c.Get(fiber.HeaderAuthorization), "Bearer "); ok {
+		if optauth.Token(c) != "" {
+			// Personal access tokens (CI posting statuses) get the user
+			// budget, counted per IP: keying by the presented token would let
+			// made-up tokens get fresh budgets.
+			rule, key = guard.Rules.APIUser, "api:token-ip:"+guard.ClientIP(c)
+		} else if token, ok := strings.CutPrefix(c.Get(fiber.HeaderAuthorization), "Bearer "); ok {
 			if claims, err := tokenutil.GetClaims(token, cfg); err == nil && claims.UserID != "" {
 				rule, key = guard.Rules.APIUser, "api:user:"+claims.UserID
 			}

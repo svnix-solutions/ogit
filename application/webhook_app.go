@@ -29,11 +29,11 @@ import (
 var (
 	ErrWebhookNotFound  = errors.New("webhook not found")
 	ErrDeliveryNotFound = errors.New("delivery not found")
-	ErrInvalidWebhook   = errors.New("webhook URL must be http(s)://host/path, and events one of push, pull_request, pull_request_review, pull_request_review_comment, issue_comment, repository or *")
+	ErrInvalidWebhook   = errors.New("webhook URL must be http(s)://host/path, and events one of push, pull_request, pull_request_review, pull_request_review_comment, issue_comment, repository, status or *")
 )
 
 // WebhookEvents are the events hooks can subscribe to ("*" is all).
-var WebhookEvents = []string{"push", "pull_request", "pull_request_review", "pull_request_review_comment", "issue_comment", "repository"}
+var WebhookEvents = []string{"push", "pull_request", "pull_request_review", "pull_request_review_comment", "issue_comment", "repository", "status"}
 
 // retryAfter[i] is the wait after failed attempt i+1.
 var retryAfter = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, 30 * time.Minute}

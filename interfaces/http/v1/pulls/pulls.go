@@ -118,8 +118,16 @@ type Detail struct {
 	RequiredApprovals int      `json:"required_approvals"`
 	// ProtectedBy is the pattern of the rule protecting the target branch.
 	ProtectedBy string `json:"protected_by,omitempty"`
+	// RequiredChecks are the protecting rule's required status contexts with
+	// their state on the head ("" when not reported).
+	RequiredChecks []RequiredCheck `json:"required_checks"`
 	// MergeBlocked says why the caller can't merge an open pull request.
 	MergeBlocked *MergeBlocked `json:"merge_blocked,omitempty"`
+}
+
+type RequiredCheck struct {
+	Context string `json:"context"`
+	State   string `json:"state"`
 }
 
 type MergeBlocked struct {
@@ -177,8 +185,12 @@ func detail(v *application.PullRequestView) *Detail {
 		BranchesExist: v.BranchesExist, CanEdit: v.CanEdit, CanMerge: v.CanMerge,
 		Approved: v.Approvals.Approved, ChangesRequested: v.Approvals.ChangesRequested, RequiredApprovals: v.RequiredApprovals,
 	}
+	d.RequiredChecks = []RequiredCheck{}
 	if v.Protection != nil {
 		d.ProtectedBy = v.Protection.Pattern
+		for _, ctx := range v.Protection.RequiredContexts {
+			d.RequiredChecks = append(d.RequiredChecks, RequiredCheck{Context: ctx, State: string(v.RequiredChecks[ctx])})
+		}
 	}
 	if v.MergeBlocked != nil {
 		e := apierror.From(v.MergeBlocked, zerolog.Nop())

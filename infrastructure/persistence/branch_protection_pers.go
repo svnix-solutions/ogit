@@ -32,6 +32,9 @@ func (p *branchProtectionPers) Create(rule *domain.BranchProtection) error {
 	if rule.AllowedGroupIds == nil {
 		rule.AllowedGroupIds = domain.StringList{}
 	}
+	if rule.RequiredContexts == nil {
+		rule.RequiredContexts = domain.StringList{}
+	}
 	return p.db.Create(rule).Error
 }
 

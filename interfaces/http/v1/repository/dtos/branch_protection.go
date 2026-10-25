@@ -12,6 +12,7 @@ type BranchProtectionResponse struct {
 	DismissStaleApprovals bool      `json:"dismiss_stale_approvals"`
 	AllowedUsers          []string  `json:"allowed_users"`
 	AllowedGroups         []string  `json:"allowed_groups"`
+	RequiredContexts      []string  `json:"required_contexts"`
 	OwnersBypass          bool      `json:"owners_bypass"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
@@ -35,8 +36,9 @@ type BranchProtectionFields struct {
 	RequirePullRequest    *bool    `json:"require_pull_request"`
 	RequiredApprovals     *int     `json:"required_approvals"`
 	DismissStaleApprovals *bool    `json:"dismiss_stale_approvals"`
-	AllowedUsers          []string `json:"allowed_users"`  // usernames
-	AllowedGroups         []string `json:"allowed_groups"` // group names
+	AllowedUsers          []string `json:"allowed_users"`     // usernames
+	AllowedGroups         []string `json:"allowed_groups"`    // group names
+	RequiredContexts      []string `json:"required_contexts"` // commit status contexts that must be success
 	OwnersBypass          *bool    `json:"owners_bypass"`
 }
 

@@ -57,6 +57,7 @@ type PullRequestApp struct {
 	Reviews      domain.ReviewPers
 	Webhooks     *WebhookApp
 	Protection   *ProtectionApp // nil: no branch protection
+	Statuses     *StatusApp     // required checks of protected branches
 	Labels       domain.LabelPers
 	Users        domain.UserPers
 	Mailer       mail.Sender // nil or without smtp.host: no emails
@@ -83,6 +84,9 @@ type PullRequestView struct {
 	RequiredApprovals int
 	// Protection is the rule protecting the target branch, if any.
 	Protection *domain.BranchProtection
+	// RequiredChecks are the target rule's required contexts and their state
+	// on the head ("" when not reported).
+	RequiredChecks map[string]domain.StatusState
 	// MergeBlocked says why the viewer can't merge an open pull request
 	// (nil when they can, or when it is not open).
 	MergeBlocked error
@@ -268,6 +272,11 @@ func (c *PullRequestApp) Get(id, path *string, userId string, number int) (*Pull
 		}
 		mergeable := len(conflicts) == 0 && !upToDate
 		view.Mergeable, view.Conflicts = &mergeable, conflicts
+		if view.Protection != nil {
+			if view.RequiredChecks, err = c.Statuses.RequiredChecks(repo, pr.HeadCommit, view.Protection.RequiredContexts); err != nil {
+				return nil, err
+			}
+		}
 		if !mergeable && len(conflicts) == 0 {
 			view.MergeBlocked = ErrNoChanges
 		} else if view.MergeBlocked, err = c.mergeBlocked(view, userId, false); err != nil {
@@ -302,6 +311,21 @@ func (c *PullRequestApp) mergeBlocked(view *PullRequestView, userId string, bypa
 		violation = fmt.Errorf("%w: %d of %d", ErrNeedsApproval, len(view.Approvals.Approved), view.RequiredApprovals)
 	}
 	rule := view.Protection
+	if violation == nil && rule != nil && len(rule.RequiredContexts) > 0 {
+		var failing []string
+		for _, ctx := range rule.RequiredContexts {
+			switch state := view.RequiredChecks[ctx]; state {
+			case domain.StatusSuccess:
+			case "":
+				failing = append(failing, ctx+" (not reported)")
+			default:
+				failing = append(failing, ctx+" ("+string(state)+")")
+			}
+		}
+		if len(failing) > 0 {
+			violation = fmt.Errorf("%w: %s", ErrChecksRequired, strings.Join(failing, ", "))
+		}
+	}
 	if violation == nil && rule != nil {
 		ok, err := c.Protection.allowed(rule, userId)
 		if err != nil {

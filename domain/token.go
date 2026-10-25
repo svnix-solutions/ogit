@@ -61,6 +61,8 @@ const (
 	ScopeCreatePullRequest  TokenScope = "create:pull_request"
 	ScopeMergePullRequest   TokenScope = "merge:pull_request"
 	ScopeCommentPullRequest TokenScope = "comment:pull_request"
+	// ScopeWriteStatus posts commit statuses (CI) without push access.
+	ScopeWriteStatus TokenScope = "write:status"
 )
 
 func (t TokenScopes) Value() (driver.Value, error) {
@@ -83,6 +85,8 @@ func (t *TokenScopes) Scan(value any) error {
 type TokenPers interface {
 	Create(token *Token) error
 	GetByNameAndToken(name, tokenStr string) (*Token, error)
+	// GetByToken finds a token by its hash alone (API calls send no name).
+	GetByToken(tokenStr string) (*Token, error)
 	GetByUserId(userId string) ([]Token, error)
 	GetById(id string) (*Token, error)
 	Delete(token *Token) error
