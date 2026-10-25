@@ -161,6 +161,9 @@ func (c *PullRequestApp) Create(id, path *string, actorId, title, body, source, 
 	if err := c.Pulls.Create(pr); err != nil {
 		return nil, err
 	}
+	opened := *pr
+	opened.HeadCommit, opened.BaseCommit = sourceTip.Hash.String(), targetTip.Hash.String()
+	c.Webhooks.PullRequestEvent(&PullRequestView{PullRequest: &opened, Repository: repo}, "opened", actorId, PullRequestPayload{})
 	if len(Mentions(body)) > 0 {
 		c.notify(&PullRequestView{PullRequest: pr, Repository: repo}, actorId, "opened", body)
 	}
@@ -313,7 +316,25 @@ func (c *PullRequestApp) Update(id, path *string, actorId string, number int, up
 	} else if !ok {
 		return nil, ErrNotOpen
 	}
-	return c.Get(id, path, actorId, number)
+	updated, err := c.Get(id, path, actorId, number)
+	if err != nil {
+		return nil, err
+	}
+	changes := map[string]any{}
+	if t, ok := fields["title"].(string); ok && t != view.Title {
+		changes["title"] = map[string]string{"from": view.Title}
+	}
+	if upd.Body != nil && *upd.Body != view.Body {
+		changes["body"] = map[string]string{"from": view.Body}
+	}
+	if len(changes) > 0 {
+		c.Webhooks.PullRequestEvent(updated, "edited", actorId, PullRequestPayload{Changes: changes})
+	}
+	if upd.Draft != nil && *upd.Draft != view.Draft {
+		action := map[bool]string{true: "converted_to_draft", false: "ready_for_review"}[*upd.Draft]
+		c.Webhooks.PullRequestEvent(updated, action, actorId, PullRequestPayload{})
+	}
+	return updated, nil
 }
 
 // Close records the branch tips so the pull request stays readable.
@@ -337,7 +358,7 @@ func (c *PullRequestApp) Close(id, path *string, actorId string, number int) (*P
 		return nil, ErrNotOpen
 	}
 	c.notify(view, actorId, "closed", "")
-	return c.Get(id, path, actorId, number)
+	return c.withEvent(id, path, actorId, number, "closed")
 }
 
 func (c *PullRequestApp) Reopen(id, path *string, actorId string, number int) (*PullRequestView, error) {
@@ -364,7 +385,18 @@ func (c *PullRequestApp) Reopen(id, path *string, actorId string, number int) (*
 		return nil, ErrNotOpen
 	}
 	c.notify(view, actorId, "reopened", "")
-	return c.Get(id, path, actorId, number)
+	return c.withEvent(id, path, actorId, number, "reopened")
+}
+
+// withEvent returns the pull request after a change and queues a
+// pull_request event for it.
+func (c *PullRequestApp) withEvent(id, path *string, actorId string, number int, action string) (*PullRequestView, error) {
+	view, err := c.Get(id, path, actorId, number)
+	if err != nil {
+		return nil, err
+	}
+	c.Webhooks.PullRequestEvent(view, action, actorId, PullRequestPayload{})
+	return view, nil
 }
 
 // MergeOptions: Method is merge, squash or rebase; Message replaces the
@@ -468,7 +500,7 @@ func (c *PullRequestApp) Merge(id, path *string, actorId string, number int, opt
 		}
 	}
 	c.Webhooks.Pushed(view.Repository, Pusher{UserId: actorId}, st, pushed)
-	return c.Get(id, path, actorId, number)
+	return c.withEvent(id, path, actorId, number, "closed") // merged: true
 }
 
 func defaultMergeMessage(pr *domain.PullRequest, method string) string {

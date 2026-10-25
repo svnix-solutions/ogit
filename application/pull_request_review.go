@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/labbs/ogit/domain"
 	helperError "github.com/labbs/ogit/infrastructure/helpers/error"
@@ -122,6 +123,7 @@ func (c *PullRequestApp) AddComment(id, path *string, actorId string, number int
 		return nil, err
 	}
 	c.notify(view, actorId, "commented", body)
+	c.Webhooks.CommentEvent(view, comment, "created", actorId, nil)
 	return comment, nil
 }
 
@@ -142,7 +144,13 @@ func (c *PullRequestApp) EditComment(id, path *string, actorId string, number in
 	if strings.TrimSpace(body) == "" {
 		return ErrEmptyComment
 	}
-	return c.Reviews.UpdateComment(commentId, body)
+	if err := c.Reviews.UpdateComment(commentId, body); err != nil {
+		return err
+	}
+	changes := map[string]any{"body": map[string]string{"from": comment.Body}}
+	comment.Body, comment.UpdatedAt = body, time.Now()
+	c.Webhooks.CommentEvent(view, comment, "edited", actorId, changes)
+	return nil
 }
 
 func (c *PullRequestApp) DeleteComment(id, path *string, actorId string, number int, commentId string) error {
@@ -159,7 +167,11 @@ func (c *PullRequestApp) DeleteComment(id, path *string, actorId string, number 
 	if (comment.AuthorId == nil || *comment.AuthorId != actorId) && !view.Role.CanAdmin() {
 		return ErrForbidden
 	}
-	return c.Reviews.DeleteComment(commentId)
+	if err := c.Reviews.DeleteComment(commentId); err != nil {
+		return err
+	}
+	c.Webhooks.CommentEvent(view, comment, "deleted", actorId, nil)
+	return nil
 }
 
 // SubmitReview records a review with optional inline comments.
@@ -203,6 +215,7 @@ func (c *PullRequestApp) SubmitReview(id, path *string, actorId string, number i
 		text += fmt.Sprintf("\n\n%s:%d\n%s", ic.Path, ic.Line, ic.Body)
 	}
 	c.notify(view, actorId, verb, strings.TrimSpace(text))
+	c.Webhooks.ReviewSubmitted(view, review, comments, actorId)
 	return review, nil
 }
 
@@ -360,6 +373,7 @@ func (c *PullRequestApp) SetLabels(id, path *string, actorId string, number int,
 	if err := c.Labels.Set(view.Id, ids); err != nil {
 		return nil, err
 	}
+	c.labelEvents(view, set, actorId)
 	if set == nil {
 		set = []domain.Label{}
 	}
@@ -380,4 +394,30 @@ func Mentions(text string) []string {
 		}
 	}
 	return out
+}
+
+// labelEvents queues labeled and unlabeled events for a label change.
+func (c *PullRequestApp) labelEvents(view *PullRequestView, now []domain.Label, actorId string) {
+	before := map[string]bool{}
+	for _, l := range view.Labels {
+		before[l.Id] = true
+	}
+	after := map[string]bool{}
+	for _, l := range now {
+		after[l.Id] = true
+	}
+	old := view.Labels
+	view.Labels = now
+	for _, l := range now {
+		if !before[l.Id] {
+			label := hookLabel(l)
+			c.Webhooks.PullRequestEvent(view, "labeled", actorId, PullRequestPayload{Label: &label})
+		}
+	}
+	for _, l := range old {
+		if !after[l.Id] {
+			label := hookLabel(l)
+			c.Webhooks.PullRequestEvent(view, "unlabeled", actorId, PullRequestPayload{Label: &label})
+		}
+	}
 }

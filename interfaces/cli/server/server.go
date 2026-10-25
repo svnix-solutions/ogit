@@ -173,6 +173,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.WebhookApp = &application.WebhookApp{
 		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Users: userPers,
 		Hooks: persistence.NewWebhookPers(deps.Database.Db), Sender: sender,
+		Pulls: deps.PullApp.Pulls, Labels: deps.PullApp.Labels,
 	}
 	deps.RepoApp.Webhooks = deps.WebhookApp
 	deps.PullApp.Webhooks = deps.WebhookApp
