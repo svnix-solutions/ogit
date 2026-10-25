@@ -190,7 +190,8 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 
 ### Webhooks
 
-Maintainers and owners add webhooks to a repository. Payloads and headers follow
+Maintainers and owners add webhooks to a repository, in its **Settings** page
+(with the delivery log, payloads and redelivery) or through the API. Payloads and headers follow
 GitHub's (`X-GitHub-Event`, `X-GitHub-Delivery`, `X-Hub-Signature-256`), so
 existing receivers and CI integrations work.
 
