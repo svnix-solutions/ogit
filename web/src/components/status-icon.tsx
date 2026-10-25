@@ -12,8 +12,10 @@ export function StatusIcon({ state, className, title }: { state: StatusState; cl
 }
 
 // CombinedIcon summarises a commit's statuses ("2 of 3 checks passed").
-export function CombinedIcon({ combined }: { combined: Combined | undefined }) {
-  if (!combined || combined.total_count === 0) return null;
+// With reserve, a commit without statuses keeps the icon's space, so rows
+// of a list line up.
+export function CombinedIcon({ combined, reserve }: { combined: Combined | undefined; reserve?: boolean }) {
+  if (!combined || combined.total_count === 0) return reserve ? <span className="w-4 shrink-0" aria-hidden /> : null;
   const passed = combined.statuses.filter((s) => s.state === "success").length;
   return <StatusIcon state={combined.state} title={`${passed} of ${combined.total_count} checks passed`} />;
 }

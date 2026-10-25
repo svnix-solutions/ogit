@@ -95,6 +95,29 @@ describe("issues", () => {
     await waitFor(() => expect(sent(fetch, "PUT", "/repository/acme%2Fapp/issues/4/milestone")).toEqual([{ milestone_id: "m1" }]));
   });
 
+  it("lets authors edit their comments", async () => {
+    const fetch = fakeAPI({
+      "/instance": instance, "/user/profile": me("dev"), "/repository/acme%2Fapp": repo("developer"),
+      "/repository/acme%2Fapp/issues/4": issue(),
+      "/repository/acme%2Fapp/issues/4/comments": { comments: [
+        { id: "c1", author: "dev", body: "Typo hree", created_at: "2026-01-02T00:00:00Z", updated_at: "", can_edit: true, can_delete: true },
+        { id: "c2", author: "maint", body: "Not mine", created_at: "2026-01-03T00:00:00Z", updated_at: "", can_edit: false, can_delete: false },
+      ] },
+      "/repository/acme%2Fapp/labels": { labels: [] }, "/repository/acme%2Fapp/members": { members: [] },
+      "/repository/acme%2Fapp/milestones?state=open": { milestones: [] },
+      "PATCH /repository/acme%2Fapp/issues/4/comments/c1": { message: "comment updated" },
+    });
+    renderRoutes(routes, "/acme/app/issues/4");
+    expect(await screen.findByText("Typo hree")).toBeInTheDocument();
+    const edits = screen.getAllByRole("button", { name: "Edit" }); // the title, the description, and the own comment
+    expect(edits).toHaveLength(3);
+    await userEvent.click(edits[2]);
+    await userEvent.clear(screen.getByLabelText("Edit comment"));
+    await userEvent.type(screen.getByLabelText("Edit comment"), "Typo here");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent(fetch, "PATCH", "/repository/acme%2Fapp/issues/4/comments/c1")).toEqual([{ body: "Typo here" }]));
+  });
+
   it("shows read-only boxes and who closed it with which pull request", async () => {
     fakeAPI({
       "/instance": instance, "/user/profile": anon, "/repository/acme%2Fapp": repo("none", { is_private: false }),

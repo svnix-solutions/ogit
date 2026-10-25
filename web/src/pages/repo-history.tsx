@@ -14,11 +14,11 @@ import { useStatuses, type Combined } from "@/lib/statuses";
 import { CombinedIcon } from "@/components/status-icon";
 import { encodePath, relativeTime, shortHash, summary, useCommit, useCommits, useCompare, useRefs, type Commit } from "@/lib/browse";
 
-function CommitRow({ commit, status }: { commit: Commit; status?: Combined }) {
+function CommitRow({ commit, status, reserve }: { commit: Commit; status?: Combined; reserve?: boolean }) {
   const repo = useRepo();
   return (
     <div className="flex items-center gap-3 px-4 py-3">
-      <CombinedIcon combined={status} />
+      <CombinedIcon combined={status} reserve={reserve} />
       <div className="min-w-0 flex-1">
         <Link to={`/${repo.full_path}/commit/${commit.hash}`} className="block truncate font-medium hover:text-primary hover:underline">
           {summary(commit.message)}
@@ -63,7 +63,7 @@ export function CommitsPage() {
       ) : (
         <Card className="divide-y">
           {commits.data.commits.map((c) => (
-            <CommitRow key={c.hash} commit={c} status={statuses.data?.[c.hash]} />
+            <CommitRow key={c.hash} commit={c} status={statuses.data?.[c.hash]} reserve={Object.keys(statuses.data ?? {}).length > 0} />
           ))}
         </Card>
       )}
@@ -136,7 +136,7 @@ export function BranchesPage() {
         <Card className="divide-y">
           {list.map((r) => (
             <div key={r.name} className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm">
-              {branches && <CombinedIcon combined={statuses.data?.[r.commit.hash]} />}
+              {branches && <CombinedIcon combined={statuses.data?.[r.commit.hash]} reserve={Object.keys(statuses.data ?? {}).length > 0} />}
               <Link to={`/${repo.full_path}/tree/${encodePath(r.name)}`} className="font-mono text-primary hover:underline">
                 {r.name}
               </Link>
