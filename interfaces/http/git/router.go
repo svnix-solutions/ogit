@@ -17,6 +17,7 @@ type Controller struct {
 	AuthApp       *application.AuthApp
 	Limits        *ratelimit.Guard
 	Webhooks      *application.WebhookApp
+	Protection    *application.ProtectionApp
 }
 
 // Repositories are at /<namespace>/<repo>.git. The flat /<repo>.git URLs

@@ -26,7 +26,7 @@ var (
 
 func push(t *testing.T, st storer.Storer, cmds ...*packp.Command) *packp.ReportStatus {
 	t.Helper()
-	sess, expect, err := GuardedReceivePack(st, &transport.Endpoint{Path: "/repo.git"})
+	sess, expect, err := GuardedReceivePack(st, &transport.Endpoint{Path: "/repo.git"}, nil)
 	require.NoError(t, err)
 	_, err = sess.AdvertisedReferences()
 	require.NoError(t, err)

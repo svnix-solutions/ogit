@@ -14,10 +14,12 @@ type Controller struct {
 	RepositoryApp *application.RepositoryApp
 	SessionApp    *application.SessionApp // optional sessions on public routes
 	WebhookApp    *application.WebhookApp
+	ProtectionApp *application.ProtectionApp
 }
 
 func SetupRepositoryRouter(controller Controller) {
 	setupWebhookRoutes(controller)
+	setupBranchProtectionRoutes(controller)
 
 	fiberoapi.Get(controller.FiberOapi, "/:identifier", controller.GetRepository, fiberoapi.OpenAPIOptions{
 		Summary:     "Get repository",

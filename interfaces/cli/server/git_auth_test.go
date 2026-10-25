@@ -99,6 +99,16 @@ func testGitHTTPAuthorization(t *testing.T, opts ...func(*config.Config)) {
 		assert.Equal(t, head.Hash(), freshHead.Hash(), "fresh clone sees the push")
 	})
 
+	t.Run("delete_only_push", func(t *testing.T) {
+		// A push that only deletes sends no packfile.
+		pushFiles(t, private, ownerRW, "doomed", "to delete", nil)
+		require.NoError(t, deleteRemoteBranch(t, private, ownerRW, "doomed"))
+		repo, err := clone(t, private, ownerRW)
+		require.NoError(t, err)
+		_, err = repo.Reference(plumbing.NewRemoteReferenceName("origin", "doomed"), false)
+		assert.Error(t, err, "the branch is gone")
+	})
+
 	t.Run("non_member", func(t *testing.T) {
 		_, err := clone(t, private, outsiderRW)
 		assert.ErrorIs(t, err, transport.ErrRepositoryNotFound, "private repo is hidden from non-members")

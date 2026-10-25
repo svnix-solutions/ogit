@@ -48,7 +48,9 @@ type Approvals struct {
 	ChangesRequested []string
 }
 
-func (c *PullRequestApp) approvals(repo *domain.Repository, pr *domain.PullRequest) (*Approvals, error) {
+// approvals counts the reviews; with headOnly, approvals of other commits
+// are dismissed (requests for changes stay).
+func (c *PullRequestApp) approvals(repo *domain.Repository, pr *domain.PullRequest, headOnly string) (*Approvals, error) {
 	reviews, err := c.Reviews.Reviews(pr.Id)
 	if err != nil {
 		return nil, err
@@ -56,6 +58,10 @@ func (c *PullRequestApp) approvals(repo *domain.Repository, pr *domain.PullReque
 	latest := map[string]domain.Review{}
 	for _, r := range reviews { // oldest first
 		if r.AuthorId == nil || r.State == domain.ReviewCommented || (pr.AuthorId != nil && *r.AuthorId == *pr.AuthorId) {
+			continue
+		}
+		if headOnly != "" && r.State == domain.ReviewApproved && r.CommitId != headOnly {
+			delete(latest, *r.AuthorId) // dismissed by a newer push
 			continue
 		}
 		latest[*r.AuthorId] = r

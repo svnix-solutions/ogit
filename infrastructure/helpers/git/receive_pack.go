@@ -31,11 +31,18 @@ type ConditionalReferenceRemover interface {
 	RemoveReferenceIf(name plumbing.ReferenceName, old plumbing.Hash) error
 }
 
+// RefCheck decides whether a push may move a reference from old to new (a
+// zero old is a creation, a zero new a deletion). Its error is reported to
+// the client for that reference only; the pushed objects are already stored
+// when it runs, so it can inspect new.
+type RefCheck func(name plumbing.ReferenceName, old, new plumbing.Hash) error
+
 // GuardedReceivePack returns a receive-pack session over st whose ref
-// updates are checked against the request, and a function that must be
-// called with the decoded request before ReceivePack.
-func GuardedReceivePack(st storer.Storer, ep *transport.Endpoint) (transport.ReceivePackSession, func(*packp.ReferenceUpdateRequest), error) {
-	g := &guardedStorer{Storer: st, expected: map[plumbing.ReferenceName]plumbing.Hash{}}
+// updates are checked against the request (and by check, if not nil), and
+// a function that must be called with the decoded request before
+// ReceivePack.
+func GuardedReceivePack(st storer.Storer, ep *transport.Endpoint, check RefCheck) (transport.ReceivePackSession, func(*packp.ReferenceUpdateRequest), error) {
+	g := &guardedStorer{Storer: st, expected: map[plumbing.ReferenceName]plumbing.Hash{}, check: check}
 	var wrapped storer.Storer = g
 	// go-git detects PackfileWriter with a type assertion; keep it visible.
 	if pw, ok := st.(storer.PackfileWriter); ok {
@@ -60,12 +67,18 @@ func (l staticLoader) Load(*transport.Endpoint) (storer.Storer, error) { return 
 type guardedStorer struct {
 	storer.Storer
 	expected map[plumbing.ReferenceName]plumbing.Hash
+	check    RefCheck
 }
 
 func (g *guardedStorer) SetReference(ref *plumbing.Reference) error {
 	old, ok := g.expected[ref.Name()]
 	if !ok {
 		return g.Storer.SetReference(ref)
+	}
+	if g.check != nil {
+		if err := g.check(ref.Name(), old, ref.Hash()); err != nil {
+			return err
+		}
 	}
 	if old.IsZero() { // create
 		if c, ok := g.Storer.(ReferenceCreator); ok {
@@ -80,6 +93,11 @@ func (g *guardedStorer) RemoveReference(name plumbing.ReferenceName) error {
 	old, ok := g.expected[name]
 	if !ok {
 		return g.Storer.RemoveReference(name)
+	}
+	if g.check != nil {
+		if err := g.check(name, old, plumbing.ZeroHash); err != nil {
+			return err
+		}
 	}
 	if r, ok := g.Storer.(ConditionalReferenceRemover); ok {
 		return r.RemoveReferenceIf(name, old)
@@ -100,3 +118,16 @@ type guardedPackStorer struct {
 }
 
 func (g *guardedPackStorer) PackfileWriter() (io.WriteCloser, error) { return g.pw.PackfileWriter() }
+
+// OnlyDeletes reports whether a push only deletes references. Such a push
+// sends no packfile, but the decoder treats the rest of the stream as one:
+// set req.Packfile to nil, or go-git fails with "empty packfile" (HTTP) or
+// blocks reading a pack that never comes (SSH).
+func OnlyDeletes(req *packp.ReferenceUpdateRequest) bool {
+	for _, cmd := range req.Commands {
+		if cmd.Action() != packp.Delete {
+			return false
+		}
+	}
+	return len(req.Commands) > 0
+}

@@ -56,6 +56,7 @@ type PullRequestApp struct {
 	Pulls        domain.PullRequestPers
 	Reviews      domain.ReviewPers
 	Webhooks     *WebhookApp
+	Protection   *ProtectionApp // nil: no branch protection
 	Labels       domain.LabelPers
 	Users        domain.UserPers
 	Mailer       mail.Sender // nil or without smtp.host: no emails
@@ -75,10 +76,18 @@ type PullRequestView struct {
 	Role          domain.AccessType
 	CanEdit       bool
 	CanMerge      bool
-	// Reviews that count (developers and up, not the author).
+	// Reviews that count (developers and up, not the author; only on the
+	// head commit when the target's rule dismisses stale approvals).
 	Approvals *Approvals
-	Labels    []domain.Label
-	viewerId  string
+	// RequiredApprovals for merging: the target's rule, else the repository's.
+	RequiredApprovals int
+	// Protection is the rule protecting the target branch, if any.
+	Protection *domain.BranchProtection
+	// MergeBlocked says why the viewer can't merge an open pull request
+	// (nil when they can, or when it is not open).
+	MergeBlocked error
+	Labels       []domain.Label
+	viewerId     string
 }
 
 // Viewer is who the view was computed for ("" anonymous).
@@ -227,7 +236,23 @@ func (c *PullRequestApp) Get(id, path *string, userId string, number int) (*Pull
 	source, serr := branchTip(st, pr.SourceBranch)
 	target, terr := branchTip(st, pr.TargetBranch)
 	view.BranchesExist = serr == nil && terr == nil
-	if view.Approvals, err = c.approvals(repo, pr); err != nil {
+	if view.Protection, err = c.Protection.RuleFor(repo, pr.TargetBranch); err != nil {
+		return nil, err
+	}
+	view.RequiredApprovals = repo.RequiredApprovals
+	staleBefore := ""
+	if rule := view.Protection; rule != nil {
+		if rule.RequiredApprovals != nil {
+			view.RequiredApprovals = *rule.RequiredApprovals
+		}
+		if rule.DismissStaleApprovals {
+			staleBefore = pr.HeadCommit
+			if pr.State == domain.PullRequestOpen && serr == nil {
+				staleBefore = source.Hash.String()
+			}
+		}
+	}
+	if view.Approvals, err = c.approvals(repo, pr, staleBefore); err != nil {
 		return nil, err
 	}
 	labels, err := c.Labels.For([]string{pr.Id})
@@ -243,14 +268,63 @@ func (c *PullRequestApp) Get(id, path *string, userId string, number int) (*Pull
 		}
 		mergeable := len(conflicts) == 0 && !upToDate
 		view.Mergeable, view.Conflicts = &mergeable, conflicts
-		view.CanMerge = mergeable && role.CanAdmin() && !pr.Draft && !repo.IsArchived && view.approved()
+		if !mergeable && len(conflicts) == 0 {
+			view.MergeBlocked = ErrNoChanges
+		} else if view.MergeBlocked, err = c.mergeBlocked(view, userId, false); err != nil {
+			return nil, err
+		}
+		view.CanMerge = view.MergeBlocked == nil
 	}
 	return view, nil
 }
 
-// approved: enough approvals and nobody asking for changes.
-func (v *PullRequestView) approved() bool {
-	return len(v.Approvals.Approved) >= v.Repository.RequiredApprovals && len(v.Approvals.ChangesRequested) == 0
+// mergeBlocked returns why userId can't merge the open pull request in
+// view, or nil (the second result is an unexpected error). With bypass,
+// an owner's bypass of the target's rule is logged.
+func (c *PullRequestApp) mergeBlocked(view *PullRequestView, userId string, bypass bool) (error, error) {
+	switch {
+	case !view.Role.CanAdmin():
+		return ErrForbidden, nil
+	case view.Draft:
+		return ErrDraft, nil
+	case view.Repository.IsArchived:
+		return ErrGitArchived, nil
+	case !view.BranchesExist:
+		return ErrBranchNotFound, nil
+	case len(view.Conflicts) > 0:
+		return &MergeConflictError{Paths: view.Conflicts}, nil
+	}
+	var violation error
+	switch {
+	case len(view.Approvals.ChangesRequested) > 0:
+		violation = fmt.Errorf("%w by %s", ErrChangesRequested, strings.Join(view.Approvals.ChangesRequested, ", "))
+	case len(view.Approvals.Approved) < view.RequiredApprovals:
+		violation = fmt.Errorf("%w: %d of %d", ErrNeedsApproval, len(view.Approvals.Approved), view.RequiredApprovals)
+	}
+	rule := view.Protection
+	if violation == nil && rule != nil {
+		ok, err := c.Protection.allowed(rule, userId)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			violation = &ProtectedError{Branch: view.TargetBranch, Reason: "you are not allowed to merge into it"}
+		}
+	}
+	if violation == nil {
+		return nil, nil
+	}
+	if rule != nil {
+		if !bypass {
+			// Only report what a merge would do: an owner may bypass.
+			if role, err := c.Repositories.GetUserEffectiveRole(view.RepositoryId, userId); err == nil && rule.OwnersBypass && role == domain.AccessTypeOwner {
+				return nil, nil
+			}
+		} else if c.Protection.bypass(view.Repository, rule, userId, "merge", violation) {
+			return nil, nil
+		}
+	}
+	return violation, nil
 }
 
 // Compare returns a pull request's commits and diff: the source's commits
@@ -412,23 +486,16 @@ func (c *PullRequestApp) Merge(id, path *string, actorId string, number int, opt
 	if err != nil {
 		return nil, err
 	}
-	switch {
-	case !view.Role.CanAdmin():
+	if !view.Role.CanAdmin() {
 		return nil, ErrForbidden
-	case view.State != domain.PullRequestOpen:
+	}
+	if view.State != domain.PullRequestOpen {
 		return nil, ErrNotOpen
-	case view.Draft:
-		return nil, ErrDraft
-	case view.Repository.IsArchived:
-		return nil, ErrGitArchived
-	case !view.BranchesExist:
-		return nil, ErrBranchNotFound
-	case len(view.Conflicts) > 0:
-		return nil, &MergeConflictError{Paths: view.Conflicts}
-	case len(view.Approvals.ChangesRequested) > 0:
-		return nil, fmt.Errorf("%w by %s", ErrChangesRequested, strings.Join(view.Approvals.ChangesRequested, ", "))
-	case len(view.Approvals.Approved) < view.Repository.RequiredApprovals:
-		return nil, fmt.Errorf("%w: %d of %d", ErrNeedsApproval, len(view.Approvals.Approved), view.Repository.RequiredApprovals)
+	}
+	if blocked, err := c.mergeBlocked(view, actorId, true); err != nil {
+		return nil, err
+	} else if blocked != nil {
+		return nil, blocked
 	}
 	merger, err := c.Users.GetById(actorId)
 	if err != nil {
@@ -492,7 +559,9 @@ func (c *PullRequestApp) Merge(id, path *string, actorId string, number int, opt
 	// A merge is a push to the target (and to the source, when deleted).
 	pushed := []RefUpdate{{Name: targetRef, Old: base.Hash, New: res.Commit}}
 	if opts.DeleteBranch {
-		if err := deleteBranch(st, view.SourceBranch, head.Hash); err != nil {
+		if err := c.Protection.CheckDelete(view.Repository, actorId, view.SourceBranch, head.Hash); err != nil {
+			c.Logger.Info().Err(err).Str("component", "application.pull_request").Str("branch", view.SourceBranch).Msg("protected source branch kept")
+		} else if err := deleteBranch(st, view.SourceBranch, head.Hash); err != nil {
 			// The merge happened; a branch that moved is kept.
 			c.Logger.Warn().Err(err).Str("component", "application.pull_request").Str("branch", view.SourceBranch).Msg("source branch not deleted")
 		} else {

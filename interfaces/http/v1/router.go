@@ -48,6 +48,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		RepositoryApp: deps.RepoApp,
 		SessionApp:    deps.SessionApp,
 		WebhookApp:    deps.WebhookApp,
+		ProtectionApp: deps.ProtectionApp,
 	}
 	repository.SetupRepositoryRouter(repoCtrl)
 
