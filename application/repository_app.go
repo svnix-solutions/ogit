@@ -45,7 +45,9 @@ func NewRepositoryApp(config config.Config, logger zerolog.Logger, repoPers doma
 // See namespace.go for who may create where.
 func (c *RepositoryApp) Create(namespace, name, description, creator string, isPrivate bool) (*domain.Repository, error) {
 	return c.create(namespace, creator, &domain.Repository{Name: name, Description: description, IsPrivate: isPrivate, DefaultBranch: "main", HasIssues: true},
-		func(repo *domain.Repository) error { return c.StorageConfig.CreateRepository(repo.StorageKey) })
+		func(repo *domain.Repository) error {
+			return c.StorageConfig.CreateRepository(repo.StorageKey, repo.Name)
+		})
 }
 
 // create stores a repository made from tmpl (name, description, privacy,

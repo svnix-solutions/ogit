@@ -125,7 +125,7 @@ func packKeys(t *testing.T, ep s3test.Endpoint, repo, suffix string) []string {
 
 func newRepoWithPushes(t *testing.T, storage *s3.S3Storage, repo string, pushes int) {
 	t.Helper()
-	require.NoError(t, storage.CreateRepository(repo))
+	require.NoError(t, storage.CreateRepository(repo, "Test"))
 	raw, err := storage.GetStorer(repo)
 	require.NoError(t, err)
 	st := raw.(*s3.S3Storer)

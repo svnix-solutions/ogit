@@ -15,6 +15,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/storage/initial"
 	"github.com/rs/zerolog"
 )
 
@@ -77,7 +78,7 @@ func (ls *LocalStorage) InitRepository(repoPath string) error {
 	return err
 }
 
-func (ls *LocalStorage) CreateRepository(repoPath string) error {
+func (ls *LocalStorage) CreateRepository(repoPath, name string) error {
 	fullPath := ls.getFullPath(repoPath)
 
 	if ls.RepositoryExists(repoPath) {
@@ -108,15 +109,14 @@ func (ls *LocalStorage) CreateRepository(repoPath string) error {
 	}
 
 	// Create README.md with repository information
-	repoName := strings.TrimSuffix(filepath.Base(repoPath), ".git")
-	readmeContent := "# " + repoName + "\n\nRepository created with git-server-s3\n"
+	readmeContent := initial.Readme(name)
 
 	readmeFile, err := worktree.Filesystem.Create("README.md")
 	if err != nil {
 		return err
 	}
 
-	if _, err := readmeFile.Write([]byte(readmeContent)); err != nil {
+	if _, err := readmeFile.Write(readmeContent); err != nil {
 		readmeFile.Close()
 		return err
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/storage/cache"
+	"github.com/labbs/ogit/infrastructure/storage/initial"
 	"github.com/rs/zerolog"
 )
 
@@ -130,7 +131,7 @@ func (s3s *S3Storage) InitRepository(repoPath string) error {
 	return repo.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.Main))
 }
 
-func (s3s *S3Storage) CreateRepository(repoPath string) error {
+func (s3s *S3Storage) CreateRepository(repoPath, name string) error {
 	if s3s.RepositoryExists(repoPath) {
 		return errors.New("repository already exists")
 	}
@@ -142,7 +143,7 @@ func (s3s *S3Storage) CreateRepository(repoPath string) error {
 	}
 
 	// Create initial commit and main branch
-	if err := s3s.createInitialCommit(repoKey); err != nil {
+	if err := s3s.createInitialCommit(repoKey, name); err != nil {
 		return fmt.Errorf("failed to create initial commit: %w", err)
 	}
 
@@ -151,26 +152,13 @@ func (s3s *S3Storage) CreateRepository(repoPath string) error {
 }
 
 // createInitialCommit creates an initial commit with README.md and main branch
-func (s3s *S3Storage) createInitialCommit(repoKey string) error {
+func (s3s *S3Storage) createInitialCommit(repoKey, name string) error {
 	// The objects are built in memory and written as one pack: new
 	// repositories have no loose objects.
 	repo := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger, s3s.cache)
 	storer := memory.NewStorage()
 
-	// Create README.md content
-	readmeContent := []byte(`# Repository
-	
-This is a new Git repository hosted on S3.
-
-## Getting Started
-
-Clone this repository:
-` + "```bash" + `
-git clone <repository-url>
-` + "```" + `
-
-Start adding your files and make your first commit!
-`)
+	readmeContent := initial.Readme(name)
 
 	// Create blob object for README.md
 	readmeBlob := &plumbing.MemoryObject{}

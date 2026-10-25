@@ -73,7 +73,7 @@ func TestGCCommand(t *testing.T) {
 	ownedBy(&repo, createOwner(t, db))
 	require.NoError(t, db.Db.Create(&repo).Error)
 	// One pack (the initial commit) plus loose objects from an old server.
-	require.NoError(t, s3test.NewStorage(t, ep).CreateRepository(repo.StorageKey))
+	require.NoError(t, s3test.NewStorage(t, ep).CreateRepository(repo.StorageKey, "Test"))
 	s3test.CreateLegacyRepository(t, ep, repo.StorageKey, map[string]string{"README.md": "old"})
 
 	var out bytes.Buffer
@@ -114,7 +114,7 @@ func TestPruneCommand(t *testing.T) {
 	require.NoError(t, db.Db.Create(&repo).Error)
 	// The initial commit, then an old-layout history replacing it: the
 	// initial commit (a blob, a tree and the commit) is unreachable.
-	require.NoError(t, s3test.NewStorage(t, ep).CreateRepository(repo.StorageKey))
+	require.NoError(t, s3test.NewStorage(t, ep).CreateRepository(repo.StorageKey, "Test"))
 	s3test.CreateLegacyRepository(t, ep, repo.StorageKey, map[string]string{"README.md": "rewritten"})
 	time.Sleep(20 * time.Millisecond)
 

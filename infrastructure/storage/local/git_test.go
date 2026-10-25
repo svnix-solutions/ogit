@@ -17,7 +17,7 @@ func TestCreateRepositoryHasOnlyMain(t *testing.T) {
 	cfg.Storage.Local.Path = filepath.Join(t.TempDir(), "repos")
 	ls := NewLocalStorage(zerolog.Nop(), cfg)
 	require.NoError(t, ls.Configure())
-	require.NoError(t, ls.CreateRepository("demo"))
+	require.NoError(t, ls.CreateRepository("demo", "Test"))
 
 	repo, err := git.PlainOpen(filepath.Join(cfg.Storage.Local.Path, "demo.git"))
 	require.NoError(t, err)
