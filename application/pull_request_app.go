@@ -180,11 +180,16 @@ func (c *PullRequestApp) List(id, path *string, userId string, state domain.Pull
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		labelId = "-" // a name that matches nothing lists nothing
 		for _, l := range labels {
 			if l.Name == label {
 				labelId = l.Id
 			}
+		}
+		if labelId == "" {
+			// No such label: nothing has it. (Not a fake id: Postgres
+			// rejects anything but a UUID.)
+			_, counts, err := c.Pulls.List(repo.Id, state, "", 0, 1) // for the counts
+			return []domain.PullRequest{}, counts, map[string][]domain.Label{}, err
 		}
 	}
 	prs, counts, err := c.Pulls.List(repo.Id, state, labelId, max(offset, 0), clampLimit(limit))
