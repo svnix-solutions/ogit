@@ -7,6 +7,7 @@ import (
 	"github.com/labbs/ogit/infrastructure/database"
 	"github.com/labbs/ogit/infrastructure/http"
 	"github.com/labbs/ogit/infrastructure/mail"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"github.com/labbs/ogit/infrastructure/storage"
 	"github.com/rs/zerolog"
 )
@@ -26,6 +27,7 @@ type Deps struct {
 	RepoApp    *application.RepositoryApp
 	BrowseApp  *application.BrowseApp
 	PullApp    *application.PullRequestApp
+	Limits     *ratelimit.Guard
 	GitApp     *application.GitApp
 	TokenApp   *application.TokenApp
 	GroupApp   *application.GroupApp

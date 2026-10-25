@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"io"
 	"net"
 	"os"
@@ -42,6 +43,8 @@ type Server struct {
 	AuthApp *application.AuthApp
 	Keys    domain.SSHKeyPers
 	Storage storage.Config
+	// Limits counts git operations per key (ratelimit.git_user); nil: none.
+	Limits *ratelimit.Guard
 
 	config *gossh.ServerConfig
 }
@@ -176,6 +179,12 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 		logger.Error().Err(err).Msg("ssh authorization failed")
 		fmt.Fprintln(ch.Stderr(), "fatal: internal error")
 		return 1
+	}
+	if s.Limits != nil {
+		if r := s.Limits.Allow(context.Background(), s.Limits.Rules.GitUser, "git:key:"+id.Key.Id); !r.Allowed {
+			fmt.Fprintf(ch.Stderr(), "fatal: too many git requests; try again in %s seconds\n", ratelimit.RetryAfter(r))
+			return 1
+		}
 	}
 	_ = s.Keys.TouchLastUsed(id.Key.Id, time.Now())
 

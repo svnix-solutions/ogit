@@ -15,6 +15,8 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// Before any /api/v1 route: turns the web UI's cookie into a bearer token.
 	deps.Http.Fiber.Use("/api/v1", websession.Middleware())
+	// Then the request budget per user (or IP).
+	deps.Http.Fiber.Use("/api/v1", apiLimit(deps.Config, deps.Limits))
 
 	// Setup system routes (health, metrics, etc.)
 	setupSystemRoutes(deps)
@@ -26,6 +28,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 		Fiber:         deps.Http.Fiber,
 		StorageConfig: deps.Storage,
 		AuthApp:       deps.AuthApp,
+		Limits:        deps.Limits,
 	}
 	git.SetupGitRouter(gitCtrl)
 
@@ -33,7 +36,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 	v1.SetupRouterV1(deps)
 
 	// Raw files and archives: /<owner>/<repo>/raw/... and /archive/...
-	raw.Setup(raw.Controller{Logger: deps.Logger, AuthApp: deps.AuthApp, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp}, deps.Http.Fiber)
+	raw.Setup(raw.Controller{Logger: deps.Logger, AuthApp: deps.AuthApp, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp, Limits: deps.Limits}, deps.Http.Fiber)
 
 	// Last: it answers every GET no other route matched.
 	setupWebUI(deps.Http.Fiber, web.Dist())

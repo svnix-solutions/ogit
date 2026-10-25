@@ -4,6 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"github.com/labbs/ogit/infrastructure/storage"
 	"github.com/rs/zerolog"
 )
@@ -14,6 +15,7 @@ type Controller struct {
 	Fiber         *fiber.App
 	StorageConfig storage.Config
 	AuthApp       *application.AuthApp
+	Limits        *ratelimit.Guard
 }
 
 // Repositories are at /<namespace>/<repo>.git. The flat /<repo>.git URLs

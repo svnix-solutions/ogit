@@ -27,16 +27,26 @@ func CreateAccessToken(user_id, sessionId string, config config.Config) (accessT
 }
 
 func GetSessionIdFromToken(tokenString string, config config.Config) (string, error) {
+	claims, err := GetClaims(tokenString, config)
+	if err != nil {
+		return "", err
+	}
+	return claims.SessionID, nil
+}
+
+// GetClaims verifies the token's signature and expiry (not whether its
+// session still exists) and returns its claims.
+func GetClaims(tokenString string, config config.Config) (*JwtCustomClaims, error) {
 	// Only accept the algorithm CreateAccessToken signs with.
 	token, err := jwt.ParseWithClaims(tokenString, &JwtCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(config.Session.SecretKey), nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	claims, ok := token.Claims.(*JwtCustomClaims)
 	if !ok || !token.Valid || claims.SessionID == "" {
-		return "", errors.New("invalid token claims")
+		return nil, errors.New("invalid token claims")
 	}
-	return claims.SessionID, nil
+	return claims, nil
 }

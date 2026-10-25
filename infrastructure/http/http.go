@@ -29,6 +29,9 @@ func Configure(_cfg config.Config, logger z.Logger, session application.SessionA
 		JSONEncoder:           json.Marshal,
 		JSONDecoder:           json.Unmarshal,
 		DisableStartupMessage: true,
+		// Proxy headers (X-Forwarded-Proto, ...) only from http.trusted_proxies.
+		EnableTrustedProxyCheck: true,
+		TrustedProxies:          _cfg.Server.TrustedProxies,
 	}
 
 	r := fiber.New(fiberConfig)

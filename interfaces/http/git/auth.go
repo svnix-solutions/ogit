@@ -3,6 +3,7 @@ package git
 import (
 	"encoding/base64"
 	"errors"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -39,8 +40,30 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 
 		// Missing or malformed credentials are treated as anonymous.
 		creds := BasicCredentials(ctx.Get(fiber.HeaderAuthorization))
+		ip := ctrl.Limits.ClientIP(ctx)
+		if creds != nil {
+			// Token guessing counts like failed logins.
+			if r, blocked := ctrl.Limits.LoginBlocked(ctx.UserContext(), ip, ""); blocked {
+				ctx.Set(fiber.HeaderRetryAfter, ratelimit.RetryAfter(r))
+				return ctx.Status(fiber.StatusTooManyRequests).SendString("too many failed authentication attempts; try again later")
+			}
+		}
 
 		repo, err := ctrl.AuthApp.AuthorizeGit(path, op, creds)
+		if creds != nil && errors.Is(err, application.ErrGitUnauthenticated) {
+			ctrl.Limits.LoginFailed(ctx.UserContext(), ip, "")
+		}
+		if err == nil {
+			// Operations per token, or per IP without credentials.
+			rule, key := ctrl.Limits.Rules.GitAnonymous, "git:ip:"+ip
+			if creds != nil {
+				rule, key = ctrl.Limits.Rules.GitUser, "git:token:"+application.HashToken(creds.Token)[:16]
+			}
+			if r := ctrl.Limits.Allow(ctx.UserContext(), rule, key); !r.Allowed {
+				ctx.Set(fiber.HeaderRetryAfter, ratelimit.RetryAfter(r))
+				return ctx.Status(fiber.StatusTooManyRequests).SendString("too many git requests; try again later")
+			}
+		}
 		switch {
 		case err == nil:
 			// The handlers serve the repository that was authorized (also when

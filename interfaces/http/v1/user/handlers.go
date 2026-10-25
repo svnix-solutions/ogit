@@ -1,10 +1,12 @@
 package user
 
 import (
+	"errors"
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/domain"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"github.com/labbs/ogit/interfaces/http/v1/apierror"
 	"github.com/labbs/ogit/interfaces/http/v1/user/dtos"
 )
@@ -87,7 +89,15 @@ func (ctrl *Controller) ChangePassword(ctx *fiber.Ctx, req dtos.ChangePasswordRe
 		return nil, apierror.Unauthenticated()
 	}
 	sessionId, _ := authCtx.Claims[application.SessionIDClaim].(string)
+	// A stolen session must not be able to guess the current password.
+	ip := ctrl.Limits.ClientIP(ctx)
+	if r, blocked := ctrl.Limits.LoginBlocked(ctx.UserContext(), ip, "user:"+authCtx.UserID); blocked {
+		return nil, ratelimit.Refused(ctx, r)
+	}
 	if err := ctrl.AuthApp.ChangePassword(authCtx.UserID, sessionId, req.CurrentPassword, req.NewPassword); err != nil {
+		if errors.Is(err, application.ErrInvalidCredentials) {
+			ctrl.Limits.LoginFailed(ctx.UserContext(), ip, "user:"+authCtx.UserID)
+		}
 		return nil, apierror.From(err, ctrl.Logger)
 	}
 	return &dtos.ChangePasswordResponse{Message: "password changed; other sessions have been ended"}, nil

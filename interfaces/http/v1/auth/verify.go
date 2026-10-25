@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"html"
 
 	"github.com/gofiber/fiber/v2"
@@ -26,6 +27,10 @@ func (ctrl Controller) VerifyEmail(ctx *fiber.Ctx, req dtos.VerifyEmailRequest) 
 // ResendVerification always answers the same, whether or not the email
 // belongs to an unverified account.
 func (ctrl Controller) ResendVerification(ctx *fiber.Ctx, req dtos.ResendVerificationRequest) (*dtos.MessageResponse, *fiberoapi.ErrorResponse) {
+	// Each resend sends an email: limited per IP (and per account inside).
+	if r := ctrl.Limits.Allow(ctx.UserContext(), ctrl.Limits.Rules.RegisterIP, "register:ip:"+ctrl.Limits.ClientIP(ctx)); !r.Allowed {
+		return nil, ratelimit.Refused(ctx, r)
+	}
 	_ = ctrl.AuthApp.ResendVerification(req.Email)
 	return &dtos.MessageResponse{Message: "If an unverified account exists for this address, a new verification email has been sent."}, nil
 }

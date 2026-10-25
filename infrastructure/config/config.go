@@ -15,6 +15,23 @@ type Config struct {
 		// PublicURL is the externally reachable base URL (e.g.
 		// https://git.example.com), used in links sent by email
 		PublicURL string
+		// TrustedProxies are the IPs or CIDRs of reverse proxies whose
+		// X-Forwarded-For and X-Forwarded-Proto headers are believed.
+		TrustedProxies []string
+	}
+
+	// RateLimit rules are "N/window" (e.g. "10/15m"); "0" turns one off.
+	RateLimit struct {
+		Enabled      bool
+		Store        string // memory or redis
+		RedisURL     string
+		LoginIP      string // failed logins and token checks per IP
+		LoginAccount string // failed logins per account
+		RegisterIP   string // registrations and verification emails per IP
+		APIUser      string // API requests per signed-in user
+		APIAnonymous string // API requests per IP without a session
+		GitUser      string // git operations per user or deploy key
+		GitAnonymous string // git operations per IP without credentials
 	}
 
 	// Logger is the configuration for the zerolog logger.

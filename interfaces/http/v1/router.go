@@ -22,6 +22,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		Logger:    deps.Logger,
 		FiberOapi: grp.Group("/auth"),
 		AuthApp:   deps.AuthApp,
+		Limits:    deps.Limits,
 	}
 	auth.SetupAuthRouter(authCtrl)
 	// The link in verification emails: a plain page, not an OpenAPI operation.
@@ -36,6 +37,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		UserApp:   deps.UserApp,
 		TokenApp:  deps.TokenApp,
 		AuthApp:   deps.AuthApp,
+		Limits:    deps.Limits,
 	}
 	user.SetupUserRouter(userCtrl)
 

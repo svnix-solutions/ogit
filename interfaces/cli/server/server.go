@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"net"
 	"strconv"
 
@@ -50,6 +51,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.StorageFlags(cfg)...)
 	list = append(list, config.SMTPFlags(cfg)...)
 	list = append(list, config.SSHFlags(cfg)...)
+	list = append(list, config.RateLimitFlags(cfg)...)
 	return
 }
 
@@ -170,6 +172,12 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp,
 		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))
 
+	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.ratelimit").Msg("Invalid rate limit configuration")
+		return deps, err
+	}
+
 	// Initialize HTTP server (fiber + fiberoapi)
 	deps.Http, err = http.Configure(deps.Config, deps.Logger, *deps.SessionApp, true)
 	if err != nil {
@@ -183,6 +191,9 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 // startSSH listens for git over SSH on ssh.port in the background.
 func startSSH(deps infrastructure.Deps) error {
 	srv, err := sshserver.New(deps.Config.SSH.HostKeyPath, deps.Logger, deps.AuthApp, deps.SSHKeyApp.SSHKeyPers, deps.Storage)
+	if srv != nil {
+		srv.Limits = deps.Limits
+	}
 	if err != nil {
 		return err
 	}

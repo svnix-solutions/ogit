@@ -7,6 +7,7 @@ http:
   port: 8080
   logs: false          # access log for every request
   public_url: ""       # externally reachable base URL, e.g. https://git.example.com (needed for email links)
+  trusted_proxies: []  # reverse proxies (IPs/CIDRs) whose X-Forwarded-For/-Proto are believed, e.g. ["10.0.0.0/8"]
 
 logger:
   level: info          # debug, info, warn, error
@@ -35,6 +36,18 @@ registration:
   require_email_verification: false
   verification_ttl_hours: 24
   verification_url_template: "{public_url}/api/v1/auth/verify?token={token}"
+
+ratelimit:             # "N/window"; "0" turns a rule off. Exceeding one answers 429 with Retry-After.
+  enabled: true
+  store: memory        # memory (per server) or redis (shared by every server)
+  redis_url: ""        # redis only, e.g. redis://localhost:6379/1
+  login_ip: 10/15m     # failed logins, password checks and git token checks per IP
+  login_account: 50/15m  # failed logins per account, from any IP
+  register_ip: 5/1h    # registrations and verification emails per IP
+  api_user: 600/1m     # API requests per signed-in user
+  api_anonymous: 120/1m  # API requests per IP without a session
+  git_user: 300/1m     # git operations, raw files and archives per token, user or SSH key
+  git_anonymous: 60/1m # the same per IP without credentials
 
 ssh:                   # git over SSH: ssh://git@host:2222/<repo>.git
   enabled: false

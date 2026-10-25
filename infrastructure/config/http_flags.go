@@ -36,5 +36,15 @@ func ServerFlags(cfg *Config) []cli.Flag {
 				altsrcyaml.YAML("http.public_url", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
 			),
 		},
+		&cli.StringSliceFlag{
+			Name:        "http.trusted_proxies",
+			Usage:       "IPs or CIDRs of reverse proxies whose X-Forwarded-For/-Proto headers are trusted (comma separated); none by default",
+			Value:       []string{},
+			Destination: &cfg.Server.TrustedProxies,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("HTTP_TRUSTED_PROXIES"),
+				altsrcyaml.YAML("http.trusted_proxies", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
 	}
 }
