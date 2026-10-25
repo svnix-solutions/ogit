@@ -19,6 +19,11 @@ type GetRepositoryResponse struct {
 	// RequiredApprovals before pull requests can be merged.
 	RequiredApprovals int  `json:"required_approvals"`
 	HasIssues         bool `json:"has_issues"`
+	// ForkOf is the repository this one was forked from, when the caller
+	// can read it; IsFork is set even when they can't (or it was deleted:
+	// then false).
+	ForkOf *RepositoryRef `json:"fork_of,omitempty"`
+	IsFork bool           `json:"is_fork"`
 	// Role is the caller's effective role (none, reporter, developer,
 	// maintainer, owner); only on GET.
 	Role string `json:"role,omitempty"`
@@ -48,4 +53,36 @@ type DeleteRepositoryResponse struct {
 type TransferRepositoryRequest struct {
 	Identifier string `path:"identifier" json:"-" validate:"required"`
 	Namespace  string `json:"namespace" validate:"required"` // a username or group name
+}
+
+// RepositoryRef names a repository.
+type RepositoryRef struct {
+	Id       string `json:"id"`
+	FullPath string `json:"full_path"`
+}
+
+type ForkRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	Namespace  string `json:"namespace"` // your own when empty, or a group you maintain
+	Name       string `json:"name"`      // the original's when empty
+}
+
+type ListForksRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+}
+
+type ListForksResponse struct {
+	Forks []RepositorySummary `json:"forks"`
+}
+
+type SyncRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	Branch     string `json:"branch"` // the fork's default branch when empty
+}
+
+type SyncResponse struct {
+	Branch  string `json:"branch"`
+	Before  string `json:"before"` // empty when the branch was created
+	After   string `json:"after"`
+	Updated bool   `json:"updated"` // false when it was up to date
 }

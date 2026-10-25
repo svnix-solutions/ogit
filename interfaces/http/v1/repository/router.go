@@ -20,6 +20,7 @@ type Controller struct {
 func SetupRepositoryRouter(controller Controller) {
 	setupWebhookRoutes(controller)
 	setupBranchProtectionRoutes(controller)
+	setupForkRoutes(controller)
 
 	fiberoapi.Get(controller.FiberOapi, "/:identifier", controller.GetRepository, fiberoapi.OpenAPIOptions{
 		Summary:     "Get repository",

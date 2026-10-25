@@ -38,6 +38,12 @@ func (r *repositoryPers) InNamespace(ownerType domain.OwnerType, ownerId string)
 	return repos, err
 }
 
+func (r *repositoryPers) ForksOf(repositoryId string) ([]domain.Repository, error) {
+	var repos []domain.Repository
+	err := r.db.Where("fork_of_id = ?", repositoryId).Order("namespace, slug").Find(&repos).Error
+	return repos, err
+}
+
 func (r *repositoryPers) Create(repo *domain.Repository) error {
 	return r.db.Create(repo).Error
 }
@@ -73,6 +79,8 @@ func (r *repositoryPers) Purge(id string) error {
 			"DELETE FROM issue WHERE repository_id = ?",
 			"UPDATE pull_request SET milestone_id = NULL WHERE repository_id = ?",
 			"DELETE FROM milestone WHERE repository_id = ?",
+			// Its forks stay, no longer forks (SQLite skips ON DELETE SET NULL).
+			"UPDATE repository SET fork_of_id = NULL WHERE fork_of_id = ?",
 		} {
 			if err := tx.Exec(q, id).Error; err != nil {
 				return err

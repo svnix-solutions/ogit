@@ -202,6 +202,13 @@ func (c *WebhookApp) pullRequest(repo *domain.Repository, pr *domain.PullRequest
 		ClosedAt: pr.ClosedAt, MergedAt: pr.MergedAt, Merged: pr.State == domain.PullRequestMerged,
 		Head: branch(pr.SourceBranch, pr.HeadCommit), Base: branch(pr.TargetBranch, pr.BaseCommit),
 	}
+	if pr.SourceRepositoryId != nil && c.Repositories != nil {
+		// From a fork: the head is the fork's branch, as on GitHub.
+		if fork, err := c.Repositories.GetRepository(pr.SourceRepositoryId, nil); err == nil {
+			fr := c.repositoryPayload(fork)
+			p.Head = HookBranch{Label: fork.Namespace + ":" + pr.SourceBranch, Ref: pr.SourceBranch, SHA: pr.HeadCommit, User: fr.Owner, Repo: fr}
+		}
+	}
 	if pr.State != domain.PullRequestOpen {
 		p.State = "closed"
 	}

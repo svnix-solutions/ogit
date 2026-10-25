@@ -44,6 +44,10 @@ func (ctrl *Controller) GetRepository(ctx *fiber.Ctx, req dtos.GetRepositoryRequ
 		return nil, apierror.From(err, logger)
 	}
 	response.Role = string(role)
+	response.IsFork = repo.ForkOfId != nil
+	if parent := ctrl.RepositoryApp.Parent(repo, userId); parent != nil {
+		response.ForkOf = &dtos.RepositoryRef{Id: parent.Id, FullPath: parent.FullPath()}
+	}
 
 	return &response, nil
 }

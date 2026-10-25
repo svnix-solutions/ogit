@@ -38,6 +38,10 @@ type Repository struct {
 	// set it (true for new repositories).
 	HasIssues bool
 
+	// ForkOfId is the repository this one was forked from (nil when it
+	// isn't a fork, or the original was deleted).
+	ForkOfId *string
+
 	// DeployKeys DeployKeys `gorm:"foreignKey:RepositoryId"`
 	// WebHooks   WebHooks   `gorm:"foreignKey:RepositoryId"`
 
@@ -106,6 +110,8 @@ type RepositoryPers interface {
 	GetByPath(namespace, slug string) (*Repository, error)
 	// InNamespace returns the repositories a user or group owns.
 	InNamespace(ownerType OwnerType, ownerId string) ([]Repository, error)
+	// ForksOf returns the repositories forked from repositoryId.
+	ForksOf(repositoryId string) ([]Repository, error)
 	Create(repo *Repository) error
 	Delete(repo Repository) error
 	// Purge deletes the repository and every row that references it

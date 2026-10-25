@@ -44,7 +44,16 @@ func NewRepositoryApp(config config.Config, logger zerolog.Logger, repoPers doma
 // Create makes a repository in namespace (the creator's own when empty).
 // See namespace.go for who may create where.
 func (c *RepositoryApp) Create(namespace, name, description, creator string, isPrivate bool) (*domain.Repository, error) {
+	return c.create(namespace, creator, &domain.Repository{Name: name, Description: description, IsPrivate: isPrivate, DefaultBranch: "main", HasIssues: true},
+		func(repo *domain.Repository) error { return c.StorageConfig.CreateRepository(repo.StorageKey) })
+}
+
+// create stores a repository made from tmpl (name, description, privacy,
+// default branch, issues, fork) in namespace, then fills its storage with
+// initStorage; on failure it removes what it made.
+func (c *RepositoryApp) create(namespace, creator string, tmpl *domain.Repository, initStorage func(*domain.Repository) error) (*domain.Repository, error) {
 	logger := c.Logger.With().Str("component", "application.repository.create").Logger()
+	name, description, isPrivate := tmpl.Name, tmpl.Description, tmpl.IsPrivate
 
 	if namespace == "" {
 		user, err := c.UserPers.GetById(creator)
@@ -75,8 +84,9 @@ func (c *RepositoryApp) Create(namespace, name, description, creator string, isP
 		OwnerId:       ns.Id,
 		Slug:          repoSlug,
 		StorageKey:    id, // never changes, so renames do not move data
-		DefaultBranch: "main",
-		HasIssues:     true,
+		DefaultBranch: tmpl.DefaultBranch,
+		HasIssues:     tmpl.HasIssues,
+		ForkOfId:      tmpl.ForkOfId,
 	}
 
 	err = c.RepoPres.Create(repo)
@@ -93,11 +103,12 @@ func (c *RepositoryApp) Create(namespace, name, description, creator string, isP
 		logger.Warn().Err(err).Str("path", repo.FullPath()).Msg("failed to drop redirect")
 	}
 
-	err = c.StorageConfig.CreateRepository(repo.StorageKey)
+	err = initStorage(repo)
 	if err != nil {
 		logger.Error().Err(err).Str("repo_id", repo.Id).Str("repo_name", repo.Name).Msg("failed to create repository storage")
 		// Attempt to clean up the database entry if storage creation fails
 		c.RepoPres.Delete(*repo)
+		_ = c.StorageConfig.DeleteRepository(repo.StorageKey)
 		return nil, fmt.Errorf("failed to create repository storage: %w", err)
 	}
 

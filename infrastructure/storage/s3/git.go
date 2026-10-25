@@ -90,15 +90,8 @@ func (s3s *S3Storage) GetStorer(repoPath string) (storer.Storer, error) {
 	return NewS3Storer(s3s.client, s3s.bucket, s3s.getRepoKey(repoPath), s3s.Logger, s3s.cache), nil
 }
 
-func (s3s *S3Storage) CreateRepository(repoPath string) error {
-	if s3s.RepositoryExists(repoPath) {
-		return errors.New("repository already exists")
-	}
-
-	// Create a minimal bare repository structure in S3
-	repoKey := s3s.getRepoKey(repoPath)
-
-	// Create basic config
+// writeConfig writes a bare repository's config and the objects/ marker.
+func (s3s *S3Storage) writeConfig(repoKey string) error {
 	configContent := `[core]
 	repositoryformatversion = 0
 	filemode = true
@@ -112,8 +105,6 @@ func (s3s *S3Storage) CreateRepository(repoPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create config: %w", err)
 	}
-
-	// Create empty objects and refs directories by creating marker files
 	_, err = s3s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
 		Bucket: aws.String(s3s.bucket),
 		Key:    aws.String(repoKey + "/objects/.gitkeep"),
@@ -121,6 +112,33 @@ func (s3s *S3Storage) CreateRepository(repoPath string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create objects directory: %w", err)
+	}
+	return nil
+}
+
+// InitRepository writes an empty repository: config, then HEAD (which
+// marks it as existing), pointing at main.
+func (s3s *S3Storage) InitRepository(repoPath string) error {
+	if s3s.RepositoryExists(repoPath) {
+		return errors.New("repository already exists")
+	}
+	repoKey := s3s.getRepoKey(repoPath)
+	if err := s3s.writeConfig(repoKey); err != nil {
+		return err
+	}
+	repo := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger, s3s.cache)
+	return repo.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.Main))
+}
+
+func (s3s *S3Storage) CreateRepository(repoPath string) error {
+	if s3s.RepositoryExists(repoPath) {
+		return errors.New("repository already exists")
+	}
+
+	// Create a minimal bare repository structure in S3
+	repoKey := s3s.getRepoKey(repoPath)
+	if err := s3s.writeConfig(repoKey); err != nil {
+		return err
 	}
 
 	// Create initial commit and main branch

@@ -10,6 +10,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
+- **Forks**: fork any repository you can read, open pull requests from your fork, sync it with the original
 - **Issues**: per repository, numbered with pull requests, with comments, labels, assignees, milestones and "Fixes #N"
 - **Branch protection**: no force-pushes or deletion, pull-request-only branches, per-branch approvals, push and merge allowlists
 - **Commit statuses**: CI reports pass or fail per commit (GitHub-compatible API), and protected branches can require checks
@@ -190,6 +191,25 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 
 - **Renaming and moving:** the path changes, and the old one keeps working for the API, HTTP and SSH until another repository takes it. Git data never moves.
 - **Archiving:** an archived repository can be cloned and fetched, but refuses pushes from everyone until it's unarchived.
+
+### Forks
+
+```bash
+# Fork into your namespace (or {"namespace": "<group you maintain>", "name": "..."})
+curl -X POST localhost:8080/api/v1/repository/alice%2Fapp/forks -H "Authorization: Bearer $SESSION"
+# Open a pull request from your fork into the original
+curl -X POST localhost:8080/api/v1/repository/alice%2Fapp/pulls -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"title": "Fix", "source": "fix", "source_repository": "bob/app"}'
+# Fast-forward your fork's branch to the original's
+curl -X POST localhost:8080/api/v1/repository/bob%2Fapp/sync -H "Authorization: Bearer $SESSION" -d '{"branch": "main"}'
+```
+
+- **Copies:** a fork is a full copy of the original's branches and tags. Deleting the original, or making it private, never affects the fork.
+- **Privacy:** anyone who can read a repository can fork it, into their own namespace or a group they maintain. Forks of private repositories are private, and the original's members don't get access to them. `GET .../forks` lists the forks you can read, and `fork_of` on a repository names the original when you can read it.
+- **Pull requests from forks:** you need write access to the fork and read access to the original. The fork's commits are copied into the original as `refs/pull/<number>/head` when the pull request is opened and whenever the fork branch is pushed, so merged and closed pull requests stay readable after the fork is deleted. The original's maintainers merge, and "delete branch" never touches the fork. `GET .../pulls/preview?source_repository=bob/app&source=fix` compares before opening.
+- **Maintainer edits:** with `allow_maintainer_edits` (on by default, set by the author), the original's developers may push to the fork's source branch, and only that branch, while the pull request is open, over HTTP or SSH.
+- **Sync:** fast-forwards a fork's branch when it has no commits of its own, otherwise answers `DIVERGED`.
+- **Webhooks:** GitHub's `fork` event goes to the original's hooks.
 
 ### Issues
 

@@ -70,14 +70,26 @@ func (p *pullRequestPers) List(repositoryId string, state domain.PullRequestStat
 	return prs, counts, err
 }
 
-func (p *pullRequestPers) OpenFor(repositoryId, source, target string) (*domain.PullRequest, error) {
+func (p *pullRequestPers) OpenFor(repositoryId, sourceRepoId, source, target string) (*domain.PullRequest, error) {
 	var pr domain.PullRequest
-	err := p.db.Where("repository_id = ? AND source_branch = ? AND target_branch = ? AND state = ?",
-		repositoryId, source, target, domain.PullRequestOpen).First(&pr).Error
+	q := p.db.Where("repository_id = ? AND source_branch = ? AND target_branch = ? AND state = ?",
+		repositoryId, source, target, domain.PullRequestOpen)
+	if sourceRepoId == "" {
+		q = q.Where("source_repository_id IS NULL")
+	} else {
+		q = q.Where("source_repository_id = ?", sourceRepoId)
+	}
+	err := q.First(&pr).Error
 	if err != nil {
 		return nil, err
 	}
 	return &pr, nil
+}
+
+func (p *pullRequestPers) OpenFrom(sourceRepoId string) ([]domain.PullRequest, error) {
+	var prs []domain.PullRequest
+	err := p.db.Where("source_repository_id = ? AND state = ?", sourceRepoId, domain.PullRequestOpen).Find(&prs).Error
+	return prs, err
 }
 
 func (p *pullRequestPers) Update(id string, from domain.PullRequestState, fields map[string]any) (bool, error) {

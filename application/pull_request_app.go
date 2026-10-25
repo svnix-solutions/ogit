@@ -71,6 +71,9 @@ type PullRequestApp struct {
 type PullRequestView struct {
 	*domain.PullRequest
 	Repository *domain.Repository
+	// SourceRepository is the fork the source branch lives in (nil for this
+	// repository, or when the fork was deleted).
+	SourceRepository *domain.Repository
 	// Open pull requests: the branches' current tips and whether they merge.
 	Mergeable *bool
 	Conflicts []string
@@ -131,29 +134,77 @@ func branchTip(st storer.Storer, branch string) (*object.Commit, error) {
 	return c, nil
 }
 
+// NewPullRequest describes a pull request to open. SourceRepository is a
+// fork in the same network (id or path; "" for this repository).
+type NewPullRequest struct {
+	Title, Body, Source, Target string
+	SourceRepository            string
+	Draft                       bool
+	// AllowMaintainerEdits (pull requests from forks; default true) lets the
+	// target's developers push to the source branch.
+	AllowMaintainerEdits *bool
+}
+
 // Create opens a pull request; an empty target means the default branch.
-func (c *PullRequestApp) Create(id, path *string, actorId, title, body, source, target string, draft bool) (*domain.PullRequest, error) {
+// From this repository it needs developers and up; from a fork, write
+// access to the fork and read access here.
+func (c *PullRequestApp) Create(id, path *string, actorId string, in NewPullRequest) (*domain.PullRequest, error) {
 	repo, st, role, err := c.repo(id, path, actorId)
 	if err != nil {
 		return nil, err
 	}
-	if !role.CanWrite() {
+	if actorId == "" {
 		return nil, ErrForbidden
 	}
 	if repo.IsArchived {
 		return nil, ErrGitArchived
 	}
-	if title = strings.TrimSpace(title); title == "" {
+	title := strings.TrimSpace(in.Title)
+	if title == "" {
 		return nil, ErrEmptyTitle
 	}
+	target := in.Target
 	if target == "" {
 		def, _, _, _ := gitbrowse.Refs(st)
 		target = def
 	}
-	if source == target {
-		return nil, ErrSameBranch
+
+	// Where the source branch lives: here, or in a fork.
+	var fork *domain.Repository
+	srcSt := st
+	if in.SourceRepository != "" {
+		fid, fpath := sourceRef(in.SourceRepository)
+		fork, err = c.Repositories.GetRepositoryForUser(fid, fpath, actorId)
+		if err != nil {
+			return nil, err
+		}
+		if fork.Id == repo.Id {
+			fork = nil
+		}
 	}
-	sourceTip, err := branchTip(st, source)
+	if fork == nil {
+		if !role.CanWrite() {
+			return nil, ErrForbidden
+		}
+		if in.Source == target {
+			return nil, ErrSameBranch
+		}
+	} else {
+		forkRole, err := c.Repositories.GetUserEffectiveRole(fork.Id, actorId)
+		if err != nil {
+			return nil, err
+		}
+		if !forkRole.CanWrite() {
+			return nil, ErrForbidden
+		}
+		if !c.Repositories.sameNetwork(fork, repo) {
+			return nil, ErrNotInNetwork
+		}
+		if srcSt, err = c.Repositories.StorageConfig.GetStorer(fork.StorageKey); err != nil {
+			return nil, err
+		}
+	}
+	sourceTip, err := branchTip(srcSt, in.Source)
 	if err != nil {
 		return nil, err
 	}
@@ -161,29 +212,43 @@ func (c *PullRequestApp) Create(id, path *string, actorId, title, body, source, 
 	if err != nil {
 		return nil, err
 	}
-	if ok, err := sourceTip.IsAncestor(targetTip); err != nil {
-		return nil, err
-	} else if ok {
+	// The fork's commits are not here yet: read them through an overlay.
+	both := overlay(st, srcSt)
+	if isAncestor(both, sourceTip.Hash, targetTip.Hash) {
 		return nil, ErrNoChanges
 	}
-	if _, err := c.Pulls.OpenFor(repo.Id, source, target); err == nil {
+	forkId := ""
+	if fork != nil {
+		forkId = fork.Id
+	}
+	if _, err := c.Pulls.OpenFor(repo.Id, forkId, in.Source, target); err == nil {
 		return nil, ErrPullRequestExists
 	} else if !isNotFound(err) {
 		return nil, err
 	}
 
 	pr := &domain.PullRequest{
-		RepositoryId: repo.Id, Title: title, Body: body, AuthorId: &actorId,
-		SourceBranch: source, TargetBranch: target, State: domain.PullRequestOpen, Draft: draft,
+		RepositoryId: repo.Id, Title: title, Body: in.Body, AuthorId: &actorId,
+		SourceBranch: in.Source, TargetBranch: target, State: domain.PullRequestOpen, Draft: in.Draft,
+	}
+	if fork != nil {
+		pr.SourceRepositoryId = &fork.Id
+		pr.AllowMaintainerEdits = in.AllowMaintainerEdits == nil || *in.AllowMaintainerEdits
 	}
 	if err := c.Pulls.Create(pr); err != nil {
 		return nil, err
 	}
+	if fork != nil {
+		// Bring the fork's commits here, under refs/pull/<n>/head.
+		if err := c.copyHead(srcSt, st, pr, sourceTip.Hash, targetTip.Hash); err != nil {
+			return nil, err
+		}
+	}
 	opened := *pr
 	opened.HeadCommit, opened.BaseCommit = sourceTip.Hash.String(), targetTip.Hash.String()
-	c.Webhooks.PullRequestEvent(&PullRequestView{PullRequest: &opened, Repository: repo}, "opened", actorId, PullRequestPayload{})
-	if len(Mentions(body)) > 0 {
-		c.notify(&PullRequestView{PullRequest: pr, Repository: repo}, actorId, "opened", body)
+	c.Webhooks.PullRequestEvent(&PullRequestView{PullRequest: &opened, Repository: repo, SourceRepository: fork}, "opened", actorId, PullRequestPayload{})
+	if len(Mentions(in.Body)) > 0 {
+		c.notify(&PullRequestView{PullRequest: pr, Repository: repo}, actorId, "opened", in.Body)
 	}
 	return pr, nil
 }
@@ -223,7 +288,7 @@ func (c *PullRequestApp) List(id, path *string, userId string, state domain.Pull
 	if st, err := c.Repositories.StorageConfig.GetStorer(repo.StorageKey); err == nil {
 		for i := range prs {
 			if prs[i].State == domain.PullRequestOpen {
-				if tip, err := branchTip(st, prs[i].SourceBranch); err == nil {
+				if tip, _, _ := c.headTip(st, repo, &prs[i], false); tip != nil {
 					prs[i].HeadCommit = tip.Hash.String()
 				}
 			}
@@ -251,11 +316,14 @@ func (c *PullRequestApp) Get(id, path *string, userId string, number int) (*Pull
 	}
 	view := &PullRequestView{PullRequest: pr, Repository: repo, Role: role, viewerId: userId}
 	isAuthor := userId != "" && pr.AuthorId != nil && *pr.AuthorId == userId
-	view.CanEdit = role.CanAdmin() || (isAuthor && role.CanWrite())
+	// Authors from forks may only read the target (public repositories:
+	// without any role); getting here means they can.
+	view.CanEdit = role.CanAdmin() || (isAuthor && (role.CanWrite() || pr.SourceRepositoryId != nil))
 
-	source, serr := branchTip(st, pr.SourceBranch)
+	source, fork, sourceExists := c.headTip(st, repo, pr, true)
+	view.SourceRepository = fork
 	target, terr := branchTip(st, pr.TargetBranch)
-	view.BranchesExist = serr == nil && terr == nil
+	view.BranchesExist = sourceExists && source != nil && terr == nil
 	if view.Protection, err = c.Protection.RuleFor(repo, pr.TargetBranch); err != nil {
 		return nil, err
 	}
@@ -267,7 +335,7 @@ func (c *PullRequestApp) Get(id, path *string, userId string, number int) (*Pull
 		}
 		if rule.DismissStaleApprovals {
 			staleBefore = pr.HeadCommit
-			if pr.State == domain.PullRequestOpen && serr == nil {
+			if pr.State == domain.PullRequestOpen && source != nil {
 				staleBefore = source.Hash.String()
 			}
 		}
@@ -410,6 +478,8 @@ type PullRequestUpdate struct {
 	Title *string
 	Body  *string
 	Draft *bool
+	// AllowMaintainerEdits: pull requests from forks, their author only.
+	AllowMaintainerEdits *bool
 }
 
 func (c *PullRequestApp) Update(id, path *string, actorId string, number int, upd PullRequestUpdate) (*PullRequestView, error) {
@@ -421,6 +491,12 @@ func (c *PullRequestApp) Update(id, path *string, actorId string, number int, up
 		return nil, ErrForbidden
 	}
 	fields := map[string]any{"updated_at": time.Now()}
+	if upd.AllowMaintainerEdits != nil {
+		if view.SourceRepositoryId == nil || view.AuthorId == nil || *view.AuthorId != actorId {
+			return nil, ErrForbidden
+		}
+		fields["allow_maintainer_edits"] = *upd.AllowMaintainerEdits
+	}
 	if upd.Title != nil {
 		t := strings.TrimSpace(*upd.Title)
 		if t == "" {
@@ -501,7 +577,7 @@ func (c *PullRequestApp) Reopen(id, path *string, actorId string, number int) (*
 	if !view.BranchesExist {
 		return nil, ErrBranchNotFound
 	}
-	if _, err := c.Pulls.OpenFor(view.RepositoryId, view.SourceBranch, view.TargetBranch); err == nil {
+	if _, err := c.Pulls.OpenFor(view.RepositoryId, deref(view.SourceRepositoryId), view.SourceBranch, view.TargetBranch); err == nil {
 		return nil, ErrPullRequestExists
 	}
 	fields := map[string]any{"state": domain.PullRequestOpen, "closed_at": nil, "updated_at": time.Now()}
@@ -610,7 +686,7 @@ func (c *PullRequestApp) Merge(id, path *string, actorId string, number int, opt
 	c.notify(view, actorId, "merged", "")
 	// A merge is a push to the target (and to the source, when deleted).
 	pushed := []RefUpdate{{Name: targetRef, Old: base.Hash, New: res.Commit}}
-	if opts.DeleteBranch {
+	if opts.DeleteBranch && view.SourceRepositoryId == nil { // never in a fork
 		if err := c.Protection.CheckDelete(view.Repository, actorId, view.SourceBranch, head.Hash); err != nil {
 			c.Logger.Info().Err(err).Str("component", "application.pull_request").Str("branch", view.SourceBranch).Msg("protected source branch kept")
 		} else if err := deleteBranch(st, view.SourceBranch, head.Hash); err != nil {
