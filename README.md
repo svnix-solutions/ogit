@@ -10,6 +10,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
+- **Releases**: on tags, with drafts, pre-releases and generated notes
 - **Forks**: fork any repository you can read, open pull requests from your fork, sync it with the original
 - **Issues**: per repository, numbered with pull requests, with comments, labels, assignees, milestones and "Fixes #N"
 - **Branch protection**: no force-pushes or deletion, pull-request-only branches, per-branch approvals, push and merge allowlists
@@ -191,6 +192,24 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 
 - **Renaming and moving:** the path changes, and the old one keeps working for the API, HTTP and SSH until another repository takes it. Git data never moves.
 - **Archiving:** an archived repository can be cloned and fetched, but refuses pushes from everyone until it's unarchived.
+
+### Releases
+
+```bash
+# On an existing tag, or a new one created from target_commitish when published
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/releases -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"tag_name": "v1.2.0", "target_commitish": "main", "name": "v1.2.0", "body": "..."}'
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/releases/generate-notes -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"tag_name": "v1.2.0"}'
+curl localhost:8080/api/v1/repository/me%2Fmy-project/releases/latest
+```
+
+- **Who:** writers (developers and up, or a repository token with `write:repository`, for CI) create, edit, publish and delete releases. Anyone who can read the repository sees published ones.
+- **Tags:** a release uses an existing tag, or creates one from `target_commitish` (a branch or commit; the default branch when empty) when it is published. Deleting a release keeps its tag.
+- **Drafts:** visible to writers only. They create no tag and send no webhooks until published (`"draft": false`). A published release keeps its tag and stays published.
+- **Pre-releases** are never `latest`.
+- **Notes:** `generate-notes` lists the pull requests merged since the previous release (or `previous_tag_name`).
+- **Webhooks:** GitHub's `release` event (created, published, released, prereleased, edited, deleted). A tag created by a release is also a `push` event.
 
 ### Forks
 

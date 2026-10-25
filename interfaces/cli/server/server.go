@@ -209,6 +209,10 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))
 	deps.AuthApp.ForkEdits = deps.PullApp.EditableBranches
 	deps.RepoTokenApp = &application.RepositoryTokenApp{Repositories: deps.RepoApp, Tokens: deps.TokenApp}
+	deps.ReleaseApp = &application.ReleaseApp{
+		Logger: deps.Logger, Repositories: deps.RepoApp, Releases: persistence.NewReleasePers(deps.Database.Db),
+		Pulls: deps.PullApp.Pulls, Users: userPers, Webhooks: deps.WebhookApp,
+	}
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
 	if err != nil {

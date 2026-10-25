@@ -71,6 +71,9 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.CommitStatus{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("repository_id = ?", id).Delete(&domain.Release{}).Error; err != nil {
+			return err
+		}
 		for _, q := range []string{
 			"DELETE FROM issue_label WHERE issue_id IN (SELECT id FROM issue WHERE repository_id = ?)",
 			"DELETE FROM issue_assignee WHERE issue_id IN (SELECT id FROM issue WHERE repository_id = ?)",
