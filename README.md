@@ -11,6 +11,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
 - **Branch protection**: no force-pushes or deletion, pull-request-only branches, per-branch approvals, push and merge allowlists
+- **Commit statuses**: CI reports pass or fail per commit (GitHub-compatible API), and protected branches can require checks
 - **Webhooks**: GitHub-compatible push, pull request and repository events, signed and retried
 - **REST API** with OpenAPI documentation at `/documentation`
 
@@ -209,6 +210,29 @@ curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/branch-protection 
 - `owners_bypass`: repository owners may break the rule. Each bypass is logged with `"component":"audit"`.
 - A pull request's `merge_blocked` says why the caller can't merge it, and `protected_by` names the rule. A protected source branch is kept after a merge, even with `delete_branch`.
 
+### Commit statuses (CI)
+
+CI reports results on commits like it does to GitHub. Create a personal access
+token with the `write:status` scope: it can post statuses but can't push or
+clone (`write:repository` tokens can post too).
+
+```bash
+# oGit's API
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/statuses/<sha> -H "Authorization: token $CI_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"state": "success", "context": "ci/build", "description": "All tests passed", "target_url": "https://ci.example.com/runs/42"}'
+curl "localhost:8080/api/v1/repository/me%2Fmy-project/status?ref=main" -H "Authorization: token $CI_TOKEN"   # combined
+# GitHub's API paths, for CI plugins that report to GitHub (Enterprise): API URL http://<server>/api/v3
+curl -X POST localhost:8080/api/v3/repos/me/my-project/statuses/<sha> -H "Authorization: token $CI_TOKEN" -d '{"state": "pending", "context": "ci/build"}'
+curl localhost:8080/api/v3/repos/me/my-project/commits/main/status -H "Authorization: token $CI_TOKEN"
+```
+
+- **States:** `pending`, `success`, `failure` or `error`. Each `context` (default `default`) counts with its latest report. The combined state is `failure` if any context failed or errored, else `pending` if any is pending (or none was reported), else `success`.
+- **Who:** developers and up post; anyone who can read the repository reads. Tokens are accepted as `token <pat>`, `Bearer <pat>` or Basic with the token as the password. Bad tokens count like failed logins for the IP.
+- **Required checks:** a branch protection rule's `required_contexts` must each be `success` on a pull request's head commit before it can be merged (a new push needs new reports). The pull request's `required_checks` lists their states.
+- **Webhooks:** each status is a GitHub `status` event.
+- `target_url` must be `http` or `https`; descriptions are cut to 140 characters. Only the status endpoints exist under `/api/v3`.
+
 ### Webhooks
 
 Maintainers and owners add webhooks to a repository, in its **Settings** page
@@ -226,7 +250,7 @@ curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/de
 curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/pings -H "Authorization: Bearer $SESSION"
 ```
 
-- **Events:** `push` (the default; HTTP, SSH and pull request merges, including deleted branches), `repository` (renamed, transferred, publicized, privatized, archived, unarchived, edited), or `*` for all. A `ping` is sent when a hook is created.
+- **Events:** `status` (commit statuses), `push` (the default; HTTP, SSH and pull request merges, including deleted branches), `repository` (renamed, transferred, publicized, privatized, archived, unarchived, edited), or `*` for all. A `ping` is sent when a hook is created.
   - `pull_request`: opened, edited, closed (with `merged: true` for merges), reopened, synchronize (a push to the source branch), converted_to_draft, ready_for_review, labeled, unlabeled.
   - `pull_request_review`: submitted. `pull_request_review_comment`: inline comments created, edited, deleted (also those of a review).
   - `issue_comment`: conversation comments created, edited, deleted; the `issue` has a `pull_request` field, as on GitHub.

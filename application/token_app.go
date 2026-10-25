@@ -75,6 +75,28 @@ func HashToken(tokenStr string) string {
 var grantableScopes = []domain.TokenScope{
 	domain.ScopeReadRepository,
 	domain.ScopeWriteRepository,
+	domain.ScopeWriteStatus,
+}
+
+// ErrInvalidToken is any unusable token: unknown, inactive, expired, or of a
+// disabled user (never which one).
+var ErrInvalidToken = errors.New("invalid token")
+
+// Authenticate returns the personal access token tokenStr (the plaintext
+// "ogit_..." value) if it can be used.
+func (c *TokenApp) Authenticate(tokenStr string) (*domain.Token, error) {
+	token, err := c.TokenPers.GetByToken(HashToken(tokenStr))
+	if err != nil {
+		if !isNotFound(err) {
+			return nil, err
+		}
+		return nil, ErrInvalidToken
+	}
+	if !token.Active || (token.ExpiresAt != nil && token.ExpiresAt.Before(time.Now())) ||
+		token.Type != domain.TokenUser || token.UserId == nil || !token.User.Active {
+		return nil, ErrInvalidToken
+	}
+	return token, nil
 }
 
 // CreateUserToken creates a personal access token for userId and returns the

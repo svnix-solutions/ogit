@@ -81,7 +81,7 @@ func (u *userPers) Purge(userId string) error {
 			column string
 		}{
 			{&domain.PullRequest{}, "author_id"}, {&domain.PullRequest{}, "merged_by_id"},
-			{&domain.Review{}, "author_id"}, {&domain.Comment{}, "author_id"},
+			{&domain.Review{}, "author_id"}, {&domain.Comment{}, "author_id"}, {&domain.CommitStatus{}, "creator_id"},
 		} {
 			if err := tx.Model(c.model).Where(c.column+" = ?", userId).Update(c.column, nil).Error; err != nil {
 				return err

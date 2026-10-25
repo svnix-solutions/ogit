@@ -19,7 +19,7 @@ func setupBranchProtectionRoutes(controller Controller) {
 		Description: "Owners. pattern is a branch name or a glob (* within a segment, ** across, ?); the most specific rule wins. " +
 			"Protected branches refuse force-pushes and deletion unless allowed. require_pull_request refuses direct pushes; " +
 			"allowed_users / allowed_groups (when set) are the only ones who may push or merge; required_approvals (-1: the repository's) and " +
-			"dismiss_stale_approvals apply to merges; owners_bypass lets owners break the rule (logged).",
+			"dismiss_stale_approvals apply to merges, as do required_contexts (commit statuses that must be success on the head); owners_bypass lets owners break the rule (logged).",
 		OperationID: "repository.protection.create", Tags: tags,
 	})
 	fiberoapi.Get(controller.FiberOapi, "/:identifier/branch-protection/:rule_id", controller.GetBranchProtection, fiberoapi.OpenAPIOptions{
@@ -37,15 +37,23 @@ func ruleResponse(r *application.RuleView) dtos.BranchProtectionResponse {
 	return dtos.BranchProtectionResponse{
 		Id: r.Id, Pattern: r.Pattern, AllowForcePush: r.AllowForcePush, AllowDeletion: r.AllowDeletion,
 		RequirePullRequest: r.RequirePullRequest, RequiredApprovals: r.RequiredApprovals, DismissStaleApprovals: r.DismissStaleApprovals,
-		AllowedUsers: r.AllowedUsers, AllowedGroups: r.AllowedGroups, OwnersBypass: r.OwnersBypass, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		AllowedUsers: r.AllowedUsers, AllowedGroups: r.AllowedGroups, RequiredContexts: contexts(r.RequiredContexts),
+		OwnersBypass: r.OwnersBypass, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
+}
+
+func contexts(l []string) []string {
+	if l == nil {
+		return []string{}
+	}
+	return l
 }
 
 func ruleChange(f dtos.BranchProtectionFields) application.RuleChange {
 	return application.RuleChange{
 		Pattern: f.Pattern, AllowForcePush: f.AllowForcePush, AllowDeletion: f.AllowDeletion, RequirePullRequest: f.RequirePullRequest,
 		RequiredApprovals: f.RequiredApprovals, DismissStaleApprovals: f.DismissStaleApprovals,
-		AllowedUsers: f.AllowedUsers, AllowedGroups: f.AllowedGroups, OwnersBypass: f.OwnersBypass,
+		AllowedUsers: f.AllowedUsers, AllowedGroups: f.AllowedGroups, RequiredContexts: f.RequiredContexts, OwnersBypass: f.OwnersBypass,
 	}
 }
 

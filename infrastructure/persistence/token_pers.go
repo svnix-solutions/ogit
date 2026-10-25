@@ -23,6 +23,12 @@ func (t *tokenPers) GetByNameAndToken(name, tokenStr string) (*domain.Token, err
 	return &token, err
 }
 
+func (t *tokenPers) GetByToken(tokenStr string) (*domain.Token, error) {
+	var token domain.Token
+	err := t.db.Preload("User").Preload("Repository").Where("token = ?", tokenStr).First(&token).Error
+	return &token, err
+}
+
 func (t *tokenPers) GetByUserId(userId string) ([]domain.Token, error) {
 	var tokens []domain.Token
 	err := t.db.Preload("User").Preload("Repository").Where("user_id = ?", userId).Find(&tokens).Error

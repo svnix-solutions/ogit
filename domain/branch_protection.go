@@ -31,6 +31,9 @@ type BranchProtection struct {
 	// with write access.
 	AllowedUserIds  StringList
 	AllowedGroupIds StringList
+	// RequiredContexts are commit status contexts that must be success on a
+	// pull request's head before it is merged into the branch.
+	RequiredContexts StringList
 	// OwnersBypass lets repository owners ignore the rule (logged).
 	OwnersBypass bool
 

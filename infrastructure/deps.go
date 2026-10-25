@@ -35,4 +35,5 @@ type Deps struct {
 	SSHKeyApp     *application.SSHKeyApp
 	WebhookApp    *application.WebhookApp
 	ProtectionApp *application.ProtectionApp
+	StatusApp     *application.StatusApp
 }

@@ -182,6 +182,10 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Users: userPers, Groups: groupPers,
 	}
 	deps.PullApp.Protection = deps.ProtectionApp
+	deps.StatusApp = &application.StatusApp{
+		Logger: deps.Logger, Repositories: deps.RepoApp, Statuses: persistence.NewCommitStatusPers(deps.Database.Db), Webhooks: deps.WebhookApp,
+	}
+	deps.PullApp.Statuses = deps.StatusApp
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
 	deps.AdminApp = &application.AdminApp{

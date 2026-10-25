@@ -62,6 +62,9 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.BranchProtection{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("repository_id = ?", id).Delete(&domain.CommitStatus{}).Error; err != nil {
+			return err
+		}
 		for _, q := range []struct {
 			model any
 			where string
