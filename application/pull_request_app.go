@@ -58,6 +58,9 @@ type PullRequestApp struct {
 	Webhooks     *WebhookApp
 	Protection   *ProtectionApp // nil: no branch protection
 	Statuses     *StatusApp     // required checks of protected branches
+	Assignees    domain.AssigneePers
+	Milestones   domain.MilestonePers
+	Issues       *IssueApp // closes "Fixes #N" issues on merge
 	Labels       domain.LabelPers
 	Users        domain.UserPers
 	Mailer       mail.Sender // nil or without smtp.host: no emails
@@ -91,6 +94,8 @@ type PullRequestView struct {
 	// (nil when they can, or when it is not open).
 	MergeBlocked error
 	Labels       []domain.Label
+	Assignees    []domain.User
+	Milestone    *domain.Milestone
 	viewerId     string
 }
 
@@ -275,6 +280,18 @@ func (c *PullRequestApp) Get(id, path *string, userId string, number int) (*Pull
 		return nil, err
 	}
 	view.Labels = labels[pr.Id]
+	if c.Assignees != nil {
+		assignees, err := c.Assignees.For(domain.AssignPullRequest, []string{pr.Id})
+		if err != nil {
+			return nil, err
+		}
+		view.Assignees = assignees[pr.Id]
+	}
+	if pr.MilestoneId != nil && c.Milestones != nil {
+		if m, err := c.Milestones.Get(repo.Id, *pr.MilestoneId); err == nil {
+			view.Milestone = m
+		}
+	}
 	if pr.State == domain.PullRequestOpen && view.BranchesExist {
 		pr.HeadCommit, pr.BaseCommit = source.Hash.String(), target.Hash.String()
 		conflicts, upToDate, err := gitmerge.Check(st, target, source)
@@ -604,6 +621,9 @@ func (c *PullRequestApp) Merge(id, path *string, actorId string, number int, opt
 		}
 	}
 	c.Webhooks.Pushed(view.Repository, Pusher{UserId: actorId}, st, pushed)
+	if view.TargetBranch == view.Repository.DefaultBranch {
+		c.Issues.CloseFromPull(view.Repository, view.PullRequest, actorId)
+	}
 	return c.withEvent(id, path, actorId, number, "closed") // merged: true
 }
 
@@ -634,4 +654,80 @@ func deleteBranch(st storer.Storer, branch string, tip plumbing.Hash) error {
 		return gitstorage.ErrReferenceHasChanged
 	}
 	return st.RemoveReference(name)
+}
+
+// writer returns the pull request if actorId may set its labels,
+// assignees and milestone (developers and up, repository not archived).
+func (c *PullRequestApp) writer(id, path *string, actorId string, number int) (*PullRequestView, error) {
+	view, err := c.Get(id, path, actorId, number)
+	if err != nil {
+		return nil, err
+	}
+	if !view.Role.CanWrite() {
+		return nil, ErrForbidden
+	}
+	if view.Repository.IsArchived {
+		return nil, ErrGitArchived
+	}
+	return view, nil
+}
+
+// SetAssignees replaces a pull request's assignees by username.
+func (c *PullRequestApp) SetAssignees(id, path *string, actorId string, number int, names []string) ([]domain.User, error) {
+	view, err := c.writer(id, path, actorId, number)
+	if err != nil {
+		return nil, err
+	}
+	users, err := c.Repositories.assignees(view.Repository, names)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Assignees.Set(domain.AssignPullRequest, view.Id, userIds(users)); err != nil {
+		return nil, err
+	}
+	added, removed := assignmentDiff(view.Assignees, users)
+	for _, u := range added {
+		c.Webhooks.PullRequestEvent(view, "assigned", actorId, PullRequestPayload{Assignee: c.Webhooks.hookUserOrNil(u)})
+	}
+	for _, u := range removed {
+		c.Webhooks.PullRequestEvent(view, "unassigned", actorId, PullRequestPayload{Assignee: c.Webhooks.hookUserOrNil(u)})
+	}
+	if len(added) > 0 {
+		c.notify(view, actorId, "assigned "+usernames(added)+" to", "")
+	}
+	if users == nil {
+		users = []domain.User{}
+	}
+	return users, nil
+}
+
+// SetMilestone sets a pull request's milestone ("" removes it).
+func (c *PullRequestApp) SetMilestone(id, path *string, actorId string, number int, milestoneId string) (*PullRequestView, error) {
+	view, err := c.writer(id, path, actorId, number)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if milestoneId != "" {
+		m, err := c.Milestones.Get(view.RepositoryId, milestoneId)
+		if err != nil {
+			return nil, ErrMilestoneNotFound
+		}
+		value = m.Id
+	}
+	if _, err := c.Pulls.Update(view.Id, view.State, map[string]any{"milestone_id": value, "updated_at": time.Now()}); err != nil {
+		return nil, err
+	}
+	nv, err := c.Get(id, path, actorId, number)
+	if err != nil {
+		return nil, err
+	}
+	old := view.MilestoneId
+	switch {
+	case nv.MilestoneId != nil && (old == nil || *old != *nv.MilestoneId):
+		c.Webhooks.PullRequestEvent(nv, "milestoned", actorId, PullRequestPayload{Milestone: c.Webhooks.milestone(nv.Repository, nv.MilestoneId)})
+	case nv.MilestoneId == nil && old != nil:
+		c.Webhooks.PullRequestEvent(nv, "demilestoned", actorId, PullRequestPayload{Milestone: c.Webhooks.milestone(nv.Repository, old)})
+	}
+	return nv, nil
 }

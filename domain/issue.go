@@ -22,6 +22,9 @@ type Issue struct {
 	ClosedAt     *time.Time
 	ClosedById   *string
 	ClosedBy     *User `gorm:"foreignKey:ClosedById"`
+	// ClosedByPull is the pull request whose merge closed it ("Fixes #N").
+	ClosedByPull *int
+	MilestoneId  *string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
@@ -46,7 +49,14 @@ type IssueFilter struct {
 	LabelId  string
 	AuthorId string
 	Query    string // in the title or the body
+	// AssigneeId and MilestoneId: an id, or NoneFilter for none.
+	AssigneeId  string
+	MilestoneId string
 }
+
+// NoneFilter in IssueFilter selects issues without an assignee or a
+// milestone.
+const NoneFilter = "none"
 
 type IssuePers interface {
 	// Create gives the issue the repository's next number (shared with pull

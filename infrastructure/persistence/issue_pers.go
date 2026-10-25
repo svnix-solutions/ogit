@@ -55,6 +55,20 @@ func (p *issuePers) List(repositoryId string, f domain.IssueFilter, offset, limi
 		if f.AuthorId != "" {
 			q = q.Where("author_id = ?", f.AuthorId)
 		}
+		switch f.AssigneeId {
+		case "":
+		case domain.NoneFilter:
+			q = q.Where("id NOT IN (SELECT issue_id FROM issue_assignee)")
+		default:
+			q = q.Where("id IN (SELECT issue_id FROM issue_assignee WHERE user_id = ?)", f.AssigneeId)
+		}
+		switch f.MilestoneId {
+		case "":
+		case domain.NoneFilter:
+			q = q.Where("milestone_id IS NULL")
+		default:
+			q = q.Where("milestone_id = ?", f.MilestoneId)
+		}
 		if f.Query != "" {
 			like := "%" + escapeLike(strings.ToLower(f.Query)) + "%"
 			q = q.Where(`(LOWER(title) LIKE ? ESCAPE '\' OR LOWER(body) LIKE ? ESCAPE '\')`, like, like)
@@ -89,7 +103,8 @@ func (p *issuePers) Update(id string, fields map[string]any) error {
 // enforce the cascades here).
 func (p *issuePers) Delete(id string) error {
 	return p.db.Transaction(func(tx *gorm.DB) error {
-		for _, q := range []string{"DELETE FROM issue_label WHERE issue_id = ?", "DELETE FROM issue_comment WHERE issue_id = ?", "DELETE FROM issue WHERE id = ?"} {
+		for _, q := range []string{"DELETE FROM issue_label WHERE issue_id = ?", "DELETE FROM issue_assignee WHERE issue_id = ?",
+			"DELETE FROM issue_comment WHERE issue_id = ?", "DELETE FROM issue WHERE id = ?"} {
 			if err := tx.Exec(q, id).Error; err != nil {
 				return err
 			}

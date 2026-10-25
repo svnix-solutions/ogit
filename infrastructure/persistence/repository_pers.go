@@ -67,8 +67,12 @@ func (r *repositoryPers) Purge(id string) error {
 		}
 		for _, q := range []string{
 			"DELETE FROM issue_label WHERE issue_id IN (SELECT id FROM issue WHERE repository_id = ?)",
+			"DELETE FROM issue_assignee WHERE issue_id IN (SELECT id FROM issue WHERE repository_id = ?)",
+			"DELETE FROM pull_request_assignee WHERE pull_request_id IN (SELECT id FROM pull_request WHERE repository_id = ?)",
 			"DELETE FROM issue_comment WHERE issue_id IN (SELECT id FROM issue WHERE repository_id = ?)",
 			"DELETE FROM issue WHERE repository_id = ?",
+			"UPDATE pull_request SET milestone_id = NULL WHERE repository_id = ?",
+			"DELETE FROM milestone WHERE repository_id = ?",
 		} {
 			if err := tx.Exec(q, id).Error; err != nil {
 				return err
