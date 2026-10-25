@@ -65,7 +65,7 @@ jobs:
       run: go vet ./...
 
     - name: Test
-      run: go test -race -count=1 ./...
+      run: go test -race -count=1 -timeout 20m ./...
 
     - uses: nowsprinting/check-version-format-action@v3
       if: github.event_name != 'pull_request'
@@ -93,7 +93,9 @@ jobs:
     - name: Integration tests (MinIO, Mailpit, Redis, Postgres migration)
       run: go test -race -count=1 -tags=integration -run 'MinIO|Mailpit|Redis|PostgresMigration' ./...
 
+    # The whole e2e suite on Postgres takes over 10 minutes on the runners,
+    # go test's default timeout for a package.
     - name: End-to-end tests on Postgres
-      run: go test -race -count=1 -tags=integration ./interfaces/cli/server/
+      run: go test -race -count=1 -timeout 30m -tags=integration ./interfaces/cli/server/
       env:
         OGIT_TEST_DB: postgres
