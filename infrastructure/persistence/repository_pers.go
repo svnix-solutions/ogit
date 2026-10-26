@@ -71,7 +71,10 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.CommitStatus{}).Error; err != nil {
 			return err
 		}
-		for _, model := range []any{&domain.ReleaseAsset{}, &domain.Release{}, &domain.ProtectedTag{}} {
+		if err := tx.Exec("DELETE FROM thread_mute WHERE thread_id IN (SELECT thread_id FROM notification WHERE repository_id = ?)", id).Error; err != nil {
+			return err
+		}
+		for _, model := range []any{&domain.ReleaseAsset{}, &domain.Release{}, &domain.ProtectedTag{}, &domain.Notification{}, &domain.RepositoryWatch{}} {
 			if err := tx.Where("repository_id = ?", id).Delete(model).Error; err != nil {
 				return err
 			}

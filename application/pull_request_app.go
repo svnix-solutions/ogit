@@ -14,7 +14,6 @@ import (
 	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/gitbrowse"
 	"github.com/labbs/ogit/infrastructure/gitmerge"
-	"github.com/labbs/ogit/infrastructure/mail"
 	"github.com/rs/zerolog"
 )
 
@@ -50,21 +49,21 @@ func (e *MergeConflictError) Error() string {
 }
 
 type PullRequestApp struct {
-	Config       config.Config
-	Logger       zerolog.Logger
-	Repositories *RepositoryApp
-	Pulls        domain.PullRequestPers
-	Reviews      domain.ReviewPers
-	Webhooks     *WebhookApp
-	Protection   *ProtectionApp // nil: no branch protection
-	Statuses     *StatusApp     // required checks of protected branches
-	Assignees    domain.AssigneePers
-	Reviewers    domain.RequestedReviewerPers // pull_request_reviewers.go
-	Milestones   domain.MilestonePers
-	Issues       *IssueApp // closes "Fixes #N" issues on merge
-	Labels       domain.LabelPers
-	Users        domain.UserPers
-	Mailer       mail.Sender // nil or without smtp.host: no emails
+	Config        config.Config
+	Logger        zerolog.Logger
+	Repositories  *RepositoryApp
+	Pulls         domain.PullRequestPers
+	Reviews       domain.ReviewPers
+	Webhooks      *WebhookApp
+	Protection    *ProtectionApp // nil: no branch protection
+	Statuses      *StatusApp     // required checks of protected branches
+	Assignees     domain.AssigneePers
+	Reviewers     domain.RequestedReviewerPers // pull_request_reviewers.go
+	Milestones    domain.MilestonePers
+	Issues        *IssueApp // closes "Fixes #N" issues on merge
+	Labels        domain.LabelPers
+	Users         domain.UserPers
+	Notifications *NotificationApp // inbox and emails (notification_app.go); nil: none
 }
 
 // PullRequestView is a pull request with what can only be computed from

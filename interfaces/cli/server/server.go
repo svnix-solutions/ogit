@@ -186,8 +186,13 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	}
 	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.BrowseApp = &application.BrowseApp{Repositories: deps.RepoApp, Storage: deps.Storage}
+	deps.NotificationApp = &application.NotificationApp{
+		Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewNotificationPers(deps.Database.Db), Repositories: deps.RepoApp,
+		Users: userPers, Mailer: deps.Mailer,
+	}
+	deps.RepoApp.Notifications = deps.NotificationApp
 	deps.PullApp = &application.PullRequestApp{
-		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Users: userPers, Mailer: deps.Mailer,
+		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Users: userPers, Notifications: deps.NotificationApp,
 		Pulls: persistence.NewPullRequestPers(deps.Database.Db), Reviews: persistence.NewReviewPers(deps.Database.Db),
 		Labels: persistence.NewLabelPers(deps.Database.Db),
 	}
@@ -212,12 +217,13 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Logger: deps.Logger, Repositories: deps.RepoApp, Statuses: persistence.NewCommitStatusPers(deps.Database.Db), Webhooks: deps.WebhookApp,
 	}
 	deps.PullApp.Statuses = deps.StatusApp
+	deps.StatusApp.Failed = deps.PullApp.StatusFailed
 	assignees, milestones := persistence.NewAssigneePers(deps.Database.Db), persistence.NewMilestonePers(deps.Database.Db)
 	deps.WebhookApp.Assignees, deps.WebhookApp.Milestones = assignees, milestones
 	deps.IssueApp = &application.IssueApp{
 		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Issues: persistence.NewIssuePers(deps.Database.Db),
 		Pulls: deps.PullApp.Pulls, Labels: deps.PullApp.Labels, Assignees: assignees, Milestones: milestones,
-		Webhooks: deps.WebhookApp, Mailer: deps.Mailer,
+		Webhooks: deps.WebhookApp, Notifications: deps.NotificationApp,
 	}
 	deps.PullApp.Assignees, deps.PullApp.Milestones, deps.PullApp.Issues = assignees, milestones, deps.IssueApp
 	deps.PullApp.Reviewers = persistence.NewRequestedReviewerPers(deps.Database.Db)
@@ -245,6 +251,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Logger: deps.Logger, Repositories: deps.RepoApp, Releases: persistence.NewReleasePers(deps.Database.Db),
 		Assets: persistence.NewReleaseAssetPers(deps.Database.Db), MaxAssetSize: deps.Config.Releases.MaxAssetSize,
 		Pulls: deps.PullApp.Pulls, Users: userPers, Webhooks: deps.WebhookApp, TagCheck: deps.ProtectionApp.ReleaseTagCheck,
+		Notifications: deps.NotificationApp,
 	}
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)

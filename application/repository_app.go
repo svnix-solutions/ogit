@@ -29,6 +29,8 @@ type RepositoryApp struct {
 	// TwoFactorEnabled tells whether a user has 2FA, for groups that require
 	// it (two_factor_required.go); nil: groups can't.
 	TwoFactorEnabled func(userId string) (bool, error)
+	// Notifications: creators watch their new repositories; nil: no.
+	Notifications *NotificationApp
 }
 
 func NewRepositoryApp(config config.Config, logger zerolog.Logger, repoPers domain.RepositoryPers, repositoryMemberPers domain.RepositoryMemberPers, groupPers domain.GroupPers, userPers domain.UserPers, sshKeyPers domain.SSHKeyPers, storageConfig storage.Config) *RepositoryApp {
@@ -116,6 +118,8 @@ func (c *RepositoryApp) create(namespace, creator string, tmpl *domain.Repositor
 		_ = c.StorageConfig.DeleteRepository(repo.StorageKey)
 		return nil, fmt.Errorf("failed to create repository storage: %w", err)
 	}
+
+	c.Notifications.RepositoryCreated(repo, creator)
 
 	// In a group's namespace the group's role applies (namespaceRole); the
 	// creator gets no extra row.

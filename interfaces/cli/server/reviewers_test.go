@@ -16,7 +16,7 @@ func TestRequestedReviewers(t *testing.T) {
 	f := newPullFixture(t, true, allowLoopback, func(c *config.Config) { c.SMTP.Host = "smtp.test" })
 	srv := f.srv
 	rec := &mailtest.Recorder{}
-	srv.deps.PullApp.Mailer = rec
+	srv.deps.NotificationApp.Mailer = rec
 	rcv := newHookReceiver(t)
 	srv.createHook(t, f.owner, "owner/app", map[string]any{"url": rcv.URL, "events": []string{"pull_request"}})
 	srv.deliver(t)

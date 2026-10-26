@@ -10,7 +10,6 @@ import (
 
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
-	"github.com/labbs/ogit/infrastructure/mail"
 	"github.com/rs/zerolog"
 )
 
@@ -42,16 +41,16 @@ var (
 )
 
 type IssueApp struct {
-	Config       config.Config
-	Logger       zerolog.Logger
-	Repositories *RepositoryApp
-	Issues       domain.IssuePers
-	Pulls        domain.PullRequestPers
-	Labels       domain.LabelPers
-	Assignees    domain.AssigneePers
-	Milestones   domain.MilestonePers
-	Webhooks     *WebhookApp
-	Mailer       mail.Sender // nil or without smtp.host: no emails
+	Config        config.Config
+	Logger        zerolog.Logger
+	Repositories  *RepositoryApp
+	Issues        domain.IssuePers
+	Pulls         domain.PullRequestPers
+	Labels        domain.LabelPers
+	Assignees     domain.AssigneePers
+	Milestones    domain.MilestonePers
+	Webhooks      *WebhookApp
+	Notifications *NotificationApp // inbox and emails (notification_app.go); nil: none
 }
 
 // IssueView is an issue with what the viewer may do.
@@ -371,6 +370,7 @@ func (c *IssueApp) Delete(id, path *string, actorId string, number int) error {
 		return err
 	}
 	c.Webhooks.IssuesEvent(v, "deleted", actorId, IssuesPayload{})
+	c.Notifications.ThreadDeleted(domain.ThreadIssue, v.Id)
 	return nil
 }
 

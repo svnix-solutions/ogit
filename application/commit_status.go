@@ -45,6 +45,9 @@ type StatusApp struct {
 	Repositories *RepositoryApp
 	Statuses     domain.CommitStatusPers
 	Webhooks     *WebhookApp
+	// Failed is told about failing statuses (PullRequestApp.StatusFailed
+	// notifies the authors of pull requests at that commit); nil: nobody.
+	Failed func(repo *domain.Repository, st storer.Storer, sha string, s *domain.CommitStatus)
 }
 
 // StatusCaller is who calls: a user with a session (Token nil), or a
@@ -142,6 +145,9 @@ func (c *StatusApp) Create(id, path *string, caller StatusCaller, sha string, in
 		sender = caller.UserId
 	}
 	c.Webhooks.StatusEvent(repo, st, commit, status, sender)
+	if c.Failed != nil && (status.State == domain.StatusFailure || status.State == domain.StatusError) {
+		c.Failed(repo, st, sha, status)
+	}
 	return status, nil
 }
 

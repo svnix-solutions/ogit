@@ -49,6 +49,8 @@ type ReleaseApp struct {
 	Pulls        domain.PullRequestPers
 	Users        domain.UserPers
 	Webhooks     *WebhookApp
+	// Notifications tells the repository's watchers about new releases.
+	Notifications *NotificationApp
 	// TagCheck decides whether a release may create a tag (protected tags);
 	// nil: no rules.
 	TagCheck func(repo *domain.Repository, caller StatusCaller, tag string) error
@@ -367,9 +369,24 @@ func (c *ReleaseApp) sender(caller StatusCaller) string {
 	return ""
 }
 
-// published sends the events of a release that was just published.
+// published sends the events of a release that was just published, and
+// notifies the repository's watchers (all activity, or releases).
 func (c *ReleaseApp) published(v *ReleaseView, caller StatusCaller) {
 	sender := c.sender(caller)
+	if c.Notifications != nil {
+		title := v.Name
+		if title == "" {
+			title = v.TagName
+		}
+		actor := c.Notifications.ActorName(sender)
+		if sender == "" && caller.Token != nil {
+			actor = "token " + caller.Token.Name
+		}
+		c.Notifications.Notify(Event{Repo: v.Repository, ThreadType: domain.ThreadRelease, ThreadId: v.Id, Title: title,
+			Path: "/" + v.Repository.FullPath() + "/releases/tag/" + escapePath(v.TagName), ActorId: sender,
+			Summary: actor + " published release " + v.TagName, Text: v.Body,
+			WatchLevels: []domain.WatchLevel{domain.WatchAll, domain.WatchReleases}})
+	}
 	c.Webhooks.ReleaseEvent(v, "created", sender, nil)
 	c.Webhooks.ReleaseEvent(v, "published", sender, nil)
 	if v.Prerelease {
@@ -396,6 +413,7 @@ func (c *ReleaseApp) Delete(id, path *string, caller StatusCaller, releaseId str
 		return err
 	}
 	c.deleteFiles(repo, v.Assets)
+	c.Notifications.ThreadDeleted(domain.ThreadRelease, r.Id)
 	if !r.Draft {
 		c.Webhooks.ReleaseEvent(v, "deleted", c.sender(caller), nil)
 	}

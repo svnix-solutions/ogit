@@ -8,6 +8,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/v1/group"
 	"github.com/labbs/ogit/interfaces/http/v1/issues"
 	"github.com/labbs/ogit/interfaces/http/v1/milestones"
+	"github.com/labbs/ogit/interfaces/http/v1/notifications"
 	"github.com/labbs/ogit/interfaces/http/v1/pulls"
 	"github.com/labbs/ogit/interfaces/http/v1/releases"
 	"github.com/labbs/ogit/interfaces/http/v1/repository"
@@ -90,6 +91,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	issues.Setup(issues.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Issues: deps.IssueApp}, repoGrp)
 
 	pulls.Setup(pulls.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Pulls: deps.PullApp}, repoGrp)
+
+	notifications.Setup(notifications.Controller{Logger: deps.Logger, Notifications: deps.NotificationApp}, grp, repoGrp)
 
 	site.Setup(site.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, RepositoryApp: deps.RepoApp}, grp)
 }
