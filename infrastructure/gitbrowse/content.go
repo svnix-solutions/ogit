@@ -18,6 +18,8 @@ type File struct {
 	Truncated bool   `json:"truncated"` // larger than the display limit
 	Symlink   bool   `json:"symlink,omitempty"`
 	Content   string `json:"content,omitempty"` // UTF-8 text, empty when binary
+	// LFS: the file is a Git LFS pointer (Content is the pointer).
+	LFS *LFSPointer `json:"lfs,omitempty"`
 }
 
 // OpenFile returns the blob at path, for streaming (raw downloads).
@@ -61,6 +63,9 @@ func ReadFile(c *object.Commit, path string, max int64) (*File, error) {
 		return out, nil
 	}
 	out.Content = string(data)
+	if !out.Symlink {
+		out.LFS, _ = ParsePointer(data)
+	}
 	return out, nil
 }
 

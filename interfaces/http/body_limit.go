@@ -13,6 +13,9 @@ import (
 // and git pushes (git.max_push_size).
 var streamedRoutes = regexp.MustCompile(`^(/api/(v1/repository/[^/]+|v3/repos/[^/]+/[^/]+|uploads/repos/[^/]+/[^/]+)/releases/[^/]+/assets/?|/[^/]+/[^/]+/git-receive-pack)$`)
 
+// lfsUploadRoute: Git LFS object uploads (lfs.max_object_size).
+var lfsUploadRoute = regexp.MustCompile(`^/[^/]+/[^/]+/info/lfs/objects/[0-9a-f]{64}$`)
+
 // bodyLimit restores the BodyLimit that StreamRequestBody lifts: fasthttp
 // streams bodies over the limit (and chunked ones) instead of refusing
 // them, and ctx.Body() would then read them whole into memory. Other
@@ -23,7 +26,8 @@ func bodyLimit(limit int) fiber.Handler {
 		if !req.IsBodyStream() {
 			return ctx.Next()
 		}
-		if ctx.Method() == fiber.MethodPost && streamedRoutes.MatchString(ctx.Path()) {
+		if ctx.Method() == fiber.MethodPost && streamedRoutes.MatchString(ctx.Path()) ||
+			ctx.Method() == fiber.MethodPut && lfsUploadRoute.MatchString(ctx.Path()) {
 			// A handler may answer without reading the whole body (refused,
 			// not found). fasthttp would then parse the rest as the next
 			// request on this connection, a desync behind a proxy that

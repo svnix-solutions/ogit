@@ -21,6 +21,21 @@ func GitFlags(cfg *Config) []cli.Flag {
 	}
 }
 
+func LFSFlags(cfg *Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.Int64Flag{
+			Name:        "lfs.max_object_size",
+			Usage:       "Largest Git LFS object accepted, in bytes (uploads are streamed, never held in memory)",
+			Value:       2 << 30,
+			Destination: &cfg.LFS.MaxObjectSize,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("LFS_MAX_OBJECT_SIZE"),
+				altsrcyaml.YAML("lfs.max_object_size", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+	}
+}
+
 func ReleaseFlags(cfg *Config) []cli.Flag {
 	return []cli.Flag{
 		&cli.Int64Flag{

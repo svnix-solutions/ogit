@@ -59,6 +59,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.WebhookFlags(cfg)...)
 	list = append(list, config.ReleaseFlags(cfg)...)
 	list = append(list, config.GitFlags(cfg)...)
+	list = append(list, config.LFSFlags(cfg)...)
 	return
 }
 
@@ -253,6 +254,9 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Pulls: deps.PullApp.Pulls, Users: userPers, Webhooks: deps.WebhookApp, TagCheck: deps.ProtectionApp.ReleaseTagCheck,
 		Notifications: deps.NotificationApp,
 	}
+	deps.LFSApp = &application.LFSApp{Config: deps.Config, Logger: deps.Logger, Auth: deps.AuthApp, Repositories: deps.RepoApp,
+		Storage: deps.Storage, Locks: persistence.NewLFSLockPers(deps.Database.Db)}
+	deps.BrowseApp.LFS = deps.LFSApp
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
 	if err != nil {
@@ -278,6 +282,7 @@ func startSSH(deps infrastructure.Deps) error {
 		srv.Webhooks = deps.WebhookApp
 		srv.Protection = deps.ProtectionApp
 		srv.Pulls = deps.PullApp
+		srv.LFS = deps.LFSApp
 		srv.MaxPushSize = deps.Config.Git.MaxPushSize
 	}
 	if err != nil {

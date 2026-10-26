@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router";
 import { CodeView } from "@/components/code-view";
 import { Breadcrumbs, RefPicker, useRepo } from "@/components/repo-layout";
 import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ApiError } from "@/lib/api";
@@ -154,7 +155,8 @@ export function BlobPage() {
   const { ref, file } = blob.data;
   const base = `/${repo.full_path}`;
   const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
-  const markdown = /\.(md|markdown)$/i.test(file.path) && !file.binary;
+  const markdown = /\.(md|markdown)$/i.test(file.path) && !file.binary && !file.lfs;
+  const raw = rawURL(repo.full_path, ref, file.path);
 
   return (
     <div className="space-y-4">
@@ -164,7 +166,8 @@ export function BlobPage() {
       </div>
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm">
-          <span className="text-muted-foreground">{formatSize(file.size)}</span>
+          <span className="text-muted-foreground">{formatSize(file.lfs?.size ?? file.size)}</span>
+          {file.lfs && <Badge>Stored with Git LFS</Badge>}
           {markdown && (
             <button className="text-primary hover:underline" onClick={() => setSource(!source)}>
               {source ? "Preview" : "Source"}
@@ -174,19 +177,34 @@ export function BlobPage() {
             <ButtonLink variant="ghost" size="sm" to={`${base}/commits/${encodePath(joinSpec(ref, file.path))}`}>
               History
             </ButtonLink>
-            {!file.binary && (
+            {!file.binary && !file.lfs && (
               <ButtonLink variant="ghost" size="sm" to={`${base}/blame/${encodePath(ref)}/${encodePath(file.path)}`}>
                 Blame
               </ButtonLink>
             )}
-            <a href={rawURL(repo.full_path, ref, file.path)} className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium hover:bg-muted">
+            <a href={raw} className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium hover:bg-muted">
               Raw
             </a>
           </span>
         </div>
-        {file.binary ? (
+        {file.lfs ? (
+          file.lfs.present ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              Stored with Git LFS ({formatSize(file.lfs.size)}).{" "}
+              <a href={raw} className="text-primary hover:underline">
+                Download it
+              </a>
+              .
+            </p>
+          ) : (
+            <div className="space-y-2 p-6 text-sm">
+              <p className="text-muted-foreground">This Git LFS object isn't on the server: only its pointer is.</p>
+              <pre className="overflow-x-auto rounded-md bg-muted p-3">{file.content}</pre>
+            </div>
+          )
+        ) : file.binary ? (
           <p className="p-6 text-sm text-muted-foreground">
-            Binary file. <a href={rawURL(repo.full_path, ref, file.path)} className="text-primary hover:underline">Download it</a>.
+            Binary file. <a href={raw} className="text-primary hover:underline">Download it</a>.
           </p>
         ) : markdown && !source ? (
           <Readme repoPath={repo.full_path} gitRef={ref} dir={dir} file={file} />

@@ -5,7 +5,9 @@ export type Signature = { name: string; email: string; when: string };
 export type Commit = { hash: string; parents: string[]; message: string; author: Signature; committer: Signature };
 export type Ref = { name: string; commit: Commit };
 export type Entry = { name: string; path: string; type: "dir" | "file" | "symlink" | "submodule"; size?: number };
-export type FileContent = { path: string; size: number; binary: boolean; truncated: boolean; symlink?: boolean; content?: string };
+// lfs: the file is a Git LFS pointer; present when the server has its content (served by the raw URL).
+export type LFSPointer = { oid: string; size: number; present: boolean };
+export type FileContent = { path: string; size: number; binary: boolean; truncated: boolean; symlink?: boolean; content?: string; lfs?: LFSPointer };
 export type Line = { kind: " " | "+" | "-"; text: string; old?: number; new?: number };
 export type Hunk = { old_start: number; old_lines: number; new_start: number; new_lines: number; lines: Line[] };
 export type FileDiff = {

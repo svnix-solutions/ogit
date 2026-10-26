@@ -44,6 +44,11 @@ type Config struct {
 		MaxPushSize int64
 	}
 
+	// LFS: one Git LFS object is at most MaxObjectSize bytes.
+	LFS struct {
+		MaxObjectSize int64
+	}
+
 	// Releases: uploaded assets are at most MaxAssetSize bytes.
 	Releases struct {
 		MaxAssetSize int64

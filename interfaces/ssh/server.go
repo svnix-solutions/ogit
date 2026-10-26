@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -51,6 +52,9 @@ type Server struct {
 	Protection *application.ProtectionApp
 	// Pulls updates pull requests from forks when their branch is pushed.
 	Pulls *application.PullRequestApp
+	// LFS checks file locks on pushes and answers git-lfs-authenticate;
+	// nil: none.
+	LFS *application.LFSApp
 	// MaxPushSize bounds a push's pack in bytes (git.max_push_size); 0: none.
 	MaxPushSize int64
 
@@ -162,6 +166,10 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 	logger := s.Logger.With().Str("key", id.Key.Fingerprint).Str("as", id.Name).Logger()
 
 	service, slug, ok := parseCommand(command)
+	lfsOp := ""
+	if !ok {
+		service, slug, lfsOp, ok = parseLFSAuthenticate(command)
+	}
 	if !ok {
 		fmt.Fprintln(ch.Stderr(), "oGit only serves git-upload-pack and git-receive-pack on <owner>/<name>.git")
 		return 1
@@ -198,6 +206,9 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 		}
 	}
 	_ = s.Keys.TouchLastUsed(id.Key.Id, time.Now())
+	if lfsOp != "" {
+		return s.lfsAuthenticate(ch, repo, pusher, lfsOp == "upload")
+	}
 
 	srv, ep, err := helpergit.GetTransportServer(repo.StorageKey, s.Storage)
 	if err != nil {
@@ -218,7 +229,7 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 		err = serveUploadPack(ctx, srv, ep, objects, in, ch)
 	case "git-receive-pack":
 		var updates []application.RefUpdate
-		updates, err = serveReceivePack(ctx, ep, objects, in, ch, application.LimitPush(pusher, s.Protection.PushCheck(repo, pusher, objects)), s.MaxPushSize)
+		updates, err = serveReceivePack(ctx, ep, objects, in, ch, application.LimitPush(pusher, application.Chain(s.Protection.PushCheck(repo, pusher, objects), s.LFS.PushCheck(repo, pusher, objects))), s.MaxPushSize)
 		s.Webhooks.Pushed(repo, pusher, objects, updates)
 		s.Pulls.SourcePushed(repo, pusher, updates)
 	}
@@ -255,6 +266,42 @@ func parseCommand(command string) (service, path string, ok bool) {
 		return svc, arg, true
 	}
 	return "", "", false
+}
+
+// parseLFSAuthenticate accepts "git-lfs-authenticate <path> download|upload"
+// and returns the git service it needs (read or write).
+func parseLFSAuthenticate(command string) (service, path, op string, ok bool) {
+	fields := strings.Fields(command)
+	if len(fields) != 3 || fields[0] != "git-lfs-authenticate" {
+		return "", "", "", false
+	}
+	switch fields[2] {
+	case "download":
+		service = "git-upload-pack"
+	case "upload":
+		service = "git-receive-pack"
+	default:
+		return "", "", "", false
+	}
+	_, path, ok = parseCommand(service + " " + fields[1])
+	return service, path, fields[2], ok
+}
+
+// lfsAuthenticate answers git-lfs-authenticate: where the LFS API is, with a
+// short-lived token for it.
+func (s *Server) lfsAuthenticate(ch gossh.Channel, repo *domain.Repository, pusher application.Pusher, write bool) uint32 {
+	if s.LFS == nil || s.LFS.Config.Server.PublicURL == "" {
+		fmt.Fprintln(ch.Stderr(), "fatal: Git LFS over SSH needs the server's public URL (http.public_url)")
+		return 1
+	}
+	token, ttl := s.LFS.Token(s.LFS.AccessFor(repo, pusher, write))
+	out, _ := json.Marshal(map[string]any{
+		"href":       strings.TrimSuffix(s.LFS.Config.Server.PublicURL, "/") + "/" + repo.FullPath() + ".git/info/lfs",
+		"header":     map[string]string{"Authorization": "Bearer " + token},
+		"expires_in": int(ttl.Seconds()),
+	})
+	_, _ = ch.Write(append(out, '\n'))
+	return 0
 }
 
 // exit sends the exit status and closes the channel. The status must reach

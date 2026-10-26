@@ -3,6 +3,7 @@ package application
 import (
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/labbs/ogit/domain"
+	"github.com/labbs/ogit/infrastructure/gitbrowse"
 	"github.com/labbs/ogit/infrastructure/storage"
 )
 
@@ -12,6 +13,12 @@ import (
 type BrowseApp struct {
 	Repositories *RepositoryApp
 	Storage      storage.Config
+	LFS          *LFSApp
+}
+
+// LFSFor serves repo's Git LFS objects to userId (nil without LFS).
+func (c *BrowseApp) LFSFor(repo *domain.Repository, userId string) gitbrowse.LFSStore {
+	return c.LFS.Reader(repo, userId)
 }
 
 // Open returns the repository identified by id or path and its git storer,

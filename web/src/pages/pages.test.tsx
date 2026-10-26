@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { routes } from "@/app";
@@ -134,6 +134,30 @@ describe("repository pages", () => {
     renderRoutes(routes, "/platform/infra/blob/feature/x/main.go");
     expect(await screen.findByRole("link", { name: "Raw" })).toHaveAttribute("href", "/platform/infra/raw/feature/x/main.go");
     expect(screen.getByRole("link", { name: "3" })).toHaveAttribute("href", "#L3");
+  });
+
+  it("shows Git LFS files with their size and a download link", async () => {
+    const pointer = (present: boolean) => ({
+      path: "art.psd", size: 130, binary: false, truncated: false,
+      content: "version https://git-lfs.github.com/spec/v1\noid sha256:" + "a".repeat(64) + "\nsize 5242880\n",
+      lfs: { oid: "a".repeat(64), size: 5242880, present },
+    });
+    fakeAPI({
+      "/instance": instance, "/user/profile": alice, "/repository/platform%2Finfra": repo("developer"),
+      "/repository/platform%2Finfra/blob?spec=main%2Fart.psd": { ref: "main", commit: tree.commit, file: pointer(true) },
+      "/repository/platform%2Finfra/blob?spec=main%2Fgone.psd": { ref: "main", commit: tree.commit, file: { ...pointer(false), path: "gone.psd" } },
+    });
+    renderRoutes(routes, "/platform/infra/blob/main/art.psd");
+    expect(await screen.findByText("Stored with Git LFS")).toBeInTheDocument();
+    expect(screen.getAllByText(/5(\.0)? MB/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Download it" })).toHaveAttribute("href", "/platform/infra/raw/main/art.psd");
+    expect(screen.queryByRole("link", { name: "Blame" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/version https/)).not.toBeInTheDocument();
+    cleanup();
+
+    renderRoutes(routes, "/platform/infra/blob/main/gone.psd");
+    expect(await screen.findByText(/isn't on the server/)).toBeInTheDocument();
+    expect(screen.getByText(/version https/)).toBeInTheDocument();
   });
 });
 

@@ -4,6 +4,7 @@ import (
 	"github.com/labbs/ogit/infrastructure"
 	"github.com/labbs/ogit/interfaces/http/ghcompat"
 	"github.com/labbs/ogit/interfaces/http/git"
+	"github.com/labbs/ogit/interfaces/http/lfs"
 	"github.com/labbs/ogit/interfaces/http/raw"
 	v1 "github.com/labbs/ogit/interfaces/http/v1"
 	"github.com/labbs/ogit/interfaces/http/websession"
@@ -38,8 +39,12 @@ func SetupRoutes(deps infrastructure.Deps) {
 		Webhooks:      deps.WebhookApp,
 		Protection:    deps.ProtectionApp,
 		Pulls:         deps.PullApp,
+		LFS:           deps.LFSApp,
 	}
 	git.SetupGitRouter(gitCtrl)
+
+	// Git LFS: /<owner>/<repo>.git/info/lfs/...
+	lfs.Setup(lfs.Controller{Config: deps.Config, Logger: deps.Logger, LFS: deps.LFSApp, Limits: deps.Limits}, deps.Http.Fiber)
 
 	// Setup v1 routes
 	v1.SetupRouterV1(deps)

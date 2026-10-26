@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
+	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/gitbrowse"
 	"github.com/labbs/ogit/interfaces/http/v1/apierror"
 	"github.com/labbs/ogit/interfaces/http/v1/optauth"
@@ -128,12 +129,19 @@ func (c Controller) fail(err error) *fiberoapi.ErrorResponse {
 
 // storer opens the repository if the caller (or anonymous) may read it.
 func (c Controller) storer(ctx *fiber.Ctx, identifier string) (storer.Storer, *fiberoapi.ErrorResponse) {
+	_, st, _, errResp := c.open(ctx, identifier)
+	return st, errResp
+}
+
+// open is storer with the repository and the reader.
+func (c Controller) open(ctx *fiber.Ctx, identifier string) (*domain.Repository, storer.Storer, string, *fiberoapi.ErrorResponse) {
 	id, path := repoid.Split(identifier)
-	_, st, err := c.BrowseApp.Open(id, path, optauth.Reader(ctx, c.SessionApp, c.TokenApp))
+	reader := optauth.Reader(ctx, c.SessionApp, c.TokenApp)
+	repo, st, err := c.BrowseApp.Open(id, path, reader)
 	if err != nil {
-		return nil, c.fail(err)
+		return nil, nil, "", c.fail(err)
 	}
-	return st, nil
+	return repo, st, reader, nil
 }
 
 func (c Controller) Refs(ctx *fiber.Ctx, req SpecRequest) (*RefsResponse, *fiberoapi.ErrorResponse) {
@@ -187,7 +195,7 @@ func (c Controller) Tree(ctx *fiber.Ctx, req SpecRequest) (*TreeResponse, *fiber
 }
 
 func (c Controller) Blob(ctx *fiber.Ctx, req SpecRequest) (*BlobResponse, *fiberoapi.ErrorResponse) {
-	st, errResp := c.storer(ctx, req.Identifier)
+	repo, st, reader, errResp := c.open(ctx, req.Identifier)
 	if errResp != nil {
 		return nil, errResp
 	}
@@ -198,6 +206,11 @@ func (c Controller) Blob(ctx *fiber.Ctx, req SpecRequest) (*BlobResponse, *fiber
 	f, err := gitbrowse.ReadFile(commit, path, maxFileBytes)
 	if err != nil {
 		return nil, c.fail(err)
+	}
+	if f.LFS != nil {
+		if lfs := c.BrowseApp.LFSFor(repo, reader); lfs != nil {
+			f.LFS.Present = lfs.Present(f.LFS.Oid, f.LFS.Size)
+		}
 	}
 	return &BlobResponse{Ref: ref, Commit: gitbrowse.CommitInfo(commit), File: f}, nil
 }

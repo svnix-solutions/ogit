@@ -141,7 +141,7 @@ func (ctrl *Controller) HandleReceivePack(c *fiber.Ctx) error {
 	var check helpergit.RefCheck
 	if repo, ok := c.Locals(repositoryLocal).(*domain.Repository); ok {
 		pusher, _ := c.Locals(pusherLocal).(application.Pusher)
-		check = application.LimitPush(pusher, ctrl.Protection.PushCheck(repo, pusher, st))
+		check = application.LimitPush(pusher, application.Chain(ctrl.Protection.PushCheck(repo, pusher, st), ctrl.LFS.PushCheck(repo, pusher, st)))
 	}
 	sess, expect, err := helpergit.GuardedReceivePack(st, ep, check)
 	if err != nil {

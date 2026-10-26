@@ -19,6 +19,7 @@ type Controller struct {
 	Webhooks      *application.WebhookApp
 	Protection    *application.ProtectionApp
 	Pulls         *application.PullRequestApp
+	LFS           *application.LFSApp
 }
 
 // Repositories are at /<namespace>/<repo>.git. The flat /<repo>.git URLs
