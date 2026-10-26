@@ -1,16 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
-import { Package, Plus, Settings, User, Users } from "lucide-react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { BookMarked, Package, Plus, Settings, User, Users } from "lucide-react";
+import { useParams, useSearchParams } from "react-router";
 import { pageParam, Pager } from "@/components/pager";
+import { PackageList } from "@/components/package-list";
 import { RepoList } from "@/components/repo-list";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 import { api, ApiError, type NamespaceView } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
-import { packagePath, useNamespacePackages } from "@/lib/packages";
+import { useNamespacePackages } from "@/lib/packages";
 import { useMyGroups } from "@/lib/queries";
+import { cn } from "@/lib/utils";
 import { NotFoundPage } from "./not-found";
 
 export function NamespacePage() {
@@ -18,6 +20,7 @@ export function NamespacePage() {
   const { data: profile } = useProfile();
   const [params, setParams] = useSearchParams();
   const page = pageParam(params);
+  const tab = params.get("tab");
   const perPage = 30;
   const ns = useQuery({
     queryKey: ["namespace", owner, page],
@@ -55,33 +58,49 @@ export function NamespacePage() {
           )}
         </div>
       </div>
-      <RepoList repos={ns.data.repositories} showNamespace={false} empty="No repositories you can see here." />
-      <Pager page={page} perPage={perPage} count={ns.data.repositories.length} total={ns.data.total} onPage={(p) => setParams({ page: String(p + 1) })} />
-      <NamespacePackages namespace={owner} />
+      <nav className="flex gap-1 border-b" aria-label="Sections">
+        <button type="button" className={tabClass(tab !== "packages")} onClick={() => setParams({})}>
+          <BookMarked className="h-4 w-4" /> Repositories
+        </button>
+        <button type="button" className={tabClass(tab === "packages")} onClick={() => setParams({ tab: "packages" })}>
+          <Package className="h-4 w-4" /> Packages
+        </button>
+      </nav>
+      {tab === "packages" ? (
+        <NamespacePackages namespace={owner} type={params.get("type") ?? ""} onType={(t) => setParams(t ? { tab: "packages", type: t } : { tab: "packages" })} />
+      ) : (
+        <>
+          <RepoList repos={ns.data.repositories} showNamespace={false} empty="No repositories you can see here." />
+          <Pager page={page} perPage={perPage} count={ns.data.repositories.length} total={ns.data.total} onPage={(p) => setParams({ page: String(p + 1) })} />
+        </>
+      )}
     </div>
   );
 }
 
-// Packages: a small list here (the type icons come with the package page).
-function NamespacePackages({ namespace }: { namespace: string }) {
+const tabClass = (active: boolean) =>
+  cn("flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm", active ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground");
+
+// NamespacePackages lists the namespace's packages, by type.
+function NamespacePackages({ namespace, type, onType }: { namespace: string; type: string; onType: (t: string) => void }) {
   const list = useNamespacePackages(namespace);
-  if (!list.data?.length) return null;
+  if (list.isError) return <Alert variant="destructive">{list.error.message}</Alert>;
+  if (!list.data) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  const shown = type ? list.data.filter((p) => p.type === type) : list.data;
   return (
-    <section className="space-y-2">
-      <h2 className="font-semibold">Packages</h2>
-      <Card className="divide-y">
-        {list.data.map((p) => (
-          <div key={p.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm">
-            <Package className="h-4 w-4 text-muted-foreground" />
-            <Link to={packagePath(p)} className="font-medium text-primary hover:underline">
-              {p.name}
-            </Link>
-            <Badge>{p.type}</Badge>
-            {!p.public && <Badge>private</Badge>}
-            {p.repository && <span className="text-xs text-muted-foreground">from {p.repository}</span>}
-          </div>
-        ))}
-      </Card>
-    </section>
+    <div className="space-y-3">
+      <Select aria-label="Package type" value={type} onChange={(e) => onType(e.target.value)} className="w-48">
+        <option value="">All types</option>
+        <option value="container">Container</option>
+        <option value="npm">npm</option>
+        <option value="generic">Generic</option>
+      </Select>
+      {shown.length === 0 ? (
+        <Card className="p-8 text-center text-sm text-muted-foreground">No packages you can see here.</Card>
+      ) : (
+        <PackageList packages={shown} />
+      )}
+      <p className="text-xs text-muted-foreground">Go modules are served from repositories' tags: see a repository's Packages tab.</p>
+    </div>
   );
 }

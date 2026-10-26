@@ -142,6 +142,7 @@ var mapping = []struct {
 	{application.ErrSSHKeyName, fiber.StatusConflict, "SSH_KEY_NAME_TAKEN"},
 	{application.ErrSSHKeyNotFound, fiber.StatusNotFound, "SSH_KEY_NOT_FOUND"},
 	{application.ErrPackageNotFound, fiber.StatusNotFound, "PACKAGE_NOT_FOUND"},
+	{application.ErrGoModuleNotFound, fiber.StatusNotFound, "GO_MODULE_NOT_FOUND"},
 	{application.ErrPackageVersionExists, fiber.StatusConflict, "PACKAGE_FILE_EXISTS"},
 	{application.ErrInvalidPackage, fiber.StatusBadRequest, "INVALID_PACKAGE"},
 	{application.ErrPackageTooLarge, fiber.StatusRequestEntityTooLarge, "PACKAGE_TOO_LARGE"},

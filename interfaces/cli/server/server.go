@@ -273,6 +273,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.AuthApp.Actions = deps.ActionsApp
 	deps.PackagesApp = &application.PackagesApp{Config: deps.Config, Logger: deps.Logger, Pers: packagesPers,
 		Repositories: deps.RepoApp, Storage: deps.Storage, Tokens: deps.TokenApp}
+	deps.GoProxyApp = &application.GoProxyApp{Config: deps.Config}
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
 	if err != nil {

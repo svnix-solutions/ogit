@@ -62,7 +62,8 @@ type PackageFile struct {
 
 func (PackageFile) TableName() string { return "package_file" }
 
-// ContainerTag points a tag of an image at a manifest.
+// ContainerTag points a tag of an image at a manifest; npm dist-tags use
+// it too (Digest is then the version).
 type ContainerTag struct {
 	PackageId string `gorm:"primaryKey"`
 	Tag       string `gorm:"primaryKey"`
@@ -111,6 +112,9 @@ type PackagesPers interface {
 	// ListPackages lists a namespace's packages (typ "" for every type).
 	ListPackages(ownerId, typ string) ([]Package, error)
 	PackagesOfRepository(repositoryId string) ([]Package, error)
+	// SearchPackages finds packages of a type whose name or namespace
+	// contains text, most recently updated first.
+	SearchPackages(typ, text string, limit int) ([]Package, error)
 	UpdatePackage(p *Package, fields ...string) error
 	// DeletePackage deletes a package with its versions, files and tags.
 	DeletePackage(id string) error
@@ -118,7 +122,9 @@ type PackagesPers interface {
 	CreateVersion(v *PackageVersion) error
 	GetVersion(packageId, version string) (*PackageVersion, error)
 	Versions(packageId string) ([]PackageVersion, error)
-	// DeleteVersion deletes a version with its files, tags and references.
+	UpdateVersionMetadata(id, metadata string) error
+	// DeleteVersion deletes a version with its files, tags and references
+	// (container tags and npm dist-tags point at versions).
 	DeleteVersion(id string) error
 
 	CreateFile(f *PackageFile) error

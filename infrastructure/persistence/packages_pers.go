@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2/utils"
@@ -48,6 +49,18 @@ func (p *packagesPers) PackagesOfRepository(repositoryId string) ([]domain.Packa
 	var out []domain.Package
 	err := p.db.Where("repository_id = ?", repositoryId).Order("name").Find(&out).Error
 	return out, err
+}
+
+func (p *packagesPers) SearchPackages(typ, text string, limit int) ([]domain.Package, error) {
+	like := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(strings.ToLower(text)) + "%"
+	var out []domain.Package
+	err := p.db.Where("type = ? AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(namespace) LIKE ? ESCAPE '\\')", typ, like, like).
+		Order("updated_at DESC").Limit(limit).Find(&out).Error
+	return out, err
+}
+
+func (p *packagesPers) UpdateVersionMetadata(id, metadata string) error {
+	return p.db.Model(&domain.PackageVersion{}).Where("id = ?", id).Update("metadata", metadata).Error
 }
 
 func (p *packagesPers) UpdatePackage(pkg *domain.Package, fields ...string) error {

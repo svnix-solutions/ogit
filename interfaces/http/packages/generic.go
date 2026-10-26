@@ -1,6 +1,7 @@
 // Package packages serves the package formats' own routes:
 // /api/packages/<owner>/generic/<name>/<version>/<file> (rules in
-// application/packages.go).
+// application/packages.go) and the npm registry under /api/packages/npm/
+// (npm.go).
 package packages
 
 import (
@@ -13,6 +14,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/labbs/ogit/application"
 	"github.com/labbs/ogit/domain"
+	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"github.com/labbs/ogit/interfaces/http/v1/apierror"
 	"github.com/labbs/ogit/interfaces/http/v1/optauth"
@@ -21,6 +23,7 @@ import (
 )
 
 type Controller struct {
+	Config     config.Config
 	Logger     zerolog.Logger
 	SessionApp *application.SessionApp
 	TokenApp   *application.TokenApp
@@ -36,6 +39,7 @@ func Setup(c Controller, app *fiber.App) {
 	app.Get(GenericRoute, c.GetGeneric)
 	app.Head(GenericRoute, c.GetGeneric)
 	app.Delete("/api/packages/:owner/generic/:name/:version", c.DeleteGeneric)
+	app.All("/api/packages/npm/*", c.Npm)
 }
 
 // caller: a token (any form optauth accepts), else for downloads the web

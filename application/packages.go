@@ -480,7 +480,7 @@ func (c *PackagesApp) Get(namespace, typ, name string, caller PackageCaller) (*P
 		return nil, nil, err
 	}
 	tags := map[string][]string{}
-	if p.Type == domain.PackageContainer {
+	if p.Type == domain.PackageContainer || p.Type == domain.PackageNpm { // image tags, npm dist-tags
 		all, err := c.Pers.Tags(p.Id)
 		if err != nil {
 			return nil, nil, err

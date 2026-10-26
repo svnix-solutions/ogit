@@ -21,8 +21,8 @@ func (e *ErrTooManyFailures) Error() string {
 }
 
 // Token returns the personal access token a request presents, if any:
-// "token <pat>" (GitHub's form), "Bearer ogit_...", or Basic with the token
-// as the password (any username).
+// "token <pat>" (GitHub's form), "Bearer ogit_..." (or an Actions job
+// token), or Basic with the token as the password (any username).
 func Token(ctx *fiber.Ctx) string {
 	h := ctx.Get(fiber.HeaderAuthorization)
 	scheme, value, _ := strings.Cut(h, " ")
@@ -31,7 +31,7 @@ func Token(ctx *fiber.Ctx) string {
 	case "token":
 		return value
 	case "bearer":
-		if strings.HasPrefix(value, "ogit_") {
+		if strings.HasPrefix(value, "ogit_") || application.IsJobToken(value) {
 			return value
 		}
 	case "basic":

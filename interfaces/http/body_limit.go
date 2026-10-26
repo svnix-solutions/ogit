@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"github.com/labbs/ogit/interfaces/http/packages"
 	"io"
 	"regexp"
 
@@ -21,8 +22,8 @@ var lfsUploadRoute = regexp.MustCompile(`^/[^/]+/[^/]+/info/lfs/objects/[0-9a-f]
 var cacheUploadRoute = regexp.MustCompile(`^/_apis/artifactcache/caches/[0-9]+$`)
 
 // packageUploadRoute: package uploads (packages.max_file_size): generic
-// files (PUT) and container blobs (POST, PATCH, PUT).
-var packageUploadRoute = regexp.MustCompile(`^/api/packages/[^/]+/generic/[^/]+/[^/]+/[^/]+$|^/v2/.+/blobs/uploads/[0-9a-f-]*$`)
+// files (PUT), container blobs (POST, PATCH, PUT) and npm publishes (PUT).
+var packageUploadRoute = regexp.MustCompile(`^/api/packages/[^/]+/generic/[^/]+/[^/]+/[^/]+$|^/v2/.+/blobs/uploads/[0-9a-f-]*$|` + packages.NpmPublishRoute)
 
 // bodyLimit restores the BodyLimit that StreamRequestBody lifts: fasthttp
 // streams bodies over the limit (and chunked ones) instead of refusing

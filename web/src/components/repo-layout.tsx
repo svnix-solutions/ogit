@@ -7,7 +7,7 @@ import { useProfile } from "@/lib/auth";
 import { encodePath, useRefs } from "@/lib/browse";
 import { useInstance } from "@/lib/queries";
 import { useWorkflows } from "@/lib/actions";
-import { useRepoPackages } from "@/lib/packages";
+import { useGoModule, useRepoPackages } from "@/lib/packages";
 import { useReleaseCount } from "@/lib/releases";
 import { cn } from "@/lib/utils";
 import { useRepository } from "@/pages/repo";
@@ -139,10 +139,12 @@ function ActionsTab({ fullPath, base, tab }: { fullPath: string; base: string; t
   );
 }
 
-// The Packages tab shows once packages are linked to the repository.
+// The Packages tab shows once packages are linked to the repository, or
+// it serves a Go module.
 function PackagesTab({ fullPath, base, tab }: { fullPath: string; base: string; tab: (p: { isActive: boolean }) => string }) {
   const list = useRepoPackages(fullPath);
-  if (!list.data?.length) return null;
+  const goModule = useGoModule(fullPath, true);
+  if (!list.data?.length && !goModule.data) return null;
   return (
     <NavLink to={`${base}/packages`} className={tab}>
       <Package className="h-4 w-4" /> Packages
