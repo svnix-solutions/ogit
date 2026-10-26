@@ -15,6 +15,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"github.com/labbs/ogit/infrastructure/ratelimit"
+	"github.com/labbs/ogit/interfaces/http/repopath"
 	"io"
 	"mime"
 	"path"
@@ -86,7 +87,7 @@ func (c Controller) open(ctx *fiber.Ctx) (*domain.Repository, storer.Storer, err
 
 // openAs is open with the reader ("" for anonymous).
 func (c Controller) openAs(ctx *fiber.Ctx) (*domain.Repository, storer.Storer, string, error) {
-	return c.openPath(ctx, ctx.Params("owner")+"/"+strings.TrimSuffix(ctx.Params("repo"), ".git"))
+	return c.openPath(ctx, repopath.Path(ctx))
 }
 
 // openPath is openAs for a repository path (<namespace>/<slug>).

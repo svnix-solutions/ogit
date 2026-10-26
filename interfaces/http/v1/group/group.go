@@ -1,6 +1,8 @@
 package group
 
 import (
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
@@ -23,11 +25,18 @@ func (ctrl *Controller) Create(ctx *fiber.Ctx, req dtos.CreateGroupRequest) (*dt
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
-	group, err := ctrl.GroupApp.Create(authCtx.UserID, req.Name, req.Description)
+	var group *domain.Group
+	if req.Parent != "" {
+		group, err = ctrl.GroupApp.CreateSubgroup(authCtx.UserID, req.Parent, req.Name, req.Description)
+	} else {
+		group, err = ctrl.GroupApp.Create(authCtx.UserID, req.Name, req.Description)
+	}
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	return &dtos.GroupResponse{Id: group.Id, Name: group.Name, Description: group.Description, Role: string(domain.GroupRoleOwner)}, nil
+	out := toGroup(group)
+	out.Role = string(domain.GroupRoleOwner)
+	return &out, nil
 }
 
 func (ctrl *Controller) List(ctx *fiber.Ctx, _ struct{}) (*dtos.ListGroupsResponse, *fiberoapi.ErrorResponse) {
@@ -41,7 +50,9 @@ func (ctrl *Controller) List(ctx *fiber.Ctx, _ struct{}) (*dtos.ListGroupsRespon
 	}
 	resp := &dtos.ListGroupsResponse{Groups: make([]dtos.GroupResponse, 0, len(groups))}
 	for _, g := range groups {
-		resp.Groups = append(resp.Groups, dtos.GroupResponse{Id: g.Id, Name: g.Name, Description: g.Description, Role: string(g.Role)})
+		out := toGroup(&g.Group)
+		out.Role = string(g.Role)
+		resp.Groups = append(resp.Groups, out)
 	}
 	return resp, nil
 }
@@ -55,7 +66,9 @@ func (ctrl *Controller) Get(ctx *fiber.Ctx, req dtos.GroupRequest) (*dtos.GroupR
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	return &dtos.GroupResponse{Id: group.Id, Name: group.Name, Description: group.Description, Role: string(actor.Role), RequireTwoFactor: group.RequireTwoFactor}, nil
+	out := toGroup(group)
+	out.Role = string(actor.Role)
+	return &out, nil
 }
 
 func (ctrl *Controller) Update(ctx *fiber.Ctx, req dtos.UpdateGroupRequest) (*dtos.GroupResponse, *fiberoapi.ErrorResponse) {
@@ -70,7 +83,9 @@ func (ctrl *Controller) Update(ctx *fiber.Ctx, req dtos.UpdateGroupRequest) (*dt
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	return &dtos.GroupResponse{Id: group.Id, Name: group.Name, Description: group.Description, Role: string(actor.Role), RequireTwoFactor: group.RequireTwoFactor}, nil
+	out := toGroup(group)
+	out.Role = string(actor.Role)
+	return &out, nil
 }
 
 func (ctrl *Controller) Delete(ctx *fiber.Ctx, req dtos.GroupRequest) (*dtos.MessageResponse, *fiberoapi.ErrorResponse) {
@@ -93,13 +108,17 @@ func (ctrl *Controller) ListMembers(ctx *fiber.Ctx, req dtos.GroupRequest) (*dto
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	twoFactor, err := ctrl.GroupApp.MembersTwoFactor(req.Identifier, authCtx.UserID, members)
+	plain := make([]domain.GroupMember, 0, len(members))
+	for _, m := range members {
+		plain = append(plain, m.GroupMember)
+	}
+	twoFactor, err := ctrl.GroupApp.MembersTwoFactor(req.Identifier, authCtx.UserID, plain)
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
 	resp := &dtos.ListMembersResponse{Members: make([]dtos.MemberResponse, 0, len(members))}
 	for _, m := range members {
-		r := dtos.MemberResponse{Username: m.User.Username, Role: string(m.Role)}
+		r := dtos.MemberResponse{Username: m.User.Username, Role: string(m.Role), InheritedFrom: m.InheritedFrom}
 		if twoFactor != nil {
 			on := twoFactor[m.UserId]
 			r.TwoFactorEnabled = &on
@@ -156,11 +175,41 @@ func (ctrl *Controller) Transfer(ctx *fiber.Ctx, req dtos.TransferRequest) (*dto
 	return &dtos.GroupResponse{Id: group.Id, Name: group.Name, Description: group.Description, Role: string(domain.GroupRoleMaintainer)}, nil
 }
 
+// toGroup is a group's API form (the caller's role is set by callers).
+func toGroup(g *domain.Group) dtos.GroupResponse {
+	out := dtos.GroupResponse{Id: g.Id, Name: g.Name, Description: g.Description, RequireTwoFactor: g.RequireTwoFactor}
+	if i := strings.LastIndex(g.Name, "/"); i > 0 {
+		out.Parent = g.Name[:i]
+	}
+	return out
+}
+
+func (ctrl *Controller) Subgroups(ctx *fiber.Ctx, req dtos.GroupRequest) (*dtos.ListSubgroupsResponse, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	groups, err := ctrl.GroupApp.Subgroups(req.Identifier, authCtx.UserID)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	resp := &dtos.ListSubgroupsResponse{Groups: make([]dtos.GroupResponse, 0, len(groups))}
+	for i := range groups {
+		resp.Groups = append(resp.Groups, toGroup(&groups[i]))
+	}
+	return resp, nil
+}
+
 func SetupGroupRouter(c Controller) {
 	tags := []string{"Groups"}
 	fiberoapi.Post(c.FiberOapi, "", c.Create, fiberoapi.OpenAPIOptions{
 		Summary: "Create group", OperationID: "group.create", Tags: tags,
-		Description: "Any user can create a group and becomes its owner. Names: lowercase letters, digits, '.', '_', '-'.",
+		Description: "Any user can create a group and becomes its owner. Names: lowercase letters, digits, '.', '_', '-'. " +
+			"With parent (a group's path or id), a sub-group <parent>/<name>, for the parent's maintainers and owners (at most 5 levels; members of the parent are members of it, with the same role).",
+	})
+	fiberoapi.Get(c.FiberOapi, "/:identifier/subgroups", c.Subgroups, fiberoapi.OpenAPIOptions{
+		Summary: "List a group's sub-groups", OperationID: "group.subgroups", Tags: tags,
+		Description: "Members (direct or inherited) only. Group paths with slashes are URL-encoded in :identifier (org%2Fteam).",
 	})
 	fiberoapi.Get(c.FiberOapi, "", c.List, fiberoapi.OpenAPIOptions{
 		Summary: "List my groups", OperationID: "group.list", Tags: tags,

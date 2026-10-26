@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/labbs/ogit/interfaces/http/repopath"
 	"io"
 	"strconv"
 	"strings"
@@ -82,7 +83,7 @@ func (errLimited) Error() string { return "too many requests" }
 // the batch API or git-lfs-authenticate. budget counts the request as a git
 // operation (batch and locks; transfers are covered by their batch).
 func (c Controller) authorize(ctx *fiber.Ctx, write, budget bool) (*application.LFSAccess, error) {
-	path := ctx.Params("owner") + "/" + strings.TrimSuffix(ctx.Params("repo"), ".git")
+	path := repopath.Path(ctx)
 	ip := c.Limits.ClientIP(ctx)
 	header := ctx.Get(fiber.HeaderAuthorization)
 	var acc *application.LFSAccess

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"github.com/labbs/ogit/infrastructure/ratelimit"
+	"github.com/labbs/ogit/interfaces/http/repopath"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -41,6 +42,9 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 			return ctx.SendStatus(fiber.StatusNotFound)
 		}
 		path := strings.TrimSuffix(repoPath, ".git") // <namespace>/<repo>
+		if nested, ok := repopath.Nested(ctx); ok {
+			path = nested // a sub-group's repository
+		}
 
 		// Missing or malformed credentials are treated as anonymous.
 		creds := BasicCredentials(ctx.Get(fiber.HeaderAuthorization))

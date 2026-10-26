@@ -24,8 +24,13 @@ var (
 	ErrInvalidMember    = errors.New("specify exactly one of username or group")
 
 	// 409
-	ErrAlreadyMember     = errors.New("already a member")
-	ErrGroupNameTaken    = errors.New("group name already taken (by a group or a user)")
+	ErrAlreadyMember  = errors.New("already a member")
+	ErrGroupNameTaken = errors.New("group name already taken (by a group or a user)")
+	// ErrGroupHasSubgroups: delete or move a group's sub-groups first.
+	ErrGroupHasSubgroups = errors.New("delete or move its sub-groups first")
+	// ErrInheritedRole: a sub-group's membership can only raise the role a
+	// user has through a parent group.
+	ErrInheritedRole     = errors.New("the user already has this role or a higher one through a parent group")
 	ErrLastOwner         = domain.ErrLastOwner
 	ErrOwnerMustTransfer = errors.New("the group owner must transfer ownership first")
 )

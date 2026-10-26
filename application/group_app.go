@@ -1,6 +1,9 @@
 package application
 
 import (
+	"net/url"
+	"strings"
+
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
@@ -10,9 +13,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// Group rules:
-//   - any user can create a group and becomes its owner;
-//   - only members can see a group or its members (others get not found);
+// Group rules (sub-groups: group_tree.go):
+//   - any user can create a group and becomes its owner; maintainers and
+//     owners of a group create sub-groups in it and own them;
+//   - only members (direct or inherited) can see a group or its members
+//     (others get not found);
+//   - roles are inherited down the tree: a sub-group's member list shows
+//     inherited members, and a direct membership can only raise a role;
+//   - a group with sub-groups can't be deleted;
 //   - the owner and maintainers add and remove members;
 //   - only the owner promotes or demotes maintainers, removes maintainers,
 //     transfers ownership or deletes the group;
@@ -81,48 +89,119 @@ type Membership struct {
 	Role domain.GroupRole
 }
 
-// MembershipsFor returns userId's groups with their role in each.
+// MembershipsFor returns userId's groups (sub-groups of theirs included)
+// with their role in each, by path.
 func (c *GroupApp) MembershipsFor(userId string) ([]Membership, error) {
-	groups, err := c.GroupPers.ListForUser(userId)
+	roles, err := c.roles().effective(userId)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(roles))
+	for id := range roles {
+		ids = append(ids, id)
+	}
+	groups, err := c.GroupPers.GetByIds(ids)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Membership, 0, len(groups))
 	for _, g := range groups {
-		m, err := c.GroupPers.GetMember(g.Id, userId)
-		if isNotFound(err) {
-			continue // left the group meanwhile
-		} else if err != nil {
-			return nil, err
-		}
-		out = append(out, Membership{Group: g, Role: m.Role})
+		out = append(out, Membership{Group: g, Role: roles[g.Id]})
 	}
 	return out, nil
 }
 
+// roles: group roles for managing groups (2FA requirements don't apply).
+func (c *GroupApp) roles() groupRoles { return groupRoles{groups: c.GroupPers} }
+
 // Get returns the group identified by id or name, with the actor's
 // membership. Groups the actor is not a member of are reported as not found.
 func (c *GroupApp) Get(identifier, actorId string) (*domain.Group, *domain.GroupMember, error) {
+	group, err := c.lookup(identifier)
+	if err != nil {
+		return nil, nil, err
+	}
+	role, _, err := c.roles().role(group, actorId)
+	if err != nil {
+		return nil, nil, err
+	}
+	if role == "" {
+		return nil, nil, ErrGroupNotFound
+	}
+	// The actor's effective role (it may come from a parent group).
+	return group, &domain.GroupMember{GroupId: group.Id, UserId: actorId, Role: role}, nil
+}
+
+// lookup finds a group by id or path (its slashes may come URL-encoded).
+func (c *GroupApp) lookup(identifier string) (*domain.Group, error) {
 	var group *domain.Group
 	var err error
 	if validator.IsValidUUID(identifier) {
 		group, err = c.GroupPers.GetById(identifier)
 	} else {
+		if decoded, uerr := url.PathUnescape(identifier); uerr == nil {
+			identifier = decoded
+		}
 		group, err = c.GroupPers.GetByName(identifier)
 	}
 	if isNotFound(err) {
-		return nil, nil, ErrGroupNotFound
-	} else if err != nil {
-		return nil, nil, err
+		return nil, ErrGroupNotFound
 	}
+	return group, err
+}
 
-	actor, err := c.GroupPers.GetMember(group.Id, actorId)
-	if isNotFound(err) {
-		return nil, nil, ErrGroupNotFound
-	} else if err != nil {
-		return nil, nil, err
+// CreateSubgroup makes a sub-group of parent (its maintainers and owners
+// may); the actor owns it.
+func (c *GroupApp) CreateSubgroup(actorId, parent, name, description string) (*domain.Group, error) {
+	p, actor, err := c.Get(parent, actorId)
+	if err != nil {
+		return nil, err
 	}
-	return group, actor, nil
+	if actor.Role.Level() < domain.GroupRoleMaintainer.Level() {
+		return nil, ErrForbidden
+	}
+	path := p.Name + "/" + name
+	if strings.Contains(name, "/") || domain.ValidGroupPath(path) != nil {
+		return nil, ErrInvalidGroupName
+	}
+	// org/team the group and org/team the repository would share a URL.
+	if _, err := c.RepoPers.GetByPath(p.Name, name); err == nil {
+		return nil, ErrGroupNameTaken
+	} else if !isNotFound(err) {
+		return nil, err
+	}
+	group := &domain.Group{Id: utils.UUIDv4(), Name: path, Description: description, ParentId: &p.Id, Role: domain.RoleUser, OwnerId: actorId}
+	owner := &domain.GroupMember{Id: utils.UUIDv4(), GroupId: group.Id, UserId: actorId, Role: domain.GroupRoleOwner}
+	err = c.GroupPers.Create(group, owner)
+	if helperError.Catch(err) == gorm.ErrDuplicatedKey {
+		return nil, ErrGroupNameTaken
+	} else if err != nil {
+		return nil, err
+	}
+	c.Logger.Info().Str("component", "application.group").Str("group", path).Str("actor_id", actorId).Msg("sub-group created")
+	return group, nil
+}
+
+// Subgroups lists a group's sub-groups (members see them all).
+func (c *GroupApp) Subgroups(identifier, actorId string) ([]domain.Group, error) {
+	group, _, err := c.Get(identifier, actorId)
+	if err != nil {
+		return nil, err
+	}
+	return c.GroupPers.Children(group.Id)
+}
+
+// inheritedRole is userId's role from group's ancestors (none at the top).
+func (c *GroupApp) inheritedRole(group *domain.Group, userId string) (domain.GroupRole, error) {
+	if group.ParentId == nil {
+		return "", nil
+	}
+	parent, err := c.GroupPers.GetById(*group.ParentId)
+	if err != nil {
+		return "", err
+	}
+	role, _, err := c.roles().role(parent, userId)
+	return role, err
 }
 
 func (c *GroupApp) Delete(identifier, actorId string) error {
@@ -138,6 +217,11 @@ func (c *GroupApp) Delete(identifier, actorId string) error {
 	} else if len(repos) > 0 {
 		return ErrNamespaceNotEmpty
 	}
+	if children, err := c.GroupPers.Children(group.Id); err != nil {
+		return err
+	} else if len(children) > 0 {
+		return ErrGroupHasSubgroups
+	}
 	if c.Packages != nil {
 		if packages, err := c.Packages.ListPackages(group.Id, ""); err != nil {
 			return err
@@ -148,12 +232,61 @@ func (c *GroupApp) Delete(identifier, actorId string) error {
 	return c.GroupPers.Delete(group.Id)
 }
 
-func (c *GroupApp) ListMembers(identifier, actorId string) ([]domain.GroupMember, error) {
+// GroupMemberView is a member of a group, direct or inherited from an
+// ancestor (InheritedFrom is then its path).
+type GroupMemberView struct {
+	domain.GroupMember
+	InheritedFrom string
+}
+
+// ListMembers lists a group's members: its own, then those inherited from
+// its ancestors (with their highest role, unless a direct membership
+// raises it).
+func (c *GroupApp) ListMembers(identifier, actorId string) ([]GroupMemberView, error) {
 	group, _, err := c.Get(identifier, actorId)
 	if err != nil {
 		return nil, err
 	}
-	return c.GroupPers.ListMembers(group.Id)
+	chain := []domain.Group{*group}
+	if group.ParentId != nil {
+		if chain, err = c.GroupPers.GetByNames(domain.GroupPathPrefixes(group.Name)); err != nil {
+			return nil, err
+		}
+	}
+	best := map[string]GroupMemberView{}
+	var order []string
+	// Nearest group last, so a direct membership wins a tie.
+	for _, g := range chain {
+		members, err := c.GroupPers.ListMembers(g.Id)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range members {
+			v := GroupMemberView{GroupMember: m}
+			if g.Id != group.Id {
+				v.InheritedFrom = g.Name
+			}
+			old, seen := best[m.UserId]
+			if !seen {
+				order = append(order, m.UserId)
+			}
+			if !seen || m.Role.Level() >= old.Role.Level() {
+				best[m.UserId] = v
+			}
+		}
+	}
+	out := make([]GroupMemberView, 0, len(order))
+	for _, id := range order {
+		if best[id].InheritedFrom == "" {
+			out = append(out, best[id])
+		}
+	}
+	for _, id := range order {
+		if best[id].InheritedFrom != "" {
+			out = append(out, best[id])
+		}
+	}
+	return out, nil
 }
 
 // MembersTwoFactor tells owners and maintainers which members have 2FA
@@ -212,6 +345,11 @@ func (c *GroupApp) AddMember(identifier, actorId, username string, role domain.G
 	} else if err != nil {
 		return nil, err
 	}
+	if inherited, err := c.inheritedRole(group, user.Id); err != nil {
+		return nil, err
+	} else if role.Level() <= inherited.Level() {
+		return nil, ErrInheritedRole
+	}
 
 	member := &domain.GroupMember{
 		Id:      utils.UUIDv4(),
@@ -250,6 +388,11 @@ func (c *GroupApp) UpdateMemberRole(identifier, actorId, username string, role d
 	}
 	if target.Role == domain.GroupRoleOwner {
 		return nil, ErrOwnerMustTransfer
+	}
+	if inherited, err := c.inheritedRole(group, target.UserId); err != nil {
+		return nil, err
+	} else if role.Level() <= inherited.Level() {
+		return nil, ErrInheritedRole
 	}
 
 	if err := c.GroupPers.UpdateMemberRole(group.Id, target.UserId, role); err != nil {
@@ -305,7 +448,9 @@ func (c *GroupApp) TransferOwnership(identifier, actorId, username string) (*dom
 		return group, nil
 	}
 
-	if err := c.GroupPers.TransferOwnership(group.Id, actorId, target.UserId); err != nil {
+	// The current owner, not the actor: an owner of a parent group may
+	// transfer a sub-group.
+	if err := c.GroupPers.TransferOwnership(group.Id, group.OwnerId, target.UserId); err != nil {
 		return nil, err
 	}
 	group.OwnerId = target.UserId

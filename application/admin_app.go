@@ -451,7 +451,7 @@ func (c *AdminApp) TransferRepository(actorId, identifier, namespace string) (*d
 		return nil, err
 	}
 	from := repo.FullPath()
-	if repo, err = moveRepository(c.RepoPers, repo, ns); err != nil {
+	if repo, err = moveRepository(c.RepoPers, c.GroupPers, repo, ns); err != nil {
 		return nil, err
 	}
 	c.audit(actorId, "repository.transfer").Str("repository_id", repo.Id).Str("from", from).Str("to", repo.FullPath()).Send()

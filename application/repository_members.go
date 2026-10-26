@@ -38,10 +38,7 @@ func (c *RepositoryApp) ListMembers(id, slug *string, actorId string) ([]domain.
 // ListForUser returns the repositories userId is a member of, directly or
 // through a group.
 func (c *RepositoryApp) ListForUser(userId string) ([]domain.Repository, error) {
-	groupIds, err := c.GroupPers.GroupIdsForUser(userId)
-	if err == nil {
-		groupIds, err = c.usableGroups(userId, groupIds)
-	}
+	groupIds, err := c.effectiveGroupIds(userId)
 	if err != nil {
 		return nil, err
 	}
@@ -93,11 +90,12 @@ func (c *RepositoryApp) AddMember(id, slug *string, actorId string, in AddMember
 		} else if err != nil {
 			return nil, err
 		}
-		// Only groups the actor belongs to; others are not visible to them.
-		if _, err := c.GroupPers.GetMember(group.Id, actorId); isNotFound(err) {
-			return nil, ErrGroupNotFound
-		} else if err != nil {
+		// Only groups the actor belongs to (directly or through a parent);
+		// others are not visible to them.
+		if role, _, err := (groupRoles{groups: c.GroupPers}).role(group, actorId); err != nil {
 			return nil, err
+		} else if role == "" {
+			return nil, ErrGroupNotFound
 		}
 		if err := absent(c.RepositoryMemberPers.GetGroupMember(repo.Id, group.Id)); err != nil {
 			return nil, err

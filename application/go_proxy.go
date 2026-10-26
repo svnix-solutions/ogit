@@ -2,6 +2,7 @@ package application
 
 import (
 	"errors"
+	"github.com/labbs/ogit/domain"
 	"net/url"
 	"sort"
 	"strings"
@@ -17,7 +18,8 @@ import (
 )
 
 // Go module proxy rules (GOPROXY=<site>/api/packages/go):
-//   - a repository is the module <host>/<namespace>/<slug>, and
+//   - a repository is the module <host>/<namespace>/<slug> (the namespace
+//     may be a sub-group's path), and
 //     <host>/<namespace>/<slug>/vN for major versions N >= 2; <host> is
 //     http.public_url's host name (module paths can't have ports), else the
 //     request's;
@@ -74,8 +76,8 @@ func (c *GoProxyApp) SplitModule(host, path string) (*GoModule, error) {
 	if !ok || strings.HasPrefix(pathMajor, ".") { // gopkg.in style
 		return nil, ErrGoModuleNotFound
 	}
-	if strings.Count(prefix, "/") != 1 {
-		return nil, ErrGoModuleNotFound // sub-directory modules aren't served
+	if n := strings.Count(prefix, "/"); n < 1 || n > domain.MaxGroupDepth {
+		return nil, ErrGoModuleNotFound
 	}
 	return &GoModule{Path: path, Repo: prefix, PathMajor: pathMajor}, nil
 }

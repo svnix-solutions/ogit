@@ -12,6 +12,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/v1/apierror"
 	"github.com/labbs/ogit/interfaces/http/v1/optauth"
 	"github.com/rs/zerolog"
+	"net/url"
 )
 
 type Controller struct {
@@ -65,6 +66,13 @@ type NamespaceResponse struct {
 	CanCreate    bool         `json:"can_create"`
 	Repositories []Repository `json:"repositories"`
 	Total        int          `json:"total"` // repositories visible to the caller
+	// Subgroups: a group's sub-groups the caller may see.
+	Subgroups []Subgroup `json:"subgroups"`
+}
+
+type Subgroup struct {
+	Name        string `json:"name"` // its full path
+	Description string `json:"description,omitempty"`
 }
 
 func Setup(c Controller, grp *fiberoapi.OApiGroup) {
@@ -111,13 +119,21 @@ func (c Controller) Explore(ctx *fiber.Ctx, req ExploreRequest) (*ExploreRespons
 }
 
 func (c Controller) Namespace(ctx *fiber.Ctx, req NamespaceRequest) (*NamespaceResponse, *fiberoapi.ErrorResponse) {
-	view, err := c.RepositoryApp.ViewNamespace(req.Name, c.userId(ctx))
+	name := req.Name
+	if decoded, err := url.PathUnescape(name); err == nil {
+		name = decoded // a sub-group's path: org%2Fteam
+	}
+	view, err := c.RepositoryApp.ViewNamespace(name, c.userId(ctx))
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
 	limit := req.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 100
+	}
+	subgroups := []Subgroup{}
+	for _, g := range view.Subgroups {
+		subgroups = append(subgroups, Subgroup{Name: g.Name, Description: g.Description})
 	}
 	repos := view.Repositories
 	start := min(max(req.Offset, 0), len(repos))
@@ -129,6 +145,7 @@ func (c Controller) Namespace(ctx *fiber.Ctx, req NamespaceRequest) (*NamespaceR
 		CanCreate:    view.CanCreate,
 		Repositories: summaries(repos[start:end]),
 		Total:        len(repos),
+		Subgroups:    subgroups,
 	}, nil
 }
 

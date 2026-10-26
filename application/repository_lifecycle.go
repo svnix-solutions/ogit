@@ -67,6 +67,9 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 		if newSlug == "" {
 			return nil, ErrInvalidName
 		}
+		if err := groupAtPath(c.GroupPers, repo.Namespace, newSlug); err != nil {
+			return nil, err
+		}
 		if err := c.RepoPres.Rename(repo.Id, repo.Namespace, name, newSlug, repo.Slug); helperError.Catch(err) == gorm.ErrDuplicatedKey {
 			return nil, ErrRepositoryNameTaken
 		} else if err != nil {

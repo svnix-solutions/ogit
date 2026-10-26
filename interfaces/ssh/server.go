@@ -31,10 +31,10 @@ import (
 
 const handshakeTimeout = 15 * time.Second
 
-// pathPattern matches <namespace>/<slug>: a username or group name (see
-// domain.ValidNamespaceName) and a gosimple/slug slug. Anything else in a
+// pathPattern matches <namespace>/<slug>: a username or group path (see
+// domain.ValidNamespaceName and ValidGroupPath) and a gosimple/slug slug. Anything else in a
 // command, including path traversal, is rejected.
-var pathPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9-]*$`)
+var pathPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*){0,4}/[a-z0-9][a-z0-9-]*$`) // up to 5 group levels
 
 // flatPattern is a repository path from before namespaces (one segment).
 var flatPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)

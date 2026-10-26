@@ -316,11 +316,12 @@ func (c *ProtectionApp) allowed(rule *domain.BranchProtection, userId string) (b
 	if slices.Contains(rule.AllowedUserIds, userId) {
 		return true, nil
 	}
-	groups, err := c.Groups.GroupIdsForUser(userId)
+	// Members of an allowed group, inherited ones included.
+	groups, err := groupRoles{groups: c.Groups}.effective(userId)
 	if err != nil {
 		return false, err
 	}
-	for _, g := range groups {
+	for g := range groups {
 		if slices.Contains(rule.AllowedGroupIds, g) {
 			return true, nil
 		}
