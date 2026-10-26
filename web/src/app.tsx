@@ -22,6 +22,7 @@ const pulls = () => import("@/pages/repo-pulls");
 const issues = () => import("@/pages/repo-issues");
 const releases = () => import("@/pages/repo-releases");
 const actions = () => import("@/pages/repo-actions");
+const packages = () => import("@/pages/packages");
 
 // Fixed paths win over /:owner (React Router ranks static segments first);
 // the server reserves these words as user and group names.
@@ -32,6 +33,7 @@ export const routes: RouteObject[] = [
       { path: "/login", element: <LoginPage /> },
       { path: "/register", element: <RegisterPage /> },
       { path: "/explore", element: <ExplorePage /> },
+      { path: "/packages/:owner/:type/*", lazy: page(packages, "PackagePage") },
       { path: "/:owner", element: <NamespacePage /> },
       // Public repositories are browsable signed out; settings need a session.
       {
@@ -58,6 +60,7 @@ export const routes: RouteObject[] = [
           { path: "releases/tag/*", lazy: page(releases, "ReleasePage") },
           { path: "actions", lazy: page(actions, "ActionsPage") },
           { path: "actions/runs/:number", lazy: page(actions, "RunPage") },
+          { path: "packages", lazy: page(packages, "RepoPackagesPage") },
           {
             element: <RequireAuth />,
             children: [

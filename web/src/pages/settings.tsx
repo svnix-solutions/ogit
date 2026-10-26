@@ -110,6 +110,8 @@ const scopeChoices = [
   { scope: "read:repository", label: "Clone and fetch" },
   { scope: "write:repository", label: "Push" },
   { scope: "write:status", label: "Commit statuses (CI)" },
+  { scope: "read:packages", label: "Pull packages" },
+  { scope: "write:packages", label: "Publish packages" },
 ];
 
 function Tokens() {

@@ -42,12 +42,12 @@ type Workflow struct {
 	Labels []string             // every job's runs-on labels
 	// Permissions the run's token needs: the most any job gets (a job's
 	// own `permissions:`, else the workflow's; contents: read by default).
-	// Only contents and statuses are honoured.
+	// Only contents, statuses and packages are honoured.
 	Permissions map[string]string
 }
 
 // honoured are the job token permissions oGit implements.
-var honoured = []string{"contents", "statuses"}
+var honoured = []string{"contents", "statuses", "packages"}
 
 // readPermissions reads a `permissions:` node (nil when absent).
 func readPermissions(n yaml.Node) map[string]string {
@@ -180,7 +180,7 @@ func ParseWorkflow(data []byte) (*Workflow, error) {
 	}
 	defaults := readPermissions(raw.Permissions)
 	if defaults == nil {
-		defaults = map[string]string{"contents": "read"}
+		defaults = map[string]string{"contents": "read", "packages": "read"}
 	}
 	w.Permissions = map[string]string{}
 	seen := map[string]bool{}

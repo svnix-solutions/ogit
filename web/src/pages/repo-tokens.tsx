@@ -27,6 +27,8 @@ export const tokenScopes = [
   { scope: "read:repository", label: "Clone, fetch and read the API" },
   { scope: "write:repository", label: "Push (branch protection applies)" },
   { scope: "write:status", label: "Post commit statuses" },
+  { scope: "read:packages", label: "Pull the repository's packages" },
+  { scope: "write:packages", label: "Publish packages linked to the repository" },
 ];
 
 export function RepoTokens({ repo }: { repo: Repository }) {

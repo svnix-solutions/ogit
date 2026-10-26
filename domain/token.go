@@ -66,6 +66,10 @@ const (
 	ScopeCommentPullRequest TokenScope = "comment:pull_request"
 	// ScopeWriteStatus posts commit statuses (CI) without push access.
 	ScopeWriteStatus TokenScope = "write:status"
+	// ScopeReadPackages pulls packages the owner can read; ScopeWritePackages
+	// also publishes them.
+	ScopeReadPackages  TokenScope = "read:packages"
+	ScopeWritePackages TokenScope = "write:packages"
 )
 
 func (t TokenScopes) Value() (driver.Value, error) {

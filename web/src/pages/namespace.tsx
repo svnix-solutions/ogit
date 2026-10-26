@@ -1,12 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Settings, User, Users } from "lucide-react";
-import { useParams, useSearchParams } from "react-router";
+import { Package, Plus, Settings, User, Users } from "lucide-react";
+import { Link, useParams, useSearchParams } from "react-router";
 import { pageParam, Pager } from "@/components/pager";
 import { RepoList } from "@/components/repo-list";
 import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { api, ApiError, type NamespaceView } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
+import { packagePath, useNamespacePackages } from "@/lib/packages";
 import { useMyGroups } from "@/lib/queries";
 import { NotFoundPage } from "./not-found";
 
@@ -54,6 +57,31 @@ export function NamespacePage() {
       </div>
       <RepoList repos={ns.data.repositories} showNamespace={false} empty="No repositories you can see here." />
       <Pager page={page} perPage={perPage} count={ns.data.repositories.length} total={ns.data.total} onPage={(p) => setParams({ page: String(p + 1) })} />
+      <NamespacePackages namespace={owner} />
     </div>
+  );
+}
+
+// Packages: a small list here (the type icons come with the package page).
+function NamespacePackages({ namespace }: { namespace: string }) {
+  const list = useNamespacePackages(namespace);
+  if (!list.data?.length) return null;
+  return (
+    <section className="space-y-2">
+      <h2 className="font-semibold">Packages</h2>
+      <Card className="divide-y">
+        {list.data.map((p) => (
+          <div key={p.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm">
+            <Package className="h-4 w-4 text-muted-foreground" />
+            <Link to={packagePath(p)} className="font-medium text-primary hover:underline">
+              {p.name}
+            </Link>
+            <Badge>{p.type}</Badge>
+            {!p.public && <Badge>private</Badge>}
+            {p.repository && <span className="text-xs text-muted-foreground">from {p.repository}</span>}
+          </div>
+        ))}
+      </Card>
+    </section>
   );
 }

@@ -61,6 +61,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.GitFlags(cfg)...)
 	list = append(list, config.LFSFlags(cfg)...)
 	list = append(list, config.ActionsFlags(cfg)...)
+	list = append(list, config.PackagesFlags(cfg)...)
 	return
 }
 
@@ -93,6 +94,8 @@ func runServer(cfg config.Config) error {
 	go deps.WebhookApp.Run(context.Background(), 2*time.Second)
 	// Runs whose runner stopped reporting fail.
 	go deps.ActionsApp.Watch(context.Background(), time.Minute)
+	// Unused container blobs and abandoned uploads.
+	go deps.PackagesApp.Run(context.Background(), time.Hour)
 
 	if cfg.SSH.Enabled {
 		if err := startSSH(deps); err != nil {
@@ -236,10 +239,12 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.TokenApp.MustEnroll = deps.TwoFactorApp.MustEnroll
 	deps.RepoApp.TwoFactorEnabled = deps.TwoFactorApp.Enabled
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
+	packagesPers := persistence.NewPackagesPers(deps.Database.Db)
+	deps.GroupApp.Packages = packagesPers
 	deps.GroupApp.TwoFactor = deps.TwoFactorApp
 	deps.AdminApp = &application.AdminApp{
 		Config: deps.Config, Logger: deps.Logger, UserPers: userPers, SessionPers: sessionPers,
-		RepoPers: repoPers, RepositoryMemberPers: repositoryMemberPers, GroupPers: groupPers, Storage: deps.Storage,
+		RepoPers: repoPers, RepositoryMemberPers: repositoryMemberPers, GroupPers: groupPers, Storage: deps.Storage, Packages: packagesPers,
 	}
 	deps.SSHKeyApp = &application.SSHKeyApp{
 		Config: deps.Config, Logger: deps.Logger, SSHKeyPers: persistence.NewSSHKeyPers(deps.Database.Db), UserPers: userPers,
@@ -264,7 +269,10 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Repositories: deps.RepoApp, Groups: deps.GroupApp.GroupPers, GroupApp: deps.GroupApp, Admin: deps.AdminApp, Webhooks: deps.WebhookApp, Box: deps.TwoFactorApp.Box, Statuses: deps.StatusApp}
 	deps.WebhookApp.Actions = deps.ActionsApp
 	deps.TokenApp.JobToken = deps.ActionsApp.JobToken
+	deps.TokenApp.JobTokenHash = deps.ActionsApp.JobTokenByHash
 	deps.AuthApp.Actions = deps.ActionsApp
+	deps.PackagesApp = &application.PackagesApp{Config: deps.Config, Logger: deps.Logger, Pers: packagesPers,
+		Repositories: deps.RepoApp, Storage: deps.Storage, Tokens: deps.TokenApp}
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
 	if err != nil {

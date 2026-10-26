@@ -49,6 +49,11 @@ type Config struct {
 		MaxObjectSize int64
 	}
 
+	// Packages: files (and container blobs) are at most MaxFileSize bytes.
+	Packages struct {
+		MaxFileSize int64
+	}
+
 	// Actions: artifacts are kept ArtifactRetentionDays (a workflow can
 	// only shorten it) and are at most MaxArtifactSize bytes.
 	Actions struct {

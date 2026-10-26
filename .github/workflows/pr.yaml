@@ -91,7 +91,7 @@ jobs:
 
     # testcontainers starts MinIO, Mailpit, Redis and Postgres through the runner's Docker daemon.
     - name: Integration tests (MinIO, Mailpit, Redis, Postgres migration)
-      run: go test -race -count=1 -timeout 20m -tags=integration -run 'MinIO|Mailpit|Redis|PostgresMigration|ActionsRunnerDocker' ./...
+      run: go test -race -count=1 -timeout 20m -tags=integration -run 'MinIO|Mailpit|Redis|PostgresMigration|ActionsRunnerDocker|DockerRegistry' ./...
 
     # The whole e2e suite on Postgres takes over 10 minutes on the runners,
     # go test's default timeout for a package.

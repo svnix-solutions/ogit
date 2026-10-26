@@ -1,4 +1,4 @@
-import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, PlayCircle, Settings, Tag } from "lucide-react";
+import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Package, PlayCircle, Settings, Tag } from "lucide-react";
 import { ForkButton, ForkedFrom, SyncButton, WatchSelect } from "@/components/forks";
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
@@ -7,6 +7,7 @@ import { useProfile } from "@/lib/auth";
 import { encodePath, useRefs } from "@/lib/browse";
 import { useInstance } from "@/lib/queries";
 import { useWorkflows } from "@/lib/actions";
+import { useRepoPackages } from "@/lib/packages";
 import { useReleaseCount } from "@/lib/releases";
 import { cn } from "@/lib/utils";
 import { useRepository } from "@/pages/repo";
@@ -115,6 +116,7 @@ export function RepoLayout() {
           <Tag className="h-4 w-4" /> Releases <ReleaseCount fullPath={repo.full_path} />
         </NavLink>
         <ActionsTab fullPath={repo.full_path} base={base} tab={tab} />
+        <PackagesTab fullPath={repo.full_path} base={base} tab={tab} />
         {atLeast(repo.role, "maintainer") && (
           <NavLink to={`${base}/settings`} className={tab}>
             <Settings className="h-4 w-4" /> Settings
@@ -133,6 +135,17 @@ function ActionsTab({ fullPath, base, tab }: { fullPath: string; base: string; t
   return (
     <NavLink to={`${base}/actions`} className={tab}>
       <PlayCircle className="h-4 w-4" /> Actions
+    </NavLink>
+  );
+}
+
+// The Packages tab shows once packages are linked to the repository.
+function PackagesTab({ fullPath, base, tab }: { fullPath: string; base: string; tab: (p: { isActive: boolean }) => string }) {
+  const list = useRepoPackages(fullPath);
+  if (!list.data?.length) return null;
+  return (
+    <NavLink to={`${base}/packages`} className={tab}>
+      <Package className="h-4 w-4" /> Packages
     </NavLink>
   );
 }

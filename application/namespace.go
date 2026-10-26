@@ -24,6 +24,8 @@ var (
 	// ErrNamespaceNotEmpty: a user or group that still owns repositories
 	// can't be deleted; their paths would dangle.
 	ErrNamespaceNotEmpty = errors.New("delete or move its repositories first")
+	// ErrNamespaceHasPackages: a group that still owns packages.
+	ErrNamespaceHasPackages = errors.New("delete its packages first")
 )
 
 // SplitPath splits "<namespace>/<slug>" (an optional .git suffix and

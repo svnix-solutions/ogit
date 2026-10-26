@@ -13,6 +13,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Database**: SQLite or PostgreSQL
 - **Actions**: GitHub Actions workflows run by `ogit runner` (act, in Docker), with shared, group and repository runners
 - **Git LFS**: large files over HTTPS and SSH, stored with the repository (local or S3), file locking, and LFS files served by the web UI, raw links and archives
+- **Packages**: a container registry (`docker push` and `pull`) and generic files, owned by users and groups, linked to repositories and published from Actions
 - **Releases**: on tags, with drafts, pre-releases, generated notes, uploaded assets and protected tags; GitHub's releases API for release tools
 - **Forks**: fork any repository you can read, open pull requests from your fork, sync it with the original
 - **Issues**: per repository, numbered with pull requests, with comments, labels, assignees, milestones and "Fixes #N"
@@ -249,6 +250,19 @@ Git LFS works with the usual remote, over HTTP or SSH: `git lfs track "*.psd"`, 
 - **Forks** read the objects they lack from the repository they were forked from (if you can read it); objects pushed to a fork are stored in the fork.
 - **Locks:** `git lfs lock <file>`, `git lfs locks`, `git lfs unlock <file>`. Writers lock; only the lock's owner may push changes to that file (the server refuses others' pushes, whatever the client does). Owners unlock theirs; maintainers and owners force-unlock (`--force`).
 - **Web UI, raw files and archives:** an LFS file shows "Stored with Git LFS" with its size; raw links and archives serve its content (or the pointer, if the object isn't on the server).
+
+### Packages
+
+Packages belong to a user or group, like repositories, and may be linked to one of its repositories. Publish with a personal access token with `write:packages` (`read:packages` to pull private ones), or from Actions with `permissions: packages: write`.
+
+- **Container images:** `docker login <host>` with your username and the token as the password (in Actions: `echo "$GITHUB_TOKEN" | docker login <host> -u x --password-stdin`), then `docker push <host>/<owner>/<image>:<tag>` and `docker pull`. The registry serves the OCI distribution API under `/v2` on the site's host (HTTPS: docker only talks to plain HTTP for `localhost`, 127.0.0.0/8 or registries listed as `insecure-registries`). Layers are shared between the images of a namespace.
+- **Generic files:** `curl -u <user>:<token> --upload-file tool.tar.gz <url>/api/packages/<owner>/generic/<name>/<version>/tool.tar.gz`, downloaded at the same URL. A version's file is published once; downloads are always attachments.
+- **Who publishes:** the namespace's user, a group's maintainers and owners, the linked repository's developers and up, and that repository's tokens (Actions jobs included, which create packages linked to their repository).
+- **Visibility:** private by default; linked packages may follow their repository (public with it), or be made public. Readers of the linked repository read the package.
+- **Limits:** files and layers up to `packages.max_file_size` (2 GB).
+- **Deleting:** package admins (the namespace's user, group maintainers and owners, the linked repository's maintainers and owners) delete versions (for images: a digest; deleting a tag only untags) and packages. Layers no image uses any more are deleted after a day. Deleting a repository unlinks its packages and makes them private; users and groups with packages can't be deleted.
+- **Web UI:** a namespace's page lists its packages, repositories with linked packages get a Packages tab, and a package's page shows its versions (tags, files), install command and settings.
+- **API:** `GET /api/v1/packages/<owner>[?type=]`, `GET|PATCH|DELETE /api/v1/packages/<owner>/<type>/<name>` (image names with slashes URL-encoded; `DELETE` takes `?confirm=<name>`), `DELETE .../versions/<version>`, `GET /api/v1/repository/<owner>%2F<repo>/packages`.
 
 ### Releases
 

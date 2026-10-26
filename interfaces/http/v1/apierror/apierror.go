@@ -134,12 +134,20 @@ var mapping = []struct {
 	{gitmerge.ErrMethod, fiber.StatusBadRequest, "INVALID_MERGE_METHOD"},
 	{gitmerge.ErrRebaseMerges, fiber.StatusConflict, "REBASE_MERGE_COMMITS"},
 	{application.ErrNamespaceNotEmpty, fiber.StatusConflict, "NAMESPACE_NOT_EMPTY"},
+	{application.ErrNamespaceHasPackages, fiber.StatusConflict, "NAMESPACE_HAS_PACKAGES"},
 	{domain.ErrInvalidNamespaceName, fiber.StatusBadRequest, "INVALID_NAMESPACE_NAME"},
 	{application.ErrInvalidName, fiber.StatusBadRequest, "INVALID_NAME"},
 	{application.ErrInvalidSSHKey, fiber.StatusBadRequest, "INVALID_SSH_KEY"},
 	{application.ErrSSHKeyInUse, fiber.StatusConflict, "SSH_KEY_IN_USE"},
 	{application.ErrSSHKeyName, fiber.StatusConflict, "SSH_KEY_NAME_TAKEN"},
 	{application.ErrSSHKeyNotFound, fiber.StatusNotFound, "SSH_KEY_NOT_FOUND"},
+	{application.ErrPackageNotFound, fiber.StatusNotFound, "PACKAGE_NOT_FOUND"},
+	{application.ErrPackageVersionExists, fiber.StatusConflict, "PACKAGE_FILE_EXISTS"},
+	{application.ErrInvalidPackage, fiber.StatusBadRequest, "INVALID_PACKAGE"},
+	{application.ErrPackageTooLarge, fiber.StatusRequestEntityTooLarge, "PACKAGE_TOO_LARGE"},
+	{application.ErrPackageScope, fiber.StatusForbidden, "TOKEN_SCOPE"},
+	{application.ErrInvalidVisibility, fiber.StatusBadRequest, "INVALID_VISIBILITY"},
+	{application.ErrPackageLink, fiber.StatusBadRequest, "INVALID_REPOSITORY"},
 }
 
 // From converts err into an error response. Known application errors keep

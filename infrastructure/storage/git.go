@@ -48,6 +48,12 @@ type Config interface {
 	// downloads of cache entries).
 	OpenFileRange(repoPath, area, id string, offset, length int64) (io.ReadCloser, error)
 
+	// Package files are stored per namespace owner, outside repositories
+	// (name: a relative path such as "blobs/sha256/<hex>").
+	PutPackageFile(ownerId, name string, r io.Reader) error
+	OpenPackageFile(ownerId, name string) (io.ReadCloser, error)
+	DeletePackageFile(ownerId, name string) error
+
 	// LFS objects (oid: lowercase hex SHA-256, checked by the caller) are
 	// stored with the repository too. StatLFSObject reports a missing
 	// object as ok false.

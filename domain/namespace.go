@@ -19,7 +19,7 @@ var reservedNames = map[string]bool{
 	"assets": true, "dashboard": true, "documentation": true, "explore": true,
 	"favicon.svg": true, "groups": true, "help": true, "login": true,
 	"logout": true, "new": true, "notifications": true, "register": true, "settings": true,
-	"users": true, "verify": true,
+	"packages": true, "users": true, "v2": true, "verify": true,
 }
 
 var ErrInvalidNamespaceName = errors.New("name must be 1-64 characters: lowercase letters, digits, '.', '_' or '-', starting with a letter or digit, not ending in .git, and not a reserved word")

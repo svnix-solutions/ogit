@@ -36,6 +36,21 @@ func LFSFlags(cfg *Config) []cli.Flag {
 	}
 }
 
+func PackagesFlags(cfg *Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.Int64Flag{
+			Name:        "packages.max_file_size",
+			Usage:       "Largest package file or container layer accepted, in bytes (streamed)",
+			Value:       2 << 30,
+			Destination: &cfg.Packages.MaxFileSize,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("PACKAGES_MAX_FILE_SIZE"),
+				altsrcyaml.YAML("packages.max_file_size", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+	}
+}
+
 func ActionsFlags(cfg *Config) []cli.Flag {
 	return []cli.Flag{
 		&cli.IntFlag{

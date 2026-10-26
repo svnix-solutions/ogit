@@ -27,6 +27,8 @@ type GroupApp struct {
 	// TwoFactor tells owners and maintainers which members lack 2FA; nil:
 	// unknown.
 	TwoFactor *TwoFactorApp
+	// Packages: a group with packages can't be deleted; nil: none to check.
+	Packages domain.PackagesPers
 }
 
 func NewGroupApp(config config.Config, logger zerolog.Logger, groupPers domain.GroupPers, userPers domain.UserPers, repoPers domain.RepositoryPers) *GroupApp {
@@ -135,6 +137,13 @@ func (c *GroupApp) Delete(identifier, actorId string) error {
 		return err
 	} else if len(repos) > 0 {
 		return ErrNamespaceNotEmpty
+	}
+	if c.Packages != nil {
+		if packages, err := c.Packages.ListPackages(group.Id, ""); err != nil {
+			return err
+		} else if len(packages) > 0 {
+			return ErrNamespaceHasPackages
+		}
 	}
 	return c.GroupPers.Delete(group.Id)
 }
