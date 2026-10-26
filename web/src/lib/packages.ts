@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, repoId } from "./api";
 
-// Packages (see application/packages.go): container images, generic files
-// (npm and Go come later), owned by a user or group.
+// Packages (see application/packages.go): container images, npm packages
+// and generic files, owned by a user or group; Go modules are served from
+// repositories' tags (application/go_proxy.go).
 
 export type PackageType = "container" | "generic" | "npm" | "go";
 
@@ -37,9 +38,12 @@ export const packagePath = (p: { namespace: string; type: string; name: string }
 const apiPath = (namespace: string, type: string, name: string) =>
   `/packages/${encodeURIComponent(namespace)}/${encodeURIComponent(type)}/${encodeURIComponent(name)}`;
 
-// fileURL downloads a generic file (the session cookie authenticates it).
+// fileURL downloads a generic file or an npm tarball (the session cookie
+// authenticates it).
 export const fileURL = (p: Package, version: string, file: string) =>
-  `/api/packages/${encodeURIComponent(p.namespace)}/generic/${encodeURIComponent(p.name)}/${encodeURIComponent(version)}/${encodeURIComponent(file)}`;
+  p.type === "npm"
+    ? `/api/packages/npm/@${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}/-/${encodeURIComponent(file)}`
+    : `/api/packages/${encodeURIComponent(p.namespace)}/generic/${encodeURIComponent(p.name)}/${encodeURIComponent(version)}/${encodeURIComponent(file)}`;
 
 export function useNamespacePackages(namespace: string) {
   return useQuery({
@@ -60,7 +64,7 @@ export function useRepoPackages(fullPath: string) {
 export function usePackage(namespace: string, type: string, name: string) {
   return useQuery({
     queryKey: ["packages", "detail", namespace, type, name],
-    queryFn: () => api<{ package: Package; versions: PackageVersion[] }>("GET", apiPath(namespace, type, name)),
+    queryFn: () => api<{ package: Package; versions: PackageVersion[]; readme: string }>("GET", apiPath(namespace, type, name)),
     retry: false,
   });
 }
@@ -89,8 +93,18 @@ export function useDeletePackage(p: Package) {
   });
 }
 
+// The version npm installs by default (dist-tag latest), else the newest.
+export const latestVersion = (versions: PackageVersion[]) => versions.find((v) => v.tags.includes("latest")) ?? versions[0];
+
+// npmManifest is a version's package.json as published.
+export const npmManifest = (v?: PackageVersion) => (v?.metadata.manifest ?? {}) as Record<string, unknown>;
+
+// npmrc maps the package's scope to this registry.
+export const npmrc = (p: Package, origin: string) => [`@${p.namespace}:registry=${origin}/api/packages/npm/`, `${origin.replace(/^https?:/, "")}/api/packages/npm/:_authToken=<token>`];
+
 // Install commands for a package, as shown on its page.
 export function installCommand(p: Package, host: string, version?: PackageVersion): string {
+  if (p.type === "npm") return `npm install @${p.namespace}/${p.name}${version ? "@" + version.version : ""}`;
   if (p.type === "container") {
     const ref = version?.tags[0] ? `:${version.tags[0]}` : version ? `@${version.version}` : "";
     return `docker pull ${host}/${p.namespace}/${p.name}${ref}`;
@@ -98,4 +112,17 @@ export function installCommand(p: Package, host: string, version?: PackageVersio
   const v = version?.version ?? "<version>";
   const f = version?.files[0]?.name ?? "<file>";
   return `curl -fLO -u <user>:<token> ${location.protocol}//${host}/api/packages/${p.namespace}/generic/${p.name}/${v}/${f}`;
+}
+
+export type GoModule = { path: string; versions: { version: string; time: string }[]; requires: { path: string; version: string; indirect: boolean }[] };
+
+// useGoModule: the module a repository serves through the Go proxy (404
+// when it has none: data stays undefined). summary only checks that there
+// is one (no versions or requirements; cheap, for the tab).
+export function useGoModule(fullPath: string, summary = false) {
+  return useQuery({
+    queryKey: ["packages", "go", fullPath, summary],
+    queryFn: () => api<GoModule>("GET", `/repository/${repoId(fullPath)}/go-module${summary ? "?summary=true" : ""}`),
+    retry: false,
+  });
 }

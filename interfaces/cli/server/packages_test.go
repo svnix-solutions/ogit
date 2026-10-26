@@ -579,6 +579,15 @@ func TestPackagesFromActions(t *testing.T) {
 	status, _, _ = srv.generic(t, http.MethodGet, "owner/generic/app/1/app.tgz", f.reporter.git, nil)
 	assert.Equal(t, http.StatusNotFound, status, "repository scopes don't read packages")
 
+	// npm publish with NODE_AUTH_TOKEN (Bearer).
+	tgz := npmTarball(t, "@owner/app", "1.0.0", "")
+	status, npmBody := srv.npmDo(t, http.MethodPut, "@owner%2fapp", reader, npmPublishBody("@owner/app", "1.0.0", tgz, nil, nil))
+	assert.Equal(t, http.StatusForbidden, status, "%v", npmBody)
+	status, npmBody = srv.npmDo(t, http.MethodPut, "@owner%2fapp", writer, npmPublishBody("@owner/app", "1.0.0", tgz, nil, nil))
+	require.Equal(t, http.StatusCreated, status, "%v", npmBody)
+	status, _ = srv.npmDo(t, http.MethodGet, "@owner%2fapp", reader, nil)
+	assert.Equal(t, http.StatusOK, status)
+
 	// docker login with GITHUB_TOKEN.
 	c := srv.registry(t, writer)
 	c.push("owner/app", "latest", newTestImage(t, "ci"))

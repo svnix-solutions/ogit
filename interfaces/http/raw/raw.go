@@ -39,6 +39,7 @@ type Controller struct {
 	Releases   *application.ReleaseApp
 	Limits     *ratelimit.Guard
 	Actions    *application.ActionsApp // workflow badges
+	GoProxy    *application.GoProxyApp
 }
 
 func Setup(c Controller, app *fiber.App) {
@@ -50,6 +51,9 @@ func Setup(c Controller, app *fiber.App) {
 	// image has no git).
 	app.Get("/api/v3/repos/:owner/:repo/tarball/*", c.apiArchive(gitbrowse.TarGz))
 	app.Get("/api/v3/repos/:owner/:repo/zipball/*", c.apiArchive(gitbrowse.Zip))
+	// The Go module proxy, and go-get meta tags for GOPRIVATE.
+	app.Get("/api/packages/go/*", c.GoModule)
+	app.Use(c.goGet)
 }
 
 // apiArchive serves GitHub's /tarball/<ref> and /zipball/<ref>. Besides
@@ -82,7 +86,11 @@ func (c Controller) open(ctx *fiber.Ctx) (*domain.Repository, storer.Storer, err
 
 // openAs is open with the reader ("" for anonymous).
 func (c Controller) openAs(ctx *fiber.Ctx) (*domain.Repository, storer.Storer, string, error) {
-	repoPath := ctx.Params("owner") + "/" + strings.TrimSuffix(ctx.Params("repo"), ".git")
+	return c.openPath(ctx, ctx.Params("owner")+"/"+strings.TrimSuffix(ctx.Params("repo"), ".git"))
+}
+
+// openPath is openAs for a repository path (<namespace>/<slug>).
+func (c Controller) openPath(ctx *fiber.Ctx, repoPath string) (*domain.Repository, storer.Storer, string, error) {
 	ip := c.Limits.ClientIP(ctx)
 	if creds := git.BasicCredentials(ctx.Get(fiber.HeaderAuthorization)); creds != nil {
 		if r, blocked := c.Limits.LoginBlocked(ctx.UserContext(), ip, ""); blocked {

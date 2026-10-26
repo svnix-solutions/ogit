@@ -271,7 +271,9 @@ func TestLFSObjects(t *testing.T) {
 
 		status, out := srv.lfsSend(t, http.MethodPut, objects+oidOf(content), header, content[:100])
 		assert.Equal(t, http.StatusUnprocessableEntity, status, "a truncated upload: %s", out)
-		status, out = srv.lfsSend(t, http.MethodPut, objects+oidOf(content), header, append([]byte{1}, content[1:]...))
+		// The first byte flipped (setting it could leave random content
+		// unchanged).
+		status, out = srv.lfsSend(t, http.MethodPut, objects+oidOf(content), header, append([]byte{content[0] ^ 0xff}, content[1:]...))
 		assert.Equal(t, http.StatusUnprocessableEntity, status, "other content: %s", out)
 		status, resp, _ = srv.do(t, http.MethodPost, objects+"verify", header, lfsObject(content))
 		assert.Equal(t, http.StatusNotFound, status, "nothing was kept: %v", resp)

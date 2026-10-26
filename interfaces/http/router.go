@@ -63,7 +63,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 	// The container registry (docker push and pull) and package formats.
 	registry.Setup(registry.Controller{Config: deps.Config, Logger: deps.Logger, Packages: deps.PackagesApp, Limits: deps.Limits}, deps.Http.Fiber)
 	deps.Http.Fiber.Use("/api/packages", apiLimit(deps.Config, deps.Limits))
-	packages.Setup(packages.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Packages: deps.PackagesApp, Limits: deps.Limits}, deps.Http.Fiber)
+	packages.Setup(packages.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Packages: deps.PackagesApp, Limits: deps.Limits}, deps.Http.Fiber)
 
 	// Setup v1 routes
 	v1.SetupRouterV1(deps)
@@ -76,7 +76,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// Raw files and archives: /<owner>/<repo>/raw/... and /archive/...
 	raw.Setup(raw.Controller{Logger: deps.Logger, AuthApp: deps.AuthApp, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp,
-		Releases: deps.ReleaseApp, Limits: deps.Limits, Actions: deps.ActionsApp}, deps.Http.Fiber)
+		Releases: deps.ReleaseApp, Limits: deps.Limits, Actions: deps.ActionsApp, GoProxy: deps.GoProxyApp}, deps.Http.Fiber)
 
 	// Last: it answers every GET no other route matched.
 	setupWebUI(deps.Http.Fiber, web.Dist())

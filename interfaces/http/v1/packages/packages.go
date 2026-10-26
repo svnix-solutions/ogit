@@ -3,13 +3,16 @@
 package packages
 
 import (
+	"cmp"
 	"encoding/json"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
+	"github.com/labbs/ogit/infrastructure/gitbrowse"
 	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"github.com/labbs/ogit/interfaces/http/v1/apierror"
 	"github.com/labbs/ogit/interfaces/http/v1/optauth"
@@ -23,6 +26,8 @@ type Controller struct {
 	TokenApp   *application.TokenApp
 	Limits     *ratelimit.Guard
 	Packages   *application.PackagesApp
+	Browse     *application.BrowseApp
+	GoProxy    *application.GoProxyApp
 }
 
 type Package struct {
@@ -78,6 +83,18 @@ type PackageRequest struct {
 type DetailResponse struct {
 	Package  Package   `json:"package"`
 	Versions []Version `json:"versions"`
+	Readme   string    `json:"readme"` // npm: the latest version's
+}
+
+type GoVersion struct {
+	Version string    `json:"version"`
+	Time    time.Time `json:"time"`
+}
+
+type GoModuleResponse struct {
+	Path     string                  `json:"path"`
+	Versions []GoVersion             `json:"versions"`
+	Requires []gitbrowse.Requirement `json:"requires"`
 }
 
 type UpdateRequest struct {
@@ -118,6 +135,8 @@ func Setup(c Controller, grp, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Delete(grp, "/packages/:namespace/:type/:name", c.Delete, opts("Delete a package", "packages.delete", "Package admins, with ?confirm=<name>. Every version goes."))
 	fiberoapi.Delete(grp, "/packages/:namespace/:type/:name/versions/:version", c.DeleteVersion, opts("Delete a package version", "packages.versions.delete", "Package admins. For container images the version is the manifest's digest; its tags go with it."))
 	fiberoapi.Get(repoGrp, "/:identifier/packages", c.ForRepository, opts("List a repository's packages", "packages.repository", "The packages linked to the repository."))
+	fiberoapi.Get(repoGrp, "/:identifier/go-module", c.GoModule, opts("Get a repository's Go module", "packages.gomodule",
+		"The module the repository serves through the Go proxy (its default branch's go.mod names <host>/<namespace>/<slug>[/vN]): versions from its tags, and the latest version's requirements. 404 GO_MODULE_NOT_FOUND otherwise."))
 }
 
 func (c Controller) caller(ctx *fiber.Ctx) (application.PackageCaller, *fiberoapi.ErrorResponse) {
@@ -159,6 +178,7 @@ func toPackage(v application.PackageView) Package {
 func (c Controller) toVersion(v application.VersionView) Version {
 	out := Version{Version: v.Version, Size: v.Size, Tags: v.Tags, Files: make([]File, 0, len(v.Files)), CreatedAt: v.CreatedAt, Metadata: map[string]any{}}
 	_ = json.Unmarshal([]byte(v.Metadata), &out.Metadata)
+	delete(out.Metadata, "readme") // npm: one README per response, in DetailResponse
 	if v.Publisher != "" {
 		out.Publisher = &v.Publisher
 	}
@@ -211,9 +231,20 @@ func (c Controller) Get(ctx *fiber.Ctx, req PackageRequest) (*DetailResponse, *f
 		return nil, apierror.From(err, c.Logger)
 	}
 	out := &DetailResponse{Package: toPackage(*p), Versions: make([]Version, 0, len(versions))}
-	for _, v := range versions {
+	latest, newest := "", "" // READMEs of the latest-tagged and the newest version
+	for i, v := range versions {
+		var meta struct {
+			Readme string `json:"readme"`
+		}
+		_ = json.Unmarshal([]byte(v.Metadata), &meta)
+		if slices.Contains(v.Tags, "latest") {
+			latest = meta.Readme
+		} else if i == 0 {
+			newest = meta.Readme
+		}
 		out.Versions = append(out.Versions, c.toVersion(v))
 	}
+	out.Readme = cmp.Or(latest, newest)
 	return out, nil
 }
 
@@ -253,4 +284,29 @@ func (c Controller) DeleteVersion(ctx *fiber.Ctx, req VersionRequest) (*MessageR
 		return nil, apierror.From(err, c.Logger)
 	}
 	return &MessageResponse{Message: "version deleted"}, nil
+}
+
+type GoModuleRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	Summary    bool   `query:"summary" json:"-"` // the path only (cheap: no tags read)
+}
+
+func (c Controller) GoModule(ctx *fiber.Ctx, req GoModuleRequest) (*GoModuleResponse, *fiberoapi.ErrorResponse) {
+	id, path := repoid.Split(req.Identifier)
+	repo, st, err := c.Browse.Open(id, path, optauth.Reader(ctx, c.SessionApp, c.TokenApp))
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	m, err := c.GoProxy.RepoModule(st, repo.FullPath(), ctx.Hostname(), req.Summary)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	out := &GoModuleResponse{Path: m.Path, Versions: make([]GoVersion, 0, len(m.Versions)), Requires: m.Requires}
+	if out.Requires == nil {
+		out.Requires = []gitbrowse.Requirement{}
+	}
+	for _, v := range m.Versions {
+		out.Versions = append(out.Versions, GoVersion{Version: v.Version, Time: v.Time})
+	}
+	return out, nil
 }
