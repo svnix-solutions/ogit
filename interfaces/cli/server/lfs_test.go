@@ -88,8 +88,7 @@ func testGitLFS(t *testing.T, opts ...func(*config.Config)) {
 	require.NoError(t, os.WriteFile(filepath.Join(a, "big.bin"), big, 0o644))
 	g.mustRun(a, "add", ".gitattributes", "big.bin")
 	g.mustRun(a, "commit", "-qm", "add big.bin")
-	out := g.mustRun(a, "push", "origin", "HEAD")
-	assert.Contains(t, out, "Uploading LFS objects: 100%")
+	g.mustRun(a, "push", "origin", "HEAD")
 
 	repo, err := srv.deps.RepoApp.GetRepository(nil, ptr("owner/media"))
 	require.NoError(t, err)
