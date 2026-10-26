@@ -151,6 +151,16 @@ type ActionSchedule struct {
 
 func (ActionSchedule) TableName() string { return "action_schedule" }
 
+// RunFilter narrows a run list; zero values match everything. Status
+// "waiting" is a queued run that needs approval.
+type RunFilter struct {
+	WorkflowPath string
+	Ref          string
+	Event        string
+	Status       string
+	PullNumber   int
+}
+
 type ActionsPers interface {
 	// Secrets and variables of a scope (scopeId "" for the site).
 	Secrets(scopeType, scopeId string) ([]ActionSecret, error)
@@ -185,7 +195,9 @@ type ActionsPers interface {
 	CreateRun(r *ActionRun) error
 	GetRun(repositoryId string, number int) (*ActionRun, error)
 	GetRunById(id string) (*ActionRun, error)
-	ListRuns(repositoryId string, offset, limit int) ([]ActionRun, int64, error)
+	ListRuns(repositoryId string, f RunFilter, offset, limit int) ([]ActionRun, int64, error)
+	// LatestRun is the newest run of a workflow on ref with a final status.
+	LatestRun(repositoryId, workflowPath, ref string) (*ActionRun, error)
 	// QueuedRuns lists queued runs that don't wait for approval, oldest
 	// first, in the given repositories
 	// (nil: every repository).

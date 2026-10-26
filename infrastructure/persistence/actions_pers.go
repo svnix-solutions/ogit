@@ -112,8 +112,29 @@ func (p *actionsPers) GetRunById(id string) (*domain.ActionRun, error) {
 	return &r, nil
 }
 
-func (p *actionsPers) ListRuns(repositoryId string, offset, limit int) ([]domain.ActionRun, int64, error) {
+func (p *actionsPers) ListRuns(repositoryId string, f domain.RunFilter, offset, limit int) ([]domain.ActionRun, int64, error) {
 	q := p.db.Model(&domain.ActionRun{}).Where("repository_id = ?", repositoryId)
+	if f.WorkflowPath != "" {
+		q = q.Where("workflow_path = ?", f.WorkflowPath)
+	}
+	if f.Ref != "" {
+		q = q.Where("ref = ?", f.Ref)
+	}
+	if f.Event != "" {
+		q = q.Where("event = ?", f.Event)
+	}
+	switch f.Status {
+	case "":
+	case "waiting":
+		q = q.Where("status = ? AND needs_approval = ?", domain.RunQueued, true)
+	case domain.RunQueued:
+		q = q.Where("status = ? AND needs_approval = ?", domain.RunQueued, false)
+	default:
+		q = q.Where("status = ?", f.Status)
+	}
+	if f.PullNumber > 0 {
+		q = q.Where("pull_number = ?", f.PullNumber)
+	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -121,6 +142,16 @@ func (p *actionsPers) ListRuns(repositoryId string, offset, limit int) ([]domain
 	var out []domain.ActionRun
 	err := q.Order("number DESC").Offset(offset).Limit(limit).Find(&out).Error
 	return out, total, err
+}
+
+func (p *actionsPers) LatestRun(repositoryId, workflowPath, ref string) (*domain.ActionRun, error) {
+	var r domain.ActionRun
+	err := p.db.Where("repository_id = ? AND workflow_path = ? AND ref = ? AND status IN ?", repositoryId, workflowPath, ref,
+		[]string{domain.RunSuccess, domain.RunFailure, domain.RunCancelled}).Order("number DESC").First(&r).Error
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 func (p *actionsPers) QueuedRuns(repositoryIds []string, limit int) ([]domain.ActionRun, error) {

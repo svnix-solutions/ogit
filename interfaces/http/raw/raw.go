@@ -38,12 +38,14 @@ type Controller struct {
 	BrowseApp  *application.BrowseApp
 	Releases   *application.ReleaseApp
 	Limits     *ratelimit.Guard
+	Actions    *application.ActionsApp // workflow badges
 }
 
 func Setup(c Controller, app *fiber.App) {
 	app.Get("/:owner/:repo/raw/*", c.Raw)
 	app.Get("/:owner/:repo/archive/*", c.Archive)
 	app.Get("/:owner/:repo/releases/download/*", c.ReleaseAsset)
+	app.Get("/:owner/:repo/actions/workflows/:file/badge.svg", c.Badge)
 	// GitHub's archive downloads (actions/checkout uses them when the job's
 	// image has no git).
 	app.Get("/api/v3/repos/:owner/:repo/tarball/*", c.apiArchive(gitbrowse.TarGz))

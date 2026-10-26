@@ -3,6 +3,7 @@ import { Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ConfirmDelete } from "@/components/confirm-delete";
+import { ActionsSettings } from "@/components/actions-settings";
 import { ErrorText, Section } from "@/components/section";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -158,6 +159,16 @@ export function GroupPage() {
       </div>
 
       <GroupTwoFactor name={name} group={group.data} isOwner={isOwner} />
+      {isOwner && (
+        <ActionsSettings
+          scope="the group's repositories'"
+          paths={{
+            runners: `/group/${encodeURIComponent(name)}/runners`,
+            secrets: `/group/${encodeURIComponent(name)}/actions/secrets`,
+            variables: `/group/${encodeURIComponent(name)}/actions/variables`,
+          }}
+        />
+      )}
 
       <Section title="Members" description="Owner: everything. Maintainers: add and remove members, create repositories. Members: developers on the group's repositories.">
         <table className="w-full text-sm">

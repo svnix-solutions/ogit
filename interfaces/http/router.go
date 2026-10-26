@@ -61,7 +61,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// Raw files and archives: /<owner>/<repo>/raw/... and /archive/...
 	raw.Setup(raw.Controller{Logger: deps.Logger, AuthApp: deps.AuthApp, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp,
-		Releases: deps.ReleaseApp, Limits: deps.Limits}, deps.Http.Fiber)
+		Releases: deps.ReleaseApp, Limits: deps.Limits, Actions: deps.ActionsApp}, deps.Http.Fiber)
 
 	// Last: it answers every GET no other route matched.
 	setupWebUI(deps.Http.Fiber, web.Dist())

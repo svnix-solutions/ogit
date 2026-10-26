@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError, atLeast } from "@/lib/api";
 import { safeLink, useCombined, useStatuses } from "@/lib/statuses";
 import { CombinedIcon, StatusIcon } from "@/components/status-icon";
+import { PullRuns } from "./repo-actions";
 import { AssigneesBox, MilestoneBox, ReviewersBox } from "@/components/tracking";
 import { useForks } from "@/components/forks";
 import { useProfile } from "@/lib/auth";
@@ -508,6 +509,7 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
         ))}
       </ul>
       <Checks pr={pr} />
+      <PullRuns number={pr.number} />
       {pr.protected_by && (
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <ShieldCheck className="h-3 w-3 shrink-0" />

@@ -1,4 +1,4 @@
-import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Settings, Tag } from "lucide-react";
+import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, PlayCircle, Settings, Tag } from "lucide-react";
 import { ForkButton, ForkedFrom, SyncButton, WatchSelect } from "@/components/forks";
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
@@ -6,6 +6,7 @@ import { ApiError, atLeast, type Repository } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
 import { encodePath, useRefs } from "@/lib/browse";
 import { useInstance } from "@/lib/queries";
+import { useWorkflows } from "@/lib/actions";
 import { useReleaseCount } from "@/lib/releases";
 import { cn } from "@/lib/utils";
 import { useRepository } from "@/pages/repo";
@@ -113,6 +114,7 @@ export function RepoLayout() {
         <NavLink to={`${base}/releases`} className={tab}>
           <Tag className="h-4 w-4" /> Releases <ReleaseCount fullPath={repo.full_path} />
         </NavLink>
+        <ActionsTab fullPath={repo.full_path} base={base} tab={tab} />
         {atLeast(repo.role, "maintainer") && (
           <NavLink to={`${base}/settings`} className={tab}>
             <Settings className="h-4 w-4" /> Settings
@@ -121,6 +123,17 @@ export function RepoLayout() {
       </nav>
       <Outlet context={{ repo } satisfies RepoContext} />
     </div>
+  );
+}
+
+// The Actions tab shows once the repository has workflows or runs.
+function ActionsTab({ fullPath, base, tab }: { fullPath: string; base: string; tab: (p: { isActive: boolean }) => string }) {
+  const workflows = useWorkflows(fullPath);
+  if (!workflows.data?.uses_actions) return null;
+  return (
+    <NavLink to={`${base}/actions`} className={tab}>
+      <PlayCircle className="h-4 w-4" /> Actions
+    </NavLink>
   );
 }
 
