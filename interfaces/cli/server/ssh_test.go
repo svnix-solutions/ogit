@@ -94,10 +94,21 @@ func (g *gitCLI) url(path string) string {
 	return fmt.Sprintf("ssh://git@127.0.0.1:%d/%s.git", g.port, path)
 }
 
+// gitTimeout bounds one real git or ssh command: generous, because clones
+// of the large test repositories take tens of seconds on CI runners under
+// -race (TestLargePushes' 24 MB clone over SSH from fake S3 once passed
+// 30s), yet a hang still fails the test instead of the whole suite.
+const gitTimeout = 3 * time.Minute
+
+// asyncWait bounds what tests wait for from goroutines (notification
+// emails): they arrive in milliseconds, but CI runners under -race can be
+// slow, and the wait only costs time when something is wrong.
+const asyncWait = 10 * time.Second
+
 // run executes git in dir and returns combined output and the error.
 func (g *gitCLI) run(dir string, args ...string) (string, error) {
 	g.t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
@@ -131,7 +142,7 @@ func (g *gitCLI) mustRun(dir string, args ...string) string {
 // sshRun runs the real ssh client and returns its combined output.
 func (g *gitCLI) ssh(user string, args ...string) (string, error) {
 	g.t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	base := []string{"-i", g.key.privatePath, "-F", "/dev/null", "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", "-p", fmt.Sprint(g.port), user + "@127.0.0.1"}

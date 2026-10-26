@@ -294,13 +294,13 @@ func TestIssueEmails(t *testing.T) {
 	status, issue := srv.post(t, issuesAPI("owner/app"), f.reporter.session, map[string]any{"title": "Crash", "body": "cc @maint and @outer"})
 	require.Equal(t, http.StatusOK, status)
 	n := issue["number"]
-	assert.Eventually(t, got("maint", fmt.Sprintf("reporter opened issue #%v", n)), 2*time.Second, 20*time.Millisecond, "mentioned")
+	assert.Eventually(t, got("maint", fmt.Sprintf("reporter opened issue #%v", n)), asyncWait, 20*time.Millisecond, "mentioned")
 	srv.request(t, http.MethodPut, issuesAPI("owner/app", n, "assignees"), f.maint.session, map[string]any{"assignees": []string{"dev"}})
-	assert.Eventually(t, got("dev", "maint assigned dev to issue"), 2*time.Second, 20*time.Millisecond, "the new assignee")
-	assert.Eventually(t, got("reporter", "maint assigned dev to issue"), 2*time.Second, 20*time.Millisecond, "the author")
+	assert.Eventually(t, got("dev", "maint assigned dev to issue"), asyncWait, 20*time.Millisecond, "the new assignee")
+	assert.Eventually(t, got("reporter", "maint assigned dev to issue"), asyncWait, 20*time.Millisecond, "the author")
 	srv.post(t, issuesAPI("owner/app", n, "comments"), f.dev.session, map[string]any{"body": "Looking"})
-	assert.Eventually(t, got("reporter", "dev commented on issue"), 2*time.Second, 20*time.Millisecond)
-	assert.Eventually(t, got("reporter", fmt.Sprintf("https://git.example.com/owner/app/issues/%v", n)), 2*time.Second, 20*time.Millisecond, "with a link")
+	assert.Eventually(t, got("reporter", "dev commented on issue"), asyncWait, 20*time.Millisecond)
+	assert.Eventually(t, got("reporter", fmt.Sprintf("https://git.example.com/owner/app/issues/%v", n)), asyncWait, 20*time.Millisecond, "with a link")
 
 	time.Sleep(100 * time.Millisecond)
 	assert.Empty(t, rec.Messages("outer@example.com"), "can't read the private repository")
