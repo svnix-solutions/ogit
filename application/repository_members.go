@@ -39,6 +39,9 @@ func (c *RepositoryApp) ListMembers(id, slug *string, actorId string) ([]domain.
 // through a group.
 func (c *RepositoryApp) ListForUser(userId string) ([]domain.Repository, error) {
 	groupIds, err := c.GroupPers.GroupIdsForUser(userId)
+	if err == nil {
+		groupIds, err = c.usableGroups(userId, groupIds)
+	}
 	if err != nil {
 		return nil, err
 	}

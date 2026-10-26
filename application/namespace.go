@@ -91,6 +91,9 @@ func (c *RepositoryApp) namespaceRole(repo *domain.Repository, userId string) (d
 		} else if err != nil {
 			return domain.AccessTypeNone, err
 		}
+		if ok, err := c.groupUsable(userId, repo.OwnerId); err != nil || !ok {
+			return domain.AccessTypeNone, err
+		}
 		return groupRoleOnRepositories(m.Role), nil
 	}
 	return domain.AccessTypeNone, nil
@@ -130,6 +133,11 @@ func (c *RepositoryApp) namespaceForCreate(path, actorId string) (*domain.Namesp
 		}
 		if m.Role != domain.GroupRoleOwner && m.Role != domain.GroupRoleMaintainer {
 			return nil, ErrForbidden
+		}
+		if ok, err := c.groupUsable(actorId, ns.Id); err != nil {
+			return nil, err
+		} else if !ok {
+			return nil, ErrGroupRequiresTwoFactor
 		}
 	}
 	return ns, nil

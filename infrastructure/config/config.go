@@ -33,6 +33,9 @@ type Config struct {
 	// (helpers/secretbox).
 	Security struct {
 		EncryptionKey string
+		// RequireTwoFactor forces two-factor authentication for every user
+		// (otherwise the admin page decides).
+		RequireTwoFactor bool
 	}
 
 	// Git: a push (its pack, over HTTP or SSH) is at most MaxPushSize

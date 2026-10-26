@@ -330,6 +330,11 @@ func (c *AuthApp) AuthorizeSSHAs(id *SSHIdentity, repoPath, operation string) (*
 
 	switch id.Key.OwnerType {
 	case domain.SSHKeyTypeUser:
+		if must, err := c.TwoFactor.MustEnroll(*id.Key.UserId); err != nil {
+			return nil, Pusher{}, err
+		} else if must {
+			return nil, Pusher{}, ErrGitTwoFactorRequired
+		}
 		only, err := c.userGitAccess(repo, *id.Key.UserId, write)
 		if err != nil {
 			return nil, Pusher{}, err

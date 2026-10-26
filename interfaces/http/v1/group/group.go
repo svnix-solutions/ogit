@@ -55,7 +55,22 @@ func (ctrl *Controller) Get(ctx *fiber.Ctx, req dtos.GroupRequest) (*dtos.GroupR
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	return &dtos.GroupResponse{Id: group.Id, Name: group.Name, Description: group.Description, Role: string(actor.Role)}, nil
+	return &dtos.GroupResponse{Id: group.Id, Name: group.Name, Description: group.Description, Role: string(actor.Role), RequireTwoFactor: group.RequireTwoFactor}, nil
+}
+
+func (ctrl *Controller) Update(ctx *fiber.Ctx, req dtos.UpdateGroupRequest) (*dtos.GroupResponse, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	group, actor, err := ctrl.GroupApp.Get(req.Identifier, authCtx.UserID)
+	if err == nil && req.RequireTwoFactor != nil {
+		group, err = ctrl.GroupApp.SetRequireTwoFactor(req.Identifier, authCtx.UserID, *req.RequireTwoFactor)
+	}
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return &dtos.GroupResponse{Id: group.Id, Name: group.Name, Description: group.Description, Role: string(actor.Role), RequireTwoFactor: group.RequireTwoFactor}, nil
 }
 
 func (ctrl *Controller) Delete(ctx *fiber.Ctx, req dtos.GroupRequest) (*dtos.MessageResponse, *fiberoapi.ErrorResponse) {
@@ -78,9 +93,18 @@ func (ctrl *Controller) ListMembers(ctx *fiber.Ctx, req dtos.GroupRequest) (*dto
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
+	twoFactor, err := ctrl.GroupApp.MembersTwoFactor(req.Identifier, authCtx.UserID, members)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
 	resp := &dtos.ListMembersResponse{Members: make([]dtos.MemberResponse, 0, len(members))}
 	for _, m := range members {
-		resp.Members = append(resp.Members, dtos.MemberResponse{Username: m.User.Username, Role: string(m.Role)})
+		r := dtos.MemberResponse{Username: m.User.Username, Role: string(m.Role)}
+		if twoFactor != nil {
+			on := twoFactor[m.UserId]
+			r.TwoFactorEnabled = &on
+		}
+		resp.Members = append(resp.Members, r)
 	}
 	return resp, nil
 }
@@ -144,6 +168,10 @@ func SetupGroupRouter(c Controller) {
 	fiberoapi.Get(c.FiberOapi, "/:identifier", c.Get, fiberoapi.OpenAPIOptions{
 		Summary: "Get group", OperationID: "group.get", Tags: tags,
 		Description: "By id or name. Only members can see a group.",
+	})
+	fiberoapi.Patch(c.FiberOapi, "/:identifier", c.Update, fiberoapi.OpenAPIOptions{
+		Summary: "Change a group", OperationID: "group.update", Tags: tags,
+		Description: "Owner only. require_two_factor: members without two-factor authentication get no access to the group's repositories through it (and can't create repositories in it); they stay members.",
 	})
 	fiberoapi.Delete(c.FiberOapi, "/:identifier", c.Delete, fiberoapi.OpenAPIOptions{
 		Summary: "Delete group", OperationID: "group.delete", Tags: tags,

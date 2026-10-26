@@ -74,6 +74,36 @@ export function GroupsPage() {
   );
 }
 
+// GroupTwoFactor shows (and, for the owner, switches) the group's 2FA
+// requirement.
+function GroupTwoFactor({ name, group, isOwner }: { name: string; group: Group; isOwner: boolean }) {
+  const qc = useQueryClient();
+  const set = useMutation({
+    mutationFn: (on: boolean) => api<Group>("PATCH", `/group/${encodeURIComponent(name)}`, { require_two_factor: on }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["group", name] });
+      qc.invalidateQueries({ queryKey: ["group-members", name] });
+    },
+  });
+  if (!isOwner && !group.require_two_factor) return null;
+  return (
+    <Section
+      title="Two-factor authentication"
+      description="When required, members without two-factor authentication lose access to the group's repositories until they set it up. They stay members."
+    >
+      {isOwner ? (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={!!group.require_two_factor} disabled={set.isPending} onChange={(e) => set.mutate(e.target.checked)} />
+          Require two-factor authentication for members
+        </label>
+      ) : (
+        <p className="text-sm">This group requires two-factor authentication.</p>
+      )}
+      <ErrorText error={set.error} />
+    </Section>
+  );
+}
+
 export function GroupPage() {
   const { name = "" } = useParams();
   const { data: profile } = useProfile();
@@ -127,12 +157,17 @@ export function GroupPage() {
         {group.data.description && <p className="text-muted-foreground">{group.data.description}</p>}
       </div>
 
+      <GroupTwoFactor name={name} group={group.data} isOwner={isOwner} />
+
       <Section title="Members" description="Owner: everything. Maintainers: add and remove members, create repositories. Members: developers on the group's repositories.">
         <table className="w-full text-sm">
           <tbody className="divide-y">
             {members.data?.map((m) => (
               <tr key={m.username}>
-                <td className="py-2">{m.username}</td>
+                <td className="py-2">
+                  {m.username}
+                  {m.two_factor_enabled === false && <Badge className="ml-2 border-amber-500 text-amber-700 dark:text-amber-400">no 2FA</Badge>}
+                </td>
                 <td className="py-2">
                   {isOwner && m.role !== "owner" ? (
                     <Select aria-label={`Role of ${m.username}`} value={m.role} onChange={(e) => update.mutate({ username: m.username, role: e.target.value })}>

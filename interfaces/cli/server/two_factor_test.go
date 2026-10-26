@@ -237,6 +237,7 @@ func TestTwoFactor(t *testing.T) {
 func TestTwoFactorAdminReset(t *testing.T) {
 	srv := startTestServer(t)
 	admin := srv.newUser(t, "root")
+	rootSecret, _ := srv.enableTOTP(t, admin)
 	srv.promote(t, "root")
 	bob := srv.newUser(t, "bob")
 	srv.enableTOTP(t, bob)
@@ -250,7 +251,7 @@ func TestTwoFactorAdminReset(t *testing.T) {
 	srv.expireSudo(t, "root")
 	status, body = srv.post(t, "/api/v1/admin/users/bob/reset-2fa", admin.session, nil)
 	assert.Equal(t, "SUDO_REQUIRED", body["type"], "%d", status)
-	status, _ = srv.post(t, "/api/v1/auth/sudo", admin.session, map[string]any{"password": testPassword})
+	status, _ = srv.post(t, "/api/v1/auth/sudo", admin.session, map[string]any{"code": code(t, rootSecret, 1)})
 	require.Equal(t, http.StatusOK, status)
 	status, body = srv.post(t, "/api/v1/admin/users/bob/reset-2fa", admin.session, nil)
 	require.Equal(t, http.StatusOK, status, "%v", body)
@@ -259,8 +260,10 @@ func TestTwoFactorAdminReset(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.NotEmpty(t, body["token"], "bob signs in with the password and can set it up again")
 	var n int64
-	require.NoError(t, srv.deps.Database.Db.Model(&domain.RecoveryCode{}).Count(&n).Error)
-	assert.Zero(t, n, "recovery codes are gone too")
+	var bobRow domain.User
+	require.NoError(t, srv.deps.Database.Db.Where("username = ?", "bob").First(&bobRow).Error)
+	require.NoError(t, srv.deps.Database.Db.Model(&domain.RecoveryCode{}).Where("user_id = ?", bobRow.Id).Count(&n).Error)
+	assert.Zero(t, n, "bob's recovery codes are gone too")
 }
 
 // Wrong codes are failed logins: the account's limit applies (only that

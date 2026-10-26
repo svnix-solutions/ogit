@@ -24,6 +24,9 @@ type GroupApp struct {
 	GroupPers domain.GroupPers
 	UserPers  domain.UserPers
 	RepoPers  domain.RepositoryPers
+	// TwoFactor tells owners and maintainers which members lack 2FA; nil:
+	// unknown.
+	TwoFactor *TwoFactorApp
 }
 
 func NewGroupApp(config config.Config, logger zerolog.Logger, groupPers domain.GroupPers, userPers domain.UserPers, repoPers domain.RepositoryPers) *GroupApp {
@@ -142,6 +145,42 @@ func (c *GroupApp) ListMembers(identifier, actorId string) ([]domain.GroupMember
 		return nil, err
 	}
 	return c.GroupPers.ListMembers(group.Id)
+}
+
+// MembersTwoFactor tells owners and maintainers which members have 2FA
+// (nil for other members: it is none of their business).
+func (c *GroupApp) MembersTwoFactor(identifier, actorId string, members []domain.GroupMember) (map[string]bool, error) {
+	_, actor, err := c.Get(identifier, actorId)
+	if err != nil {
+		return nil, err
+	}
+	if c.TwoFactor == nil || (actor.Role != domain.GroupRoleOwner && actor.Role != domain.GroupRoleMaintainer) {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(members))
+	for _, m := range members {
+		ids = append(ids, m.UserId)
+	}
+	return c.TwoFactor.EnabledUsers(ids)
+}
+
+// SetRequireTwoFactor is for the group's owner: members without 2FA then
+// get no access to the group's repositories through it.
+func (c *GroupApp) SetRequireTwoFactor(identifier, actorId string, on bool) (*domain.Group, error) {
+	group, actor, err := c.Get(identifier, actorId)
+	if err != nil {
+		return nil, err
+	}
+	if actor.Role != domain.GroupRoleOwner {
+		return nil, ErrForbidden
+	}
+	if err := c.GroupPers.SetRequireTwoFactor(group.Id, on); err != nil {
+		return nil, err
+	}
+	c.Logger.Info().Str("component", "audit").Str("actor_id", actorId).Str("action", "group.require_2fa").Str("group", group.Name).Bool("on", on).
+		Msg("group two-factor requirement changed")
+	group.RequireTwoFactor = on
+	return group, nil
 }
 
 func (c *GroupApp) AddMember(identifier, actorId, username string, role domain.GroupRole) (*domain.GroupMember, error) {

@@ -20,6 +20,9 @@ type TokenApp struct {
 	Config    config.Config
 	Logger    zerolog.Logger
 	TokenPers domain.TokenPers
+	// MustEnroll refuses the API to users who must set up 2FA first
+	// (TwoFactorApp.MustEnroll); nil: never.
+	MustEnroll func(userId string) (bool, error)
 }
 
 func NewTokenApp(config config.Config, logger zerolog.Logger, tokenPers domain.TokenPers) *TokenApp {
@@ -99,6 +102,13 @@ func (c *TokenApp) Authenticate(tokenStr string) (*domain.Token, error) {
 	case domain.TokenUser:
 		if token.UserId == nil || !token.User.Active {
 			return nil, ErrInvalidToken
+		}
+		if c.MustEnroll != nil {
+			if must, err := c.MustEnroll(*token.UserId); err != nil {
+				return nil, err
+			} else if must {
+				return nil, ErrTwoFactorRequired
+			}
 		}
 	case domain.TokenRepo:
 		if token.RepositoryId == nil {

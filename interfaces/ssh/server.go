@@ -177,6 +177,9 @@ func (s *Server) runGit(ch gossh.Channel, id *application.SSHIdentity, command s
 	case errors.Is(err, application.ErrGitArchived):
 		fmt.Fprintf(ch.Stderr(), "fatal: repository %q is archived (read-only)\n", slug)
 		return 1
+	case errors.Is(err, application.ErrGitTwoFactorRequired):
+		fmt.Fprintf(ch.Stderr(), "fatal: two-factor authentication is required on this server; set it up in your settings\n")
+		return 1
 	case errors.Is(err, application.ErrGitForbidden):
 		fmt.Fprintf(ch.Stderr(), "fatal: permission to %s denied to %s\n", slug, id.Name)
 		return 1

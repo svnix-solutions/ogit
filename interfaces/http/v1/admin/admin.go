@@ -87,6 +87,37 @@ func (ctrl *Controller) UpdateUser(ctx *fiber.Ctx, req dtos.UpdateUserRequest) (
 	return &resp, nil
 }
 
+func settingsResponse(s *application.SiteSettings) *dtos.SettingsResponse {
+	return &dtos.SettingsResponse{RequireTwoFactor: s.RequireTwoFactor, RequireTwoFactorForced: s.RequireTwoFactorForced}
+}
+
+func (ctrl *Controller) GetSettings(ctx *fiber.Ctx, _ struct{}) (*dtos.SettingsResponse, *fiberoapi.ErrorResponse) {
+	auth, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	s, err := ctrl.AdminApp.Settings(auth.UserID)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return settingsResponse(s), nil
+}
+
+func (ctrl *Controller) UpdateSettings(ctx *fiber.Ctx, req dtos.UpdateSettingsRequest) (*dtos.SettingsResponse, *fiberoapi.ErrorResponse) {
+	auth, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	s, err := ctrl.AdminApp.Settings(auth.UserID)
+	if err == nil && req.RequireTwoFactor != nil {
+		s, err = ctrl.AdminApp.SetRequireTwoFactor(auth.UserID, *req.RequireTwoFactor)
+	}
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return settingsResponse(s), nil
+}
+
 func (ctrl *Controller) ResetTwoFactor(ctx *fiber.Ctx, req dtos.UserRequest) (*dtos.MessageResponse, *fiberoapi.ErrorResponse) {
 	auth, err := fiberoapi.GetAuthContext(ctx)
 	if err != nil {
@@ -185,6 +216,13 @@ func SetupAdminRouter(c Controller) {
 	fiberoapi.Patch(c.FiberOapi, "/users/:username", c.UpdateUser, fiberoapi.OpenAPIOptions{
 		Summary: "Update user", OperationID: "admin.users.update", Tags: tags,
 		Description: "Admins only. Set active (disabling ends all sessions immediately), email_verified: true, or role (admin/user). The last active admin cannot be demoted or disabled.",
+	})
+	fiberoapi.Get(c.FiberOapi, "/settings", c.GetSettings, fiberoapi.OpenAPIOptions{
+		Summary: "Site settings", OperationID: "admin.settings.get", Tags: tags,
+	})
+	fiberoapi.Patch(c.FiberOapi, "/settings", c.UpdateSettings, fiberoapi.OpenAPIOptions{
+		Summary: "Change site settings", OperationID: "admin.settings.update", Tags: tags,
+		Description: "Admins only. require_two_factor: every user must set up two-factor authentication; until they do, they only reach its setup, and their access tokens and SSH keys are refused. security.require_2fa in the configuration forces it on (require_two_factor_forced).",
 	})
 	fiberoapi.Post(c.FiberOapi, "/users/:username/reset-2fa", c.ResetTwoFactor, fiberoapi.OpenAPIOptions{
 		Summary: "Reset two-factor authentication", OperationID: "admin.users.reset_2fa", Tags: tags,

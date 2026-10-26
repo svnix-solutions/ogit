@@ -154,7 +154,8 @@ describe("admin", () => {
   it("resets a user's two-factor authentication", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
     const fetch = fakeAPI({
-      "/instance": instance, "/user/profile": me({ role: "admin" }),
+      "/instance": instance, "/user/profile": me({ role: "admin", two_factor_enabled: true }),
+      "/admin/settings": { require_two_factor: false, require_two_factor_forced: false },
       "/admin/users?limit=50&offset=0&q=": { users: [{ id: "u2", username: "bob", email: "b@x", role: "user", active: true, email_verified_at: "2026-01-01T00:00:00Z", created_at: "2026-01-01T00:00:00Z", two_factor_enabled: true }], total: 1 },
       "/admin/repositories?limit=50&offset=0": { repositories: [], total: 0 },
       "POST /admin/users/bob/reset-2fa": { message: "two-factor authentication reset" },

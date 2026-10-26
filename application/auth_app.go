@@ -298,6 +298,11 @@ func (c *AuthApp) authorizeGit(repoPath, operation string, creds *GitCredentials
 			logger.Warn().Str("token_id", authToken.Id).Msg("git token belongs to an inactive user")
 			return nil, nil, nil, ErrGitUnauthenticated
 		}
+		if must, err := c.TwoFactor.MustEnroll(*authToken.UserId); err != nil {
+			return nil, nil, nil, err
+		} else if must {
+			return nil, nil, nil, ErrGitTwoFactorRequired
+		}
 
 		only, err = c.userGitAccess(repo, *authToken.UserId, gitOperation == "write")
 		if err != nil {
