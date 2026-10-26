@@ -69,19 +69,23 @@ type RepoRunnerRequest struct {
 }
 
 type Run struct {
-	Id           string     `json:"id"`
-	Number       int        `json:"number"`
-	WorkflowPath string     `json:"workflow_path"`
-	WorkflowName string     `json:"workflow_name"`
-	Event        string     `json:"event"`
-	Ref          string     `json:"ref"`
-	Sha          string     `json:"sha"`
-	Actor        string     `json:"actor"`
-	Status       string     `json:"status"`
-	CancelAsked  bool       `json:"cancel_requested"`
-	CreatedAt    time.Time  `json:"created_at"`
-	StartedAt    *time.Time `json:"started_at"`
-	FinishedAt   *time.Time `json:"finished_at"`
+	Id           string `json:"id"`
+	Number       int    `json:"number"`
+	WorkflowPath string `json:"workflow_path"`
+	WorkflowName string `json:"workflow_name"`
+	Event        string `json:"event"`
+	Ref          string `json:"ref"`
+	Sha          string `json:"sha"`
+	Actor        string `json:"actor"`
+	// Status: queued, waiting (a fork run awaiting approval), running,
+	// success, failure or cancelled.
+	Status      string     `json:"status"`
+	CancelAsked bool       `json:"cancel_requested"`
+	FromFork    bool       `json:"from_fork"`
+	PullNumber  int        `json:"pull_number,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	StartedAt   *time.Time `json:"started_at"`
+	FinishedAt  *time.Time `json:"finished_at"`
 }
 
 type Job struct {
@@ -150,6 +154,11 @@ func Setup(c Controller, grp, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Get(repoGrp, "/:identifier/actions/runs", c.Runs, public("List workflow runs", "actions.runs", "Newest first; ?page=&per_page= (at most 100)."))
 	fiberoapi.Get(repoGrp, "/:identifier/actions/runs/:number", c.Run, public("Get a workflow run", "actions.run", "With its jobs."))
 	fiberoapi.Get(repoGrp, "/:identifier/actions/runs/:number/logs", c.Logs, public("Read a run's log", "actions.logs", "?from= the next value of the previous call: the log so far, then what follows."))
+	setupSecrets(c, grp, repoGrp)
+	fiberoapi.Post(repoGrp, "/:identifier/actions/workflows/:workflow/dispatches", c.Dispatch, private("Run a workflow", "actions.dispatch",
+		"Writers. :workflow is its file name or path; the workflow needs `on: workflow_dispatch`. ref: a branch (default: the default branch); inputs: the declared ones."))
+	fiberoapi.Post(repoGrp, "/:identifier/actions/runs/:number/approve", c.Approve, private("Approve a fork run", "actions.approve",
+		"Maintainers and owners: a first-time contributor's fork pull request run waits for this."))
 	fiberoapi.Post(repoGrp, "/:identifier/actions/runs/:number/cancel", c.Cancel, private("Cancel a workflow run", "actions.cancel", "Writers. Queued runs stop at once, running ones when their runner next reports."))
 }
 
@@ -273,8 +282,52 @@ func (c Controller) RepoDelete(ctx *fiber.Ctx, req RepoRunnerRequest) (*MessageR
 }
 
 func toRun(r *domain.ActionRun) Run {
+	status := r.Status
+	if r.NeedsApproval && status == domain.RunQueued {
+		status = "waiting"
+	}
 	return Run{Id: r.Id, Number: r.Number, WorkflowPath: r.WorkflowPath, WorkflowName: r.WorkflowName, Event: r.Event, Ref: r.Ref,
-		Sha: r.Sha, Actor: r.ActorName, Status: r.Status, CancelAsked: r.CancelAsked, CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt}
+		Sha: r.Sha, Actor: r.ActorName, Status: status, CancelAsked: r.CancelAsked, FromFork: r.FromFork, PullNumber: r.PullNumber,
+		CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt}
+}
+
+type DispatchRequest struct {
+	Identifier string            `path:"identifier" json:"-" validate:"required"`
+	Workflow   string            `path:"workflow" json:"-" validate:"required"`
+	Ref        string            `json:"ref"`
+	Inputs     map[string]string `json:"inputs"`
+}
+
+func (c Controller) Dispatch(ctx *fiber.Ctx, req DispatchRequest) (*Run, *fiberoapi.ErrorResponse) {
+	user, e := authed(ctx)
+	if e != nil {
+		return nil, e
+	}
+	id, path := repoid.Split(req.Identifier)
+	run, err := c.Actions.Dispatch(id, path, user, req.Workflow, req.Ref, req.Inputs)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	r := toRun(run)
+	return &r, nil
+}
+
+func (c Controller) Approve(ctx *fiber.Ctx, req RunRequest) (*Run, *fiberoapi.ErrorResponse) {
+	user, e := authed(ctx)
+	if e != nil {
+		return nil, e
+	}
+	n, e := number(req.Number)
+	if e != nil {
+		return nil, e
+	}
+	id, path := repoid.Split(req.Identifier)
+	run, err := c.Actions.Approve(id, path, user, n)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	r := toRun(run)
+	return &r, nil
 }
 
 func (c Controller) Runs(ctx *fiber.Ctx, req RunsRequest) (*RunsResponse, *fiberoapi.ErrorResponse) {

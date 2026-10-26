@@ -124,7 +124,7 @@ func (p *actionsPers) ListRuns(repositoryId string, offset, limit int) ([]domain
 }
 
 func (p *actionsPers) QueuedRuns(repositoryIds []string, limit int) ([]domain.ActionRun, error) {
-	q := p.db.Where("status = ?", domain.RunQueued)
+	q := p.db.Where("status = ? AND needs_approval = ?", domain.RunQueued, false)
 	if repositoryIds != nil {
 		if len(repositoryIds) == 0 {
 			return nil, nil
@@ -137,7 +137,7 @@ func (p *actionsPers) QueuedRuns(repositoryIds []string, limit int) ([]domain.Ac
 }
 
 func (p *actionsPers) ClaimRun(runId, runnerId, tokenHash string, now time.Time) (bool, error) {
-	res := p.db.Model(&domain.ActionRun{}).Where("id = ? AND status = ?", runId, domain.RunQueued).
+	res := p.db.Model(&domain.ActionRun{}).Where("id = ? AND status = ? AND needs_approval = ?", runId, domain.RunQueued, false).
 		Updates(map[string]any{"status": domain.RunRunning, "runner_id": runnerId, "token_hash": tokenHash, "started_at": now, "heartbeat_at": now})
 	return res.RowsAffected == 1, res.Error
 }
@@ -196,4 +196,89 @@ func (p *actionsPers) Logs(runId string, fromSeq int) ([]domain.ActionLog, error
 	var out []domain.ActionLog
 	err := p.db.Where("run_id = ? AND seq >= ?", runId, fromSeq).Order("seq").Find(&out).Error
 	return out, err
+}
+
+func (p *actionsPers) Secrets(scopeType, scopeId string) ([]domain.ActionSecret, error) {
+	var out []domain.ActionSecret
+	err := p.db.Where("scope_type = ? AND scope_id = ?", scopeType, scopeId).Order("name").Find(&out).Error
+	return out, err
+}
+
+func (p *actionsPers) PutSecret(s *domain.ActionSecret) error {
+	return p.db.Transaction(func(tx *gorm.DB) error {
+		var existing domain.ActionSecret
+		err := tx.Where("scope_type = ? AND scope_id = ? AND name = ?", s.ScopeType, s.ScopeId, s.Name).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			s.Id = utils.UUIDv4()
+			return tx.Create(s).Error
+		} else if err != nil {
+			return err
+		}
+		s.Id, s.CreatedAt = existing.Id, existing.CreatedAt
+		return tx.Model(s).Select("value", "updated_at").Updates(s).Error
+	})
+}
+
+func (p *actionsPers) DeleteSecret(scopeType, scopeId, name string) (bool, error) {
+	res := p.db.Where("scope_type = ? AND scope_id = ? AND name = ?", scopeType, scopeId, name).Delete(&domain.ActionSecret{})
+	return res.RowsAffected > 0, res.Error
+}
+
+func (p *actionsPers) Variables(scopeType, scopeId string) ([]domain.ActionVariable, error) {
+	var out []domain.ActionVariable
+	err := p.db.Where("scope_type = ? AND scope_id = ?", scopeType, scopeId).Order("name").Find(&out).Error
+	return out, err
+}
+
+func (p *actionsPers) PutVariable(v *domain.ActionVariable) error {
+	return p.db.Transaction(func(tx *gorm.DB) error {
+		var existing domain.ActionVariable
+		err := tx.Where("scope_type = ? AND scope_id = ? AND name = ?", v.ScopeType, v.ScopeId, v.Name).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			v.Id = utils.UUIDv4()
+			return tx.Create(v).Error
+		} else if err != nil {
+			return err
+		}
+		v.Id, v.CreatedAt = existing.Id, existing.CreatedAt
+		return tx.Model(v).Select("value", "updated_at").Updates(v).Error
+	})
+}
+
+func (p *actionsPers) DeleteVariable(scopeType, scopeId, name string) (bool, error) {
+	res := p.db.Where("scope_type = ? AND scope_id = ? AND name = ?", scopeType, scopeId, name).Delete(&domain.ActionVariable{})
+	return res.RowsAffected > 0, res.Error
+}
+
+func (p *actionsPers) ReplaceSchedules(repositoryId string, schedules []domain.ActionSchedule) error {
+	return p.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("repository_id = ?", repositoryId).Delete(&domain.ActionSchedule{}).Error; err != nil {
+			return err
+		}
+		for i := range schedules {
+			schedules[i].Id = utils.UUIDv4()
+			schedules[i].RepositoryId = repositoryId
+			if err := tx.Create(&schedules[i]).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (p *actionsPers) DueSchedules(now time.Time) ([]domain.ActionSchedule, error) {
+	var out []domain.ActionSchedule
+	err := p.db.Where("next_run_at <= ?", now).Order("next_run_at").Limit(100).Find(&out).Error
+	return out, err
+}
+
+func (p *actionsPers) ClaimSchedule(id string, prev, next time.Time) (bool, error) {
+	res := p.db.Model(&domain.ActionSchedule{}).Where("id = ? AND next_run_at = ?", id, prev).Update("next_run_at", next)
+	return res.RowsAffected == 1, res.Error
+}
+
+func (p *actionsPers) HasMergedPull(repositoryId, userId string) (bool, error) {
+	var n int64
+	err := p.db.Model(&domain.PullRequest{}).Where("repository_id = ? AND author_id = ? AND state = ?", repositoryId, userId, domain.PullRequestMerged).Count(&n).Error
+	return n > 0, err
 }

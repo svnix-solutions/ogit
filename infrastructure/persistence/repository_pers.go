@@ -82,7 +82,12 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Where("scope_type = ? AND scope_id = ?", domain.RunnerScopeRepository, id).Delete(&domain.ActionRunner{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("scope_type = ? AND scope_id = ?", domain.RunnerScopeRepository, id).Delete(&domain.ActionRegistrationToken{}).Error; err != nil {
+		for _, model := range []any{&domain.ActionRegistrationToken{}, &domain.ActionSecret{}, &domain.ActionVariable{}} {
+			if err := tx.Where("scope_type = ? AND scope_id = ?", domain.RunnerScopeRepository, id).Delete(model).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("repository_id = ?", id).Delete(&domain.ActionSchedule{}).Error; err != nil {
 			return err
 		}
 		for _, model := range []any{&domain.ReleaseAsset{}, &domain.Release{}, &domain.ProtectedTag{}, &domain.Notification{}, &domain.RepositoryWatch{}, &domain.LFSLock{}, &domain.ActionRun{}} {

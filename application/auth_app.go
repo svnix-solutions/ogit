@@ -233,7 +233,8 @@ func (c *AuthApp) AuthorizeGitAs(repoPath, operation string, creds *GitCredentia
 }
 
 // authorizeJobToken: an Actions job token reads its run's repository
-// while the run runs (whatever the token's user name).
+// while the run runs (whatever the token's user name), and pushes to it
+// with `permissions: contents: write`.
 func (c *AuthApp) authorizeJobToken(repoPath, operation, token string) (*domain.Repository, Pusher, error) {
 	run, err := c.Actions.JobTokenRun(token)
 	if err != nil {
@@ -244,9 +245,14 @@ func (c *AuthApp) authorizeJobToken(repoPath, operation, token string) (*domain.
 		return nil, Pusher{}, ErrGitNotFound
 	}
 	if operation != "git-upload-pack" {
-		return nil, Pusher{}, ErrGitForbidden
+		if !hasPermission(run, "contents", "write") {
+			return nil, Pusher{}, ErrGitForbidden
+		}
+		if repo.IsArchived {
+			return nil, Pusher{}, ErrGitArchived
+		}
 	}
-	return repo, Pusher{Name: "github-actions[bot]"}, nil
+	return repo, Pusher{Name: "github-actions[bot]", JobToken: true}, nil
 }
 
 // userGitAccess decides a user's git access to repo. A user who can't

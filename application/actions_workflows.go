@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -39,6 +40,57 @@ type Workflow struct {
 	Name   string
 	Events map[string]yaml.Node // event name -> its configuration (may be empty)
 	Labels []string             // every job's runs-on labels
+	// Permissions the run's token needs: the most any job gets (a job's
+	// own `permissions:`, else the workflow's; contents: read by default).
+	// Only contents and statuses are honoured.
+	Permissions map[string]string
+}
+
+// honoured are the job token permissions oGit implements.
+var honoured = []string{"contents", "statuses"}
+
+// readPermissions reads a `permissions:` node (nil when absent).
+func readPermissions(n yaml.Node) map[string]string {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		out := map[string]string{}
+		level := map[string]string{"read-all": "read", "write-all": "write"}[n.Value]
+		for _, p := range honoured {
+			if level != "" {
+				out[p] = level
+			}
+		}
+		return out
+	case yaml.MappingNode:
+		out := map[string]string{}
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if slices.Contains(honoured, n.Content[i].Value) {
+				out[n.Content[i].Value] = n.Content[i+1].Value
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func maxLevel(a, b string) string {
+	rank := map[string]int{"": 0, "none": 0, "read": 1, "write": 2}
+	if rank[b] > rank[a] {
+		return b
+	}
+	return a
+}
+
+// PermissionString is the run's permissions as stored:
+// "contents:write,statuses:write" (only what is above none).
+func (w *Workflow) PermissionString() string {
+	var parts []string
+	for _, p := range honoured {
+		if lvl := w.Permissions[p]; lvl == "read" || lvl == "write" {
+			parts = append(parts, p+":"+lvl)
+		}
+	}
+	return strings.Join(parts, ",")
 }
 
 // ReadWorkflows returns the workflow files at commit sha.
@@ -97,10 +149,12 @@ func ReadWorkflows(objects storer.EncodedObjectStorer, sha plumbing.Hash) ([]Wor
 // ParseWorkflow reads a workflow's name, events and labels.
 func ParseWorkflow(data []byte) (*Workflow, error) {
 	var raw struct {
-		Name string    `yaml:"name"`
-		On   yaml.Node `yaml:"on"`
-		Jobs map[string]struct {
-			RunsOn yaml.Node `yaml:"runs-on"`
+		Name        string    `yaml:"name"`
+		On          yaml.Node `yaml:"on"`
+		Permissions yaml.Node `yaml:"permissions"`
+		Jobs        map[string]struct {
+			RunsOn      yaml.Node `yaml:"runs-on"`
+			Permissions yaml.Node `yaml:"permissions"`
 		} `yaml:"jobs"`
 	}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
@@ -124,8 +178,20 @@ func ParseWorkflow(data []byte) (*Workflow, error) {
 	if len(w.Events) == 0 || len(raw.Jobs) == 0 {
 		return nil, errors.New("a workflow needs on and jobs")
 	}
+	defaults := readPermissions(raw.Permissions)
+	if defaults == nil {
+		defaults = map[string]string{"contents": "read"}
+	}
+	w.Permissions = map[string]string{}
 	seen := map[string]bool{}
 	for _, job := range raw.Jobs {
+		perms := readPermissions(job.Permissions)
+		if perms == nil {
+			perms = defaults
+		}
+		for _, p := range honoured {
+			w.Permissions[p] = maxLevel(w.Permissions[p], perms[p])
+		}
 		for _, l := range runsOn(job.RunsOn) {
 			if !seen[l] && !strings.Contains(l, "${{") {
 				seen[l] = true

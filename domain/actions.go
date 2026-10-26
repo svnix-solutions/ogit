@@ -72,10 +72,22 @@ type ActionRun struct {
 	RunnerId     *string
 	TokenHash    string `json:"-"` // the job token, while the run is running
 	CancelAsked  bool
-	HeartbeatAt  *time.Time
-	StartedAt    *time.Time
-	FinishedAt   *time.Time
-	CreatedAt    time.Time
+	// NeedsApproval: a first-time contributor's fork pull request; the run
+	// waits (queued) until a maintainer approves it.
+	NeedsApproval bool
+	// FromFork: no secrets, and a read-only token.
+	FromFork bool
+	// Permissions of the job token, "contents:write,statuses:write"
+	// (read when absent).
+	Permissions string
+	// StatusSha is the commit job statuses are posted on (a pull request's
+	// head, not its merge commit); "" means Sha.
+	StatusSha   string
+	PullNumber  int
+	HeartbeatAt *time.Time
+	StartedAt   *time.Time
+	FinishedAt  *time.Time
+	CreatedAt   time.Time
 }
 
 func (ActionRun) TableName() string { return "action_run" }
@@ -102,7 +114,61 @@ type ActionLog struct {
 
 func (ActionLog) TableName() string { return "action_log" }
 
+// ActionSecret is an encrypted secret; ActionVariable a plain variable.
+// ScopeId is "" for the site.
+type ActionSecret struct {
+	Id        string `gorm:"primaryKey"`
+	ScopeType string
+	ScopeId   string
+	Name      string
+	Value     string `json:"-"` // sealed
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (ActionSecret) TableName() string { return "action_secret" }
+
+type ActionVariable struct {
+	Id        string `gorm:"primaryKey"`
+	ScopeType string
+	ScopeId   string
+	Name      string
+	Value     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (ActionVariable) TableName() string { return "action_variable" }
+
+// ActionSchedule is a `schedule:` cron of a workflow on the default branch.
+type ActionSchedule struct {
+	Id           string `gorm:"primaryKey"`
+	RepositoryId string
+	WorkflowPath string
+	Cron         string
+	NextRunAt    time.Time
+}
+
+func (ActionSchedule) TableName() string { return "action_schedule" }
+
 type ActionsPers interface {
+	// Secrets and variables of a scope (scopeId "" for the site).
+	Secrets(scopeType, scopeId string) ([]ActionSecret, error)
+	PutSecret(s *ActionSecret) error
+	DeleteSecret(scopeType, scopeId, name string) (bool, error)
+	Variables(scopeType, scopeId string) ([]ActionVariable, error)
+	PutVariable(v *ActionVariable) error
+	DeleteVariable(scopeType, scopeId, name string) (bool, error)
+
+	// ReplaceSchedules sets a repository's schedules.
+	ReplaceSchedules(repositoryId string, schedules []ActionSchedule) error
+	DueSchedules(now time.Time) ([]ActionSchedule, error)
+	// ClaimSchedule moves a due schedule to next, if it is still at prev.
+	ClaimSchedule(id string, prev, next time.Time) (bool, error)
+	// HasMergedPull reports whether userId authored a merged pull request
+	// in the repository.
+	HasMergedPull(repositoryId, userId string) (bool, error)
+
 	CreateRegistrationToken(t *ActionRegistrationToken) error
 	// TakeRegistrationToken deletes and returns the unexpired token with
 	// that hash (one use).
@@ -120,7 +186,8 @@ type ActionsPers interface {
 	GetRun(repositoryId string, number int) (*ActionRun, error)
 	GetRunById(id string) (*ActionRun, error)
 	ListRuns(repositoryId string, offset, limit int) ([]ActionRun, int64, error)
-	// QueuedRuns lists queued runs, oldest first, in the given repositories
+	// QueuedRuns lists queued runs that don't wait for approval, oldest
+	// first, in the given repositories
 	// (nil: every repository).
 	QueuedRuns(repositoryIds []string, limit int) ([]ActionRun, error)
 	// ClaimRun moves a queued run to running for runnerId, if it is still
