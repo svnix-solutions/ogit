@@ -16,6 +16,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Issues**: per repository, numbered with pull requests, with comments, labels, assignees, milestones and "Fixes #N"
 - **Branch protection**: no force-pushes or deletion, pull-request-only branches, per-branch approvals, push and merge allowlists
 - **Commit statuses**: CI reports pass or fail per commit (GitHub-compatible API), and protected branches can require checks
+- **Notifications**: an inbox of the issues, pull requests and releases that concern you, repository watch levels, and email preferences
 - **Webhooks**: GitHub-compatible push, pull request and repository events, signed and retried
 - **REST API** with OpenAPI documentation at `/documentation`
 
@@ -135,7 +136,17 @@ curl -X PATCH localhost:8080/api/v1/repository/me%2Fmy-project -H "Authorization
 - Merging needs `required_approvals` approvals (0 by default) and no outstanding request for changes.
 - The author and developers and up request reviews (`PUT /pulls/1/reviewers {"reviewers": ["alice"]}`) from anyone who can read the repository; a request goes away when that person reviews. Webhooks get `review_requested` / `review_request_removed`.
 - Maintainers manage labels (`/labels`); developers set them on pull requests (`PUT /pulls/1/labels`); `?label=` filters the list.
-- With SMTP configured, the author, requested reviewers, reviewers, commenters and anyone @mentioned (who can read the repository) are emailed about others' comments, reviews, merges and closes. Set `http.public_url` for links.
+- The author, requested reviewers, reviewers, commenters and anyone @mentioned (who can read the repository) are notified about others' comments, reviews, merges and closes (see Notifications).
+
+### Notifications
+
+Each issue, pull request or release that concerns you is one entry in your inbox (`GET /api/v1/notifications`, unread by default; `?all=true`, `?participating=true`, `?repository=`), made unread again by each new event on it.
+
+- **Participating** (always): you're mentioned, assigned, asked for a review, the author, a reviewer or commenter, or a check fails on your pull request.
+- **Watching** (`PUT /api/v1/repository/<owner>%2F<repo>/watch {"level": …}`): `participating` (the default), `all` (also new issues, pull requests and releases), `releases`, or `ignore` (nothing, not even mentions). You watch repositories you create.
+- `PATCH /api/v1/notifications/<id> {"unread": false}`, `POST /api/v1/notifications/read` (everything, or `{"repository": …}`), `POST /api/v1/notifications/<id>/mute` to unsubscribe from a thread (`DELETE` to subscribe again), `GET /api/v1/notifications/count`.
+- **Email** (with SMTP; `PUT /api/v1/notifications/settings {"email": …}`): `participating` (the default), `all` (also watched activity) or `none`. Set `http.public_url` for links.
+- Nobody is notified about their own actions, or about a repository they can't read.
 
 ### Raw files and archives
 

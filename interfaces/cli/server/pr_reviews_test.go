@@ -166,7 +166,7 @@ func TestPullRequestLabels(t *testing.T) {
 func TestPullRequestEmails(t *testing.T) {
 	f := newPullFixture(t, true, func(c *config.Config) { c.SMTP.Host = "smtp.test"; c.Server.PublicURL = "https://git.example.com" })
 	rec := &mailtest.Recorder{}
-	f.srv.deps.PullApp.Mailer = rec
+	f.srv.deps.NotificationApp.Mailer = rec
 	got := func(who string, contains string) func() bool {
 		return func() bool {
 			for _, m := range rec.Messages(who + "@example.com") {
@@ -223,6 +223,6 @@ func TestPullRequestsSurviveUserAndGoWithRepository(t *testing.T) {
 func TestMailerIsWired(t *testing.T) {
 	srv := startTestServer(t)
 	assert.NotNil(t, srv.deps.SSHKeyApp.Mailer)
-	assert.NotNil(t, srv.deps.PullApp.Mailer)
+	assert.NotNil(t, srv.deps.NotificationApp.Mailer)
 	assert.NotNil(t, srv.deps.AuthApp.Mailer)
 }

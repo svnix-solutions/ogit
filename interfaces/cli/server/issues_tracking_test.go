@@ -278,7 +278,7 @@ func TestIssueWebhooks(t *testing.T) {
 func TestIssueEmails(t *testing.T) {
 	f := newPullFixture(t, true, func(c *config.Config) { c.SMTP.Host = "smtp.test"; c.Server.PublicURL = "https://git.example.com" })
 	rec := &mailtest.Recorder{}
-	f.srv.deps.IssueApp.Mailer = rec
+	f.srv.deps.NotificationApp.Mailer = rec
 	srv := f.srv
 	got := func(who string, contains string) func() bool {
 		return func() bool {

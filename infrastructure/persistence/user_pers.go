@@ -82,7 +82,7 @@ func (u *userPers) Purge(userId string) error {
 		}{
 			{&domain.PullRequest{}, "author_id"}, {&domain.PullRequest{}, "merged_by_id"},
 			{&domain.Review{}, "author_id"}, {&domain.Comment{}, "author_id"}, {&domain.CommitStatus{}, "creator_id"},
-			{&domain.Issue{}, "author_id"}, {&domain.Release{}, "author_id"}, {&domain.ReleaseAsset{}, "uploader_id"}, {&domain.Issue{}, "closed_by_id"}, {&domain.IssueComment{}, "author_id"},
+			{&domain.Issue{}, "author_id"}, {&domain.Release{}, "author_id"}, {&domain.ReleaseAsset{}, "uploader_id"}, {&domain.Issue{}, "closed_by_id"}, {&domain.IssueComment{}, "author_id"}, {&domain.Notification{}, "actor_id"},
 		} {
 			if err := tx.Model(c.model).Where(c.column+" = ?", userId).Update(c.column, nil).Error; err != nil {
 				return err
@@ -109,6 +109,10 @@ func (u *userPers) Purge(userId string) error {
 			{&domain.LoginChallenge{}, "user_id = ?"},
 			{&domain.WebAuthnCredential{}, "user_id = ?"},
 			{&domain.WebAuthnCeremony{}, "user_id = ?"},
+			{&domain.Notification{}, "user_id = ?"},
+			{&domain.RepositoryWatch{}, "user_id = ?"},
+			{&domain.ThreadMute{}, "user_id = ?"},
+			{&domain.NotificationPreference{}, "user_id = ?"},
 			{&domain.GroupMember{}, "user_id = ?"},
 			{&domain.RepositoryMember{}, "user_id = ?"},
 			{&domain.SSHKey{}, "user_id = ?"},
