@@ -11,6 +11,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
+- **Git LFS**: large files over HTTPS and SSH, stored with the repository (local or S3), file locking, and LFS files served by the web UI, raw links and archives
 - **Releases**: on tags, with drafts, pre-releases, generated notes, uploaded assets and protected tags; GitHub's releases API for release tools
 - **Forks**: fork any repository you can read, open pull requests from your fork, sync it with the original
 - **Issues**: per repository, numbered with pull requests, with comments, labels, assignees, milestones and "Fixes #N"
@@ -210,6 +211,16 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 ### Push size
 
 Pushes over HTTP and SSH are streamed (never held in memory) and refused above `git.max_push_size` (2 GB by default, `0` for no limit); git shows `push is larger than the limit`. A refused or interrupted push leaves nothing behind in storage.
+
+### Git LFS
+
+Git LFS works with the usual remote, over HTTP or SSH: `git lfs track "*.psd"`, commit and push.
+
+- **Auth:** git's. Access tokens (HTTP Basic, as for git), repository tokens and anonymous reads of public repositories; over SSH (also deploy keys), `git-lfs-authenticate` returns a token valid for an hour. SSH needs `http.public_url`, where the client sends the transfers.
+- **Storage:** objects are stored next to the repository's git data (local or S3), streamed, up to `lfs.max_object_size` (2 GB by default). An upload whose content doesn't match its oid and size is refused and not kept.
+- **Forks** read the objects they lack from the repository they were forked from (if you can read it); objects pushed to a fork are stored in the fork.
+- **Locks:** `git lfs lock <file>`, `git lfs locks`, `git lfs unlock <file>`. Writers lock; only the lock's owner may push changes to that file (the server refuses others' pushes, whatever the client does). Owners unlock theirs; maintainers and owners force-unlock (`--force`).
+- **Web UI, raw files and archives:** an LFS file shows "Stored with Git LFS" with its size; raw links and archives serve its content (or the pointer, if the object isn't on the server).
 
 ### Releases
 

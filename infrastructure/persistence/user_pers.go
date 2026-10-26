@@ -113,6 +113,7 @@ func (u *userPers) Purge(userId string) error {
 			{&domain.RepositoryWatch{}, "user_id = ?"},
 			{&domain.ThreadMute{}, "user_id = ?"},
 			{&domain.NotificationPreference{}, "user_id = ?"},
+			{&domain.LFSLock{}, "owner_id = ?"},
 			{&domain.GroupMember{}, "user_id = ?"},
 			{&domain.RepositoryMember{}, "user_id = ?"},
 			{&domain.SSHKey{}, "user_id = ?"},

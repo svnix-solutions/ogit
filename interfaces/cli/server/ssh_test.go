@@ -34,6 +34,7 @@ func (s *testServer) startSSH(t *testing.T) int {
 		srv.Webhooks = s.deps.WebhookApp
 		srv.Protection = s.deps.ProtectionApp
 		srv.Pulls = s.deps.PullApp
+		srv.LFS = s.deps.LFSApp
 		srv.MaxPushSize = s.deps.Config.Git.MaxPushSize
 	}
 	require.NoError(t, err)

@@ -72,6 +72,9 @@ releases:
 git:
   max_push_size: 2147483648   # bytes (2 GB) per push, over HTTP and SSH; 0 for no limit
 
+lfs:
+  max_object_size: 2147483648   # bytes (2 GB) per Git LFS object
+
 ssh:                   # git over SSH: ssh://git@host:2222/<repo>.git
   enabled: false
   port: 2222

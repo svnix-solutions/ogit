@@ -38,6 +38,13 @@ type Config interface {
 	OpenAsset(repoPath, id string) (io.ReadCloser, error)
 	DeleteAsset(repoPath, id string) error
 
+	// LFS objects (oid: lowercase hex SHA-256, checked by the caller) are
+	// stored with the repository too. StatLFSObject reports a missing
+	// object as ok false.
+	PutLFSObject(repoPath, oid string, r io.Reader) error
+	OpenLFSObject(repoPath, oid string) (io.ReadCloser, error)
+	StatLFSObject(repoPath, oid string) (size int64, ok bool, err error)
+
 	// ListRepositories returns a list of all repository paths
 	ListRepositories() ([]string, error)
 

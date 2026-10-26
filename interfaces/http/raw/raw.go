@@ -53,24 +53,30 @@ func (e errLimited) Error() string { return "too many requests" }
 // open authorizes the caller like git does and returns the storer. Raw
 // files and archives count as git operations.
 func (c Controller) open(ctx *fiber.Ctx) (*domain.Repository, storer.Storer, error) {
+	repo, st, _, err := c.openAs(ctx)
+	return repo, st, err
+}
+
+// openAs is open with the reader ("" for anonymous).
+func (c Controller) openAs(ctx *fiber.Ctx) (*domain.Repository, storer.Storer, string, error) {
 	repoPath := ctx.Params("owner") + "/" + strings.TrimSuffix(ctx.Params("repo"), ".git")
 	ip := c.Limits.ClientIP(ctx)
 	if creds := git.BasicCredentials(ctx.Get(fiber.HeaderAuthorization)); creds != nil {
 		if r, blocked := c.Limits.LoginBlocked(ctx.UserContext(), ip, ""); blocked {
-			return nil, nil, errLimited{r}
+			return nil, nil, "", errLimited{r}
 		}
-		repo, err := c.AuthApp.AuthorizeGit(repoPath, "git-upload-pack", creds)
+		repo, pusher, err := c.AuthApp.AuthorizeGitAs(repoPath, "git-upload-pack", creds)
 		if errors.Is(err, application.ErrGitUnauthenticated) {
 			c.Limits.LoginFailed(ctx.UserContext(), ip, "")
 		}
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, "", err
 		}
 		if r := c.Limits.Allow(ctx.UserContext(), c.Limits.Rules.GitUser, "git:token:"+application.HashToken(creds.Token)[:16]); !r.Allowed {
-			return nil, nil, errLimited{r}
+			return nil, nil, "", errLimited{r}
 		}
 		st, err := c.BrowseApp.Storage.GetStorer(repo.StorageKey)
-		return repo, st, err
+		return repo, st, pusher.UserId, err
 	}
 	userId := ""
 	if token := ctx.Cookies(websession.SessionCookie); token != "" {
@@ -83,9 +89,10 @@ func (c Controller) open(ctx *fiber.Ctx) (*domain.Repository, storer.Storer, err
 		rule, key = c.Limits.Rules.GitUser, "git:user:"+userId
 	}
 	if r := c.Limits.Allow(ctx.UserContext(), rule, key); !r.Allowed {
-		return nil, nil, errLimited{r}
+		return nil, nil, "", errLimited{r}
 	}
-	return c.BrowseApp.Open(nil, &repoPath, userId)
+	repo, st, err := c.BrowseApp.Open(nil, &repoPath, userId)
+	return repo, st, userId, err
 }
 
 func (c Controller) fail(ctx *fiber.Ctx, err error) error {
@@ -116,7 +123,7 @@ var inlineTypes = map[string]bool{
 }
 
 func (c Controller) Raw(ctx *fiber.Ctx) error {
-	_, st, err := c.open(ctx)
+	repo, st, reader, err := c.openAs(ctx)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -128,9 +135,22 @@ func (c Controller) Raw(ctx *fiber.Ctx) error {
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	r, err := f.Reader()
-	if err != nil {
-		return c.fail(ctx, err)
+	var r io.ReadCloser
+	size := f.Size
+	// Git LFS pointers: their content, when it is there.
+	if p, ok := gitbrowse.FilePointer(f); ok {
+		if lfs := c.BrowseApp.LFSFor(repo, reader); lfs != nil {
+			if r, err = lfs.Open(p.Oid, p.Size); err == nil {
+				size = p.Size
+			} else {
+				r = nil
+			}
+		}
+	}
+	if r == nil {
+		if r, err = f.Reader(); err != nil {
+			return c.fail(ctx, err)
+		}
 	}
 
 	// Decide the type from the start of the content and the extension.
@@ -155,11 +175,11 @@ func (c Controller) Raw(ctx *fiber.Ctx) error {
 	return ctx.SendStream(struct {
 		io.Reader
 		io.Closer
-	}{br, r}, int(f.Size))
+	}{br, r}, int(size))
 }
 
 func (c Controller) Archive(ctx *fiber.Ctx) error {
-	repo, st, err := c.open(ctx)
+	repo, st, reader, err := c.openAs(ctx)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -187,8 +207,9 @@ func (c Controller) Archive(ctx *fiber.Ctx) error {
 	}
 	ctx.Set("X-Content-Type-Options", "nosniff")
 	logger := c.Logger
+	lfs := c.BrowseApp.LFSFor(repo, reader)
 	ctx.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
-		if err := gitbrowse.WriteArchive(w, commit, format, prefix); err != nil {
+		if err := gitbrowse.WriteArchive(w, commit, format, prefix, lfs); err != nil {
 			logger.Warn().Err(err).Str("component", "http.raw").Str("repository", repo.FullPath()).Msg("archive interrupted")
 		}
 		_ = w.Flush()

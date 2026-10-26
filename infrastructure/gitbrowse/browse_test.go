@@ -275,7 +275,7 @@ func TestArchive(t *testing.T) {
 	c, _ := ResolveRef(f.st, "main")
 
 	var zbuf bytes.Buffer
-	require.NoError(t, WriteArchive(&zbuf, c, Zip, "repo-main"))
+	require.NoError(t, WriteArchive(&zbuf, c, Zip, "repo-main", nil))
 	zr, err := zip.NewReader(bytes.NewReader(zbuf.Bytes()), int64(zbuf.Len()))
 	require.NoError(t, err)
 	got := map[string]string{}
@@ -287,7 +287,7 @@ func TestArchive(t *testing.T) {
 	assert.Equal(t, map[string]string{"repo-main/README.md": "hi\n", "repo-main/dir/a.txt": "a\n"}, got)
 
 	var tbuf bytes.Buffer
-	require.NoError(t, WriteArchive(&tbuf, c, TarGz, "repo-main"))
+	require.NoError(t, WriteArchive(&tbuf, c, TarGz, "repo-main", nil))
 	gz, err := gzip.NewReader(&tbuf)
 	require.NoError(t, err)
 	tr := tar.NewReader(gz)
@@ -302,5 +302,5 @@ func TestArchive(t *testing.T) {
 		got[h.Name] = string(data)
 	}
 	assert.Equal(t, map[string]string{"repo-main/README.md": "hi\n", "repo-main/dir/a.txt": "a\n"}, got)
-	assert.ErrorIs(t, WriteArchive(io.Discard, c, "rar", "x"), ErrFormat)
+	assert.ErrorIs(t, WriteArchive(io.Discard, c, "rar", "x", nil), ErrFormat)
 }
