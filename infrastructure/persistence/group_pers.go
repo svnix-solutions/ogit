@@ -44,6 +44,11 @@ func (g *groupPers) Delete(id string) error {
 		if err := tx.Where("group_id = ?", id).Delete(&domain.GroupMember{}).Error; err != nil {
 			return err
 		}
+		for _, model := range []any{&domain.ActionRunner{}, &domain.ActionRegistrationToken{}} {
+			if err := tx.Where("scope_type = ? AND scope_id = ?", domain.RunnerScopeGroup, id).Delete(model).Error; err != nil {
+				return err
+			}
+		}
 		return tx.Where("id = ?", id).Delete(&domain.Group{}).Error
 	})
 }

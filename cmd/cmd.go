@@ -8,6 +8,7 @@ import (
 
 	"github.com/labbs/ogit/interfaces/cli/admin"
 	"github.com/labbs/ogit/interfaces/cli/migration"
+	"github.com/labbs/ogit/interfaces/cli/runner"
 	"github.com/labbs/ogit/interfaces/cli/server"
 	"github.com/labbs/ogit/interfaces/cli/storage"
 
@@ -43,6 +44,7 @@ func main() {
 			migration.NewInstance(version),
 			admin.NewInstance(version),
 			storage.NewInstance(version),
+			runner.NewInstance(version),
 		},
 	}
 

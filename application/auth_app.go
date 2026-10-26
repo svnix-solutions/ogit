@@ -63,6 +63,8 @@ type AuthApp struct {
 	// ForkEdits returns the branches of a fork a user may push to as a
 	// maintainer of pull requests from it (PullRequestApp.EditableBranches).
 	ForkEdits func(fork *domain.Repository, userId string) []string
+	// Actions resolves job tokens (GITHUB_TOKEN) for git; nil: none.
+	Actions *ActionsApp
 }
 
 func NewAuthApp(config config.Config, logger zerolog.Logger, userApp UserApp, sessionApp SessionApp, tokenApp TokenApp, repositoryApp RepositoryApp, mailer mail.Sender, verificationPers domain.EmailVerificationPers) *AuthApp {
@@ -217,6 +219,9 @@ func (c *AuthApp) AuthorizeGit(repoPath, operation string, creds *GitCredentials
 // AuthorizeGitAs is AuthorizeGit, also returning who the caller acts as
 // (for push events): the token's user, or the repository token's name.
 func (c *AuthApp) AuthorizeGitAs(repoPath, operation string, creds *GitCredentials) (*domain.Repository, Pusher, error) {
+	if creds != nil && IsJobToken(creds.Token) {
+		return c.authorizeJobToken(repoPath, operation, creds.Token)
+	}
 	repo, authToken, only, err := c.authorizeGit(repoPath, operation, creds)
 	if err != nil || authToken == nil {
 		return repo, Pusher{}, err
@@ -225,6 +230,23 @@ func (c *AuthApp) AuthorizeGitAs(repoPath, operation string, creds *GitCredentia
 		return repo, Pusher{UserId: *authToken.UserId, Name: authToken.User.Username, OnlyBranches: only}, nil
 	}
 	return repo, Pusher{Name: "token " + authToken.Name}, nil
+}
+
+// authorizeJobToken: an Actions job token reads its run's repository
+// while the run runs (whatever the token's user name).
+func (c *AuthApp) authorizeJobToken(repoPath, operation, token string) (*domain.Repository, Pusher, error) {
+	run, err := c.Actions.JobTokenRun(token)
+	if err != nil {
+		return nil, Pusher{}, ErrGitUnauthenticated
+	}
+	repo, err := c.RepositoryApp.GetRepository(nil, &repoPath)
+	if err != nil || repo.Id != run.RepositoryId {
+		return nil, Pusher{}, ErrGitNotFound
+	}
+	if operation != "git-upload-pack" {
+		return nil, Pusher{}, ErrGitForbidden
+	}
+	return repo, Pusher{Name: "github-actions[bot]"}, nil
 }
 
 // userGitAccess decides a user's git access to repo. A user who can't

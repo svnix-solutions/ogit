@@ -90,6 +90,8 @@ func runServer(cfg config.Config) error {
 
 	// Webhook deliveries, on every server (each delivery is claimed once).
 	go deps.WebhookApp.Run(context.Background(), 2*time.Second)
+	// Runs whose runner stopped reporting fail.
+	go deps.ActionsApp.Watch(context.Background(), time.Minute)
 
 	if cfg.SSH.Enabled {
 		if err := startSSH(deps); err != nil {
@@ -257,6 +259,10 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.LFSApp = &application.LFSApp{Config: deps.Config, Logger: deps.Logger, Auth: deps.AuthApp, Repositories: deps.RepoApp,
 		Storage: deps.Storage, Locks: persistence.NewLFSLockPers(deps.Database.Db)}
 	deps.BrowseApp.LFS = deps.LFSApp
+	deps.ActionsApp = &application.ActionsApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewActionsPers(deps.Database.Db),
+		Repositories: deps.RepoApp, Groups: deps.GroupApp.GroupPers, GroupApp: deps.GroupApp, Admin: deps.AdminApp, Webhooks: deps.WebhookApp}
+	deps.WebhookApp.Actions = deps.ActionsApp
+	deps.AuthApp.Actions = deps.ActionsApp
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
 	if err != nil {

@@ -2,6 +2,7 @@ package v1
 
 import (
 	"github.com/labbs/ogit/infrastructure"
+	"github.com/labbs/ogit/interfaces/http/v1/actions"
 	"github.com/labbs/ogit/interfaces/http/v1/admin"
 	"github.com/labbs/ogit/interfaces/http/v1/auth"
 	"github.com/labbs/ogit/interfaces/http/v1/browse"
@@ -93,6 +94,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	pulls.Setup(pulls.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Pulls: deps.PullApp}, repoGrp)
 
 	notifications.Setup(notifications.Controller{Logger: deps.Logger, Notifications: deps.NotificationApp}, grp, repoGrp)
+
+	actions.Setup(actions.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Actions: deps.ActionsApp}, grp, repoGrp)
 
 	site.Setup(site.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, RepositoryApp: deps.RepoApp}, grp)
 }

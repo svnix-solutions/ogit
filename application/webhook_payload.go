@@ -237,6 +237,7 @@ func (c *WebhookApp) Pushed(repo *domain.Repository, pusher Pusher, objects stor
 	if c == nil || len(updates) == 0 {
 		return
 	}
+	c.Actions.Pushed(repo, pusher, objects, updates)
 	hooks, err := c.Hooks.List(repo.Id)
 	if err != nil {
 		return
@@ -260,6 +261,12 @@ func anyWants(hooks []domain.Webhook, event string) bool {
 		}
 	}
 	return false
+}
+
+// PushPayloadFor is the push event's payload (also the push event of
+// Actions runs).
+func (c *WebhookApp) PushPayloadFor(repo *domain.Repository, pusher Pusher, objects storer.EncodedObjectStorer, u RefUpdate) PushPayload {
+	return c.pushPayload(repo, pusher, objects, u)
 }
 
 func (c *WebhookApp) pushPayload(repo *domain.Repository, pusher Pusher, objects storer.EncodedObjectStorer, u RefUpdate) PushPayload {

@@ -12,6 +12,7 @@ package raw
 
 import (
 	"bufio"
+	"encoding/base64"
 	"errors"
 	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"io"
@@ -43,6 +44,26 @@ func Setup(c Controller, app *fiber.App) {
 	app.Get("/:owner/:repo/raw/*", c.Raw)
 	app.Get("/:owner/:repo/archive/*", c.Archive)
 	app.Get("/:owner/:repo/releases/download/*", c.ReleaseAsset)
+	// GitHub's archive downloads (actions/checkout uses them when the job's
+	// image has no git).
+	app.Get("/api/v3/repos/:owner/:repo/tarball/*", c.apiArchive(gitbrowse.TarGz))
+	app.Get("/api/v3/repos/:owner/:repo/zipball/*", c.apiArchive(gitbrowse.Zip))
+}
+
+// apiArchive serves GitHub's /tarball/<ref> and /zipball/<ref>. Besides
+// git's credentials it takes "Authorization: token|Bearer <job token>",
+// as GitHub's API clients send GITHUB_TOKEN.
+func (c Controller) apiArchive(format string) fiber.Handler {
+	return func(ctx *fiber.Ctx) error {
+		auth := ctx.Get(fiber.HeaderAuthorization)
+		for _, scheme := range []string{"token ", "Bearer ", "bearer "} {
+			if token, ok := strings.CutPrefix(auth, scheme); ok && application.IsJobToken(token) {
+				ctx.Request().Header.Set(fiber.HeaderAuthorization, "Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token)))
+			}
+		}
+		ref := strings.TrimPrefix(strings.TrimPrefix(ctx.Params("*"), "refs/heads/"), "refs/tags/")
+		return c.archive(ctx, ref, format)
+	}
 }
 
 // errLimited: the caller used up their git budget (see ratelimit).
@@ -194,6 +215,19 @@ func (c Controller) Archive(ctx *fiber.Ctx) error {
 	if format == "" {
 		return c.fail(ctx, gitbrowse.ErrFormat)
 	}
+	return c.writeArchive(ctx, repo, st, reader, spec, format)
+}
+
+// archive serves ref of the repository in the URL as format.
+func (c Controller) archive(ctx *fiber.Ctx, spec, format string) error {
+	repo, st, reader, err := c.openAs(ctx)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.writeArchive(ctx, repo, st, reader, spec, format)
+}
+
+func (c Controller) writeArchive(ctx *fiber.Ctx, repo *domain.Repository, st storer.Storer, reader, spec, format string) error {
 	commit, err := gitbrowse.ResolveRef(st, spec)
 	if err != nil {
 		return c.fail(ctx, err)

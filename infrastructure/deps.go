@@ -43,4 +43,5 @@ type Deps struct {
 	TwoFactorApp    *application.TwoFactorApp
 	NotificationApp *application.NotificationApp
 	LFSApp          *application.LFSApp
+	ActionsApp      *application.ActionsApp
 }

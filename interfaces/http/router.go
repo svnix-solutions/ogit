@@ -6,6 +6,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/git"
 	"github.com/labbs/ogit/interfaces/http/lfs"
 	"github.com/labbs/ogit/interfaces/http/raw"
+	"github.com/labbs/ogit/interfaces/http/runner"
 	v1 "github.com/labbs/ogit/interfaces/http/v1"
 	"github.com/labbs/ogit/interfaces/http/websession"
 	"github.com/labbs/ogit/web"
@@ -45,6 +46,9 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// Git LFS: /<owner>/<repo>.git/info/lfs/...
 	lfs.Setup(lfs.Controller{Config: deps.Config, Logger: deps.Logger, LFS: deps.LFSApp, Limits: deps.Limits}, deps.Http.Fiber)
+
+	// The protocol of `ogit runner`.
+	runner.Setup(runner.Controller{Config: deps.Config, Logger: deps.Logger, Actions: deps.ActionsApp, Limits: deps.Limits}, deps.Http.Fiber)
 
 	// Setup v1 routes
 	v1.SetupRouterV1(deps)
