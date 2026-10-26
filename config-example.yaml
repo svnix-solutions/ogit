@@ -78,6 +78,7 @@ lfs:
 actions:
   artifact_retention_days: 90   # a workflow's retention-days can only shorten it
   max_artifact_size: 2147483648 # bytes (2 GB) per artifact
+  cache_size_limit: 10737418240 # bytes (10 GB) of actions/cache entries per repository
 
 ssh:                   # git over SSH: ssh://git@host:2222/<repo>.git
   enabled: false

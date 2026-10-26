@@ -3,6 +3,7 @@ package s3
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -84,4 +85,17 @@ func (s3s *S3Storage) DeleteFile(repoPath, area, id string) error {
 	}
 	_, err = s3s.client.DeleteObject(context.TODO(), &awss3.DeleteObjectInput{Bucket: aws.String(s3s.bucket), Key: aws.String(key)})
 	return err
+}
+
+func (s3s *S3Storage) OpenFileRange(repoPath, area, id string, offset, length int64) (io.ReadCloser, error) {
+	key, err := s3s.areaKey(repoPath, area, id)
+	if err != nil {
+		return nil, err
+	}
+	rng := fmt.Sprintf("bytes=%d-%d", offset, offset+length-1)
+	out, err := s3s.client.GetObject(context.TODO(), &awss3.GetObjectInput{Bucket: aws.String(s3s.bucket), Key: aws.String(key), Range: aws.String(rng)})
+	if err != nil {
+		return nil, err
+	}
+	return out.Body, nil
 }

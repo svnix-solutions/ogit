@@ -82,3 +82,22 @@ func (ls *LocalStorage) DeleteFile(repoPath, area, id string) error {
 	}
 	return nil
 }
+
+func (ls *LocalStorage) OpenFileRange(repoPath, area, id string, offset, length int64) (io.ReadCloser, error) {
+	p, err := ls.areaPath(repoPath, area, id)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return struct {
+		io.Reader
+		io.Closer
+	}{io.LimitReader(f, length), f}, nil
+}

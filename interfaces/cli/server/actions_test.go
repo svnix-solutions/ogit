@@ -245,6 +245,28 @@ func TestActionsRuns(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("requeue_unacknowledged", func(t *testing.T) {
+		pushFiles(t, f.url, f.owner.git, "main", "lost answer", map[string]string{"g.txt": "g\n"})
+		lost := fetch0(t, runner, "ubuntu-latest")
+		require.NotNil(t, lost) // as if this answer never reached the runner
+		srv.deps.ActionsApp.Now = func() time.Time { return time.Now().Add(time.Minute) }
+		assert.Zero(t, srv.deps.ActionsApp.Requeue(), "not yet")
+		srv.deps.ActionsApp.Now = func() time.Time { return time.Now().Add(3 * time.Minute) }
+		assert.Equal(t, 1, srv.deps.ActionsApp.Requeue())
+		srv.deps.ActionsApp.Now = nil
+		_, err := clone(t, f.url, &githttp.BasicAuth{Username: "x", Password: lost.Token})
+		assert.Error(t, err, "its job token ends")
+		again := fetch0(t, runner, "ubuntu-latest")
+		require.NotNil(t, again, "queued again")
+		assert.Equal(t, lost.Number, again.Number)
+		_, err = runner.State(context.Background(), again.RunId, application.StateUpdate{})
+		require.NoError(t, err)
+		srv.deps.ActionsApp.Now = func() time.Time { return time.Now().Add(3 * time.Minute) }
+		assert.Zero(t, srv.deps.ActionsApp.Requeue(), "its runner reported: it keeps it")
+		srv.deps.ActionsApp.Now = nil
+		finish(t, runner, again, "success")
+	})
+
 	t.Run("stale", func(t *testing.T) {
 		pushFiles(t, f.url, f.owner.git, "main", "once more", map[string]string{"e.txt": "e\n"})
 		task := fetch0(t, runner, "ubuntu-latest")
@@ -253,7 +275,7 @@ func TestActionsRuns(t *testing.T) {
 		srv.deps.ActionsApp.Now = func() time.Time { return time.Now().Add(11 * time.Minute) }
 		defer func() { srv.deps.ActionsApp.Now = nil }()
 		assert.Equal(t, 1, srv.deps.ActionsApp.FailStale())
-		_, body := srv.get(t, actionsAPI("owner/app")+"/runs/4", f.owner.session)
+		_, body := srv.get(t, actionsAPI("owner/app")+"/runs/"+fmt.Sprint(task.Number), f.owner.session)
 		assert.Equal(t, "failure", body["status"])
 	})
 }

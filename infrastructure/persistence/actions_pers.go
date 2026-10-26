@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2/utils"
@@ -184,6 +185,13 @@ func (p *actionsPers) RunByTokenHash(hash string) (*domain.ActionRun, error) {
 		return nil, err
 	}
 	return &r, nil
+}
+
+func (p *actionsPers) RequeueUnacknowledged(before time.Time) (int64, error) {
+	res := p.db.Model(&domain.ActionRun{}).
+		Where("status = ? AND heartbeat_at = started_at AND started_at < ?", domain.RunRunning, before).
+		Updates(map[string]any{"status": domain.RunQueued, "runner_id": nil, "token_hash": "", "started_at": nil, "heartbeat_at": nil})
+	return res.RowsAffected, res.Error
 }
 
 func (p *actionsPers) StaleRuns(before time.Time) ([]domain.ActionRun, error) {
@@ -394,4 +402,95 @@ func (p *actionsPers) RunByApiId(repositoryId string, apiId int64) (*domain.Acti
 		return nil, err
 	}
 	return &r, nil
+}
+
+func (p *actionsPers) CreateCache(c *domain.ActionCache) error {
+	c.Id, c.ApiId = utils.UUIDv4(), newApiId()
+	return p.db.Create(c).Error
+}
+
+func (p *actionsPers) CacheByApiId(repositoryId string, apiId int64) (*domain.ActionCache, error) {
+	var c domain.ActionCache
+	if err := p.db.Where("repository_id = ? AND api_id = ?", repositoryId, apiId).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (p *actionsPers) CacheById(id string) (*domain.ActionCache, error) {
+	var c domain.ActionCache
+	if err := p.db.Where("id = ?", id).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (p *actionsPers) CacheEntry(repositoryId, scope, key, version string, prefix bool) (*domain.ActionCache, error) {
+	q := p.db.Where("repository_id = ? AND scope = ? AND version = ? AND complete = ?", repositoryId, scope, version, true)
+	if prefix {
+		// LIKE with the prefix escaped: keys may hold % and _.
+		esc := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(key)
+		q = q.Where(`cache_key LIKE ? ESCAPE '\'`, esc+"%")
+	} else {
+		q = q.Where("cache_key = ?", key)
+	}
+	var c domain.ActionCache
+	if err := q.Order("created_at DESC").First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (p *actionsPers) CacheExisting(repositoryId, scope, key, version string) (*domain.ActionCache, error) {
+	var c domain.ActionCache
+	if err := p.db.Where("repository_id = ? AND scope = ? AND cache_key = ? AND version = ?", repositoryId, scope, key, version).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (p *actionsPers) Caches(repositoryId string) ([]domain.ActionCache, error) {
+	var out []domain.ActionCache
+	err := p.db.Where("repository_id = ? AND complete = ?", repositoryId, true).Order("last_used_at DESC").Find(&out).Error
+	return out, err
+}
+
+func (p *actionsPers) CompleteCache(id string, size int64) error {
+	return p.db.Model(&domain.ActionCache{}).Where("id = ?", id).Updates(map[string]any{"complete": true, "size": size}).Error
+}
+
+func (p *actionsPers) TouchCache(id string, at time.Time) error {
+	return p.db.Model(&domain.ActionCache{}).Where("id = ?", id).Update("last_used_at", at).Error
+}
+
+func (p *actionsPers) DeleteCache(id string) error {
+	return p.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("cache_id = ?", id).Delete(&domain.ActionCacheChunk{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&domain.ActionCache{}).Error
+	})
+}
+
+func (p *actionsPers) AddCacheChunk(ch *domain.ActionCacheChunk) error {
+	return p.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(ch).Error
+}
+
+func (p *actionsPers) CacheChunks(cacheId string) ([]domain.ActionCacheChunk, error) {
+	var out []domain.ActionCacheChunk
+	err := p.db.Where("cache_id = ?", cacheId).Order("start").Find(&out).Error
+	return out, err
+}
+
+func (p *actionsPers) StaleCaches(before, incompleteBefore time.Time, limit int) ([]domain.ActionCache, error) {
+	var out []domain.ActionCache
+	err := p.db.Where("last_used_at < ? OR (complete = ? AND created_at < ?)", before, false, incompleteBefore).Limit(limit).Find(&out).Error
+	return out, err
+}
+
+func (p *actionsPers) CacheRepositoriesOver(limit int64) ([]string, error) {
+	var out []string
+	err := p.db.Model(&domain.ActionCache{}).Where("complete = ?", true).Group("repository_id").
+		Having("SUM(size) > ?", limit).Pluck("repository_id", &out).Error
+	return out, err
 }

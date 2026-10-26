@@ -44,6 +44,9 @@ type Config interface {
 	PutFile(repoPath, area, id string, r io.Reader) error
 	OpenFile(repoPath, area, id string) (io.ReadCloser, error)
 	DeleteFile(repoPath, area, id string) error
+	// OpenFileRange reads length bytes of a file from offset (ranged
+	// downloads of cache entries).
+	OpenFileRange(repoPath, area, id string, offset, length int64) (io.ReadCloser, error)
 
 	// LFS objects (oid: lowercase hex SHA-256, checked by the caller) are
 	// stored with the repository too. StatLFSObject reports a missing
