@@ -119,9 +119,7 @@ func (c *IssueApp) Create(id, path *string, actorId, title, body string) (*Issue
 		return nil, err
 	}
 	c.Webhooks.IssuesEvent(v, "opened", actorId, IssuesPayload{})
-	if len(Mentions(body)) > 0 {
-		c.notify(v, actorId, "opened", body, nil)
-	}
+	c.notify(v, actorId, "opened", body, nil) // watchers too, mentions or not
 	return v, nil
 }
 

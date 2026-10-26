@@ -147,6 +147,7 @@ Each issue, pull request or release that concerns you is one entry in your inbox
 - `PATCH /api/v1/notifications/<id> {"unread": false}`, `POST /api/v1/notifications/read` (everything, or `{"repository": …}`), `POST /api/v1/notifications/<id>/mute` to unsubscribe from a thread (`DELETE` to subscribe again), `GET /api/v1/notifications/count`.
 - **Email** (with SMTP; `PUT /api/v1/notifications/settings {"email": …}`): `participating` (the default), `all` (also watched activity) or `none`. Set `http.public_url` for links.
 - Nobody is notified about their own actions, or about a repository they can't read.
+- In the web UI: the bell in the header (unread count), the inbox at `/notifications`, the Watch menu on each repository, and the email choice in Settings.
 
 ### Raw files and archives
 

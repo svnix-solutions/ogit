@@ -1,5 +1,5 @@
 import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Settings, Tag } from "lucide-react";
-import { ForkButton, ForkedFrom, SyncButton } from "@/components/forks";
+import { ForkButton, ForkedFrom, SyncButton, WatchSelect } from "@/components/forks";
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
 import { ApiError, atLeast, type Repository } from "@/lib/api";
@@ -80,6 +80,7 @@ export function RepoLayout() {
           </Badge>
         )}
         <div className="ml-auto flex gap-2">
+          <WatchSelect repo={repo} />
           <ForkButton repo={repo} />
           <CloneMenu repo={repo} />
         </div>

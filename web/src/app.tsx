@@ -75,6 +75,7 @@ export const routes: RouteObject[] = [
           { path: "/groups", lazy: page(() => import("@/pages/groups"), "GroupsPage") },
           { path: "/groups/:name", lazy: page(() => import("@/pages/groups"), "GroupPage") },
           { path: "/settings", lazy: page(() => import("@/pages/settings"), "SettingsPage") },
+          { path: "/notifications", lazy: page(() => import("@/pages/notifications"), "NotificationsPage") },
           { path: "/admin", lazy: page(() => import("@/pages/admin"), "AdminPage") },
         ],
       },
