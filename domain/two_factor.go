@@ -42,6 +42,35 @@ type LoginChallenge struct {
 
 func (LoginChallenge) TableName() string { return "login_challenge" }
 
+// WebAuthnCredential is a security key or passkey. Data is the library's
+// credential (public key, sign count, flags) as JSON; CredentialId is its
+// id, base64url, for lookups at passkey sign-in.
+type WebAuthnCredential struct {
+	Id           string `gorm:"primaryKey"`
+	UserId       string
+	Name         string
+	CredentialId string
+	Passkey      bool // registered for passwordless sign-in
+	Data         string
+	LastUsedAt   *time.Time
+	CreatedAt    time.Time
+}
+
+func (WebAuthnCredential) TableName() string { return "webauthn_credential" }
+
+// WebAuthnCeremony holds the challenge of a WebAuthn registration or
+// assertion until its response arrives (single use). UserId is nil for
+// passkey sign-in, where the key says who it is.
+type WebAuthnCeremony struct {
+	Id        string `gorm:"primaryKey"`
+	UserId    *string
+	Kind      string // register, login, sudo, passkey
+	Data      string // webauthn.SessionData, JSON
+	ExpiresAt time.Time
+}
+
+func (WebAuthnCeremony) TableName() string { return "webauthn_ceremony" }
+
 type TwoFactorPers interface {
 	GetTOTP(userId string) (*UserTOTP, error)
 	// SaveTOTP replaces the user's TOTP (setup restarts).
@@ -60,8 +89,22 @@ type TwoFactorPers interface {
 	// EnabledUsers returns which of userIds have 2FA on.
 	EnabledUsers(userIds []string) (map[string]bool, error)
 
-	// Disable deletes the TOTP and the recovery codes.
+	// Disable deletes the TOTP, the recovery codes and the security keys.
 	Disable(userId string) error
+	// DeleteRecoveryCodes is for when the last second factor goes.
+	DeleteRecoveryCodes(userId string) error
+
+	ListCredentials(userId string) ([]WebAuthnCredential, error)
+	CredentialByCredentialId(credentialId string) (*WebAuthnCredential, error)
+	CreateCredential(c *WebAuthnCredential) error
+	UpdateCredential(id, data string, usedAt time.Time) error
+	// DeleteCredential deletes one of userId's keys; false if none matched.
+	DeleteCredential(userId, id string) (bool, error)
+
+	CreateCeremony(c *WebAuthnCeremony) error
+	// TakeCeremony returns and deletes a ceremony (single use).
+	TakeCeremony(id string) (*WebAuthnCeremony, error)
+	DeleteExpiredCeremonies(now time.Time) (int64, error)
 
 	CreateChallenge(c *LoginChallenge) error
 	GetChallenge(tokenHash string) (*LoginChallenge, error)

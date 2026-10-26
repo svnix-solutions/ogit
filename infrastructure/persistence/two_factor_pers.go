@@ -69,12 +69,76 @@ func (p *twoFactorPers) EnabledUsers(userIds []string) (map[string]bool, error) 
 	if len(userIds) == 0 {
 		return out, nil
 	}
-	var ids []string
-	err := p.db.Model(&domain.UserTOTP{}).Where("user_id IN ? AND confirmed_at IS NOT NULL", userIds).Pluck("user_id", &ids).Error
-	for _, id := range ids {
+	var ids, keys []string
+	if err := p.db.Model(&domain.UserTOTP{}).Where("user_id IN ? AND confirmed_at IS NOT NULL", userIds).Pluck("user_id", &ids).Error; err != nil {
+		return nil, err
+	}
+	if err := p.db.Model(&domain.WebAuthnCredential{}).Where("user_id IN ?", userIds).Distinct().Pluck("user_id", &keys).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range append(ids, keys...) {
 		out[id] = true
 	}
+	return out, nil
+}
+
+func (p *twoFactorPers) DeleteRecoveryCodes(userId string) error {
+	return p.db.Where("user_id = ?", userId).Delete(&domain.RecoveryCode{}).Error
+}
+
+func (p *twoFactorPers) ListCredentials(userId string) ([]domain.WebAuthnCredential, error) {
+	var out []domain.WebAuthnCredential
+	err := p.db.Where("user_id = ?", userId).Order("created_at").Find(&out).Error
 	return out, err
+}
+
+func (p *twoFactorPers) CredentialByCredentialId(credentialId string) (*domain.WebAuthnCredential, error) {
+	var c domain.WebAuthnCredential
+	if err := p.db.Where("credential_id = ?", credentialId).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (p *twoFactorPers) CreateCredential(c *domain.WebAuthnCredential) error {
+	c.Id = utils.UUIDv4()
+	return p.db.Create(c).Error
+}
+
+func (p *twoFactorPers) UpdateCredential(id, data string, usedAt time.Time) error {
+	return p.db.Model(&domain.WebAuthnCredential{}).Where("id = ?", id).Updates(map[string]any{"data": data, "last_used_at": usedAt}).Error
+}
+
+func (p *twoFactorPers) DeleteCredential(userId, id string) (bool, error) {
+	res := p.db.Where("user_id = ? AND id = ?", userId, id).Delete(&domain.WebAuthnCredential{})
+	return res.RowsAffected == 1, res.Error
+}
+
+func (p *twoFactorPers) CreateCeremony(c *domain.WebAuthnCeremony) error {
+	c.Id = utils.UUIDv4()
+	return p.db.Create(c).Error
+}
+
+// TakeCeremony deletes the row it returns; a concurrent second take finds
+// nothing to delete and fails.
+func (p *twoFactorPers) TakeCeremony(id string) (*domain.WebAuthnCeremony, error) {
+	var c domain.WebAuthnCeremony
+	if err := p.db.Where("id = ?", id).First(&c).Error; err != nil {
+		return nil, err
+	}
+	res := p.db.Where("id = ?", id).Delete(&domain.WebAuthnCeremony{})
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected != 1 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &c, nil
+}
+
+func (p *twoFactorPers) DeleteExpiredCeremonies(now time.Time) (int64, error) {
+	res := p.db.Where("expires_at < ?", now).Delete(&domain.WebAuthnCeremony{})
+	return res.RowsAffected, res.Error
 }
 
 func (p *twoFactorPers) Disable(userId string) error {
@@ -82,8 +146,10 @@ func (p *twoFactorPers) Disable(userId string) error {
 		if err := tx.Where("user_id = ?", userId).Delete(&domain.RecoveryCode{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("user_id = ?", userId).Delete(&domain.LoginChallenge{}).Error; err != nil {
-			return err
+		for _, model := range []any{&domain.LoginChallenge{}, &domain.WebAuthnCredential{}, &domain.WebAuthnCeremony{}} {
+			if err := tx.Where("user_id = ?", userId).Delete(model).Error; err != nil {
+				return err
+			}
 		}
 		return tx.Where("user_id = ?", userId).Delete(&domain.UserTOTP{}).Error
 	})

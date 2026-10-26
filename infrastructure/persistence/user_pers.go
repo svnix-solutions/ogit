@@ -104,6 +104,8 @@ func (u *userPers) Purge(userId string) error {
 			{&domain.UserTOTP{}, "user_id = ?"},
 			{&domain.RecoveryCode{}, "user_id = ?"},
 			{&domain.LoginChallenge{}, "user_id = ?"},
+			{&domain.WebAuthnCredential{}, "user_id = ?"},
+			{&domain.WebAuthnCeremony{}, "user_id = ?"},
 			{&domain.GroupMember{}, "user_id = ?"},
 			{&domain.RepositoryMember{}, "user_id = ?"},
 			{&domain.SSHKey{}, "user_id = ?"},

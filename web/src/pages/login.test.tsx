@@ -37,7 +37,7 @@ describe("LoginPage", () => {
     renderLogin("/login?next=%2Frepos%2Fx");
     await fill();
     expect(await screen.findByText("repo page")).toBeInTheDocument();
-    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = (fetch.mock.calls as unknown as [string, RequestInit][]).find(([u]) => u === "/api/v1/auth/session")!;
     expect(url).toBe("/api/v1/auth/session");
     expect(JSON.parse(init.body as string)).toEqual({ email: "me@example.com", password: "secret" });
   });
@@ -63,7 +63,7 @@ describe("LoginPage", () => {
     await fill();
     await userEvent.click(await screen.findByRole("button", { name: "Send a new link" }));
     expect(await screen.findByRole("button", { name: /a new link is on its way/ })).toBeDisabled();
-    expect(fetch.mock.calls[1][0]).toBe("/api/v1/auth/verify/resend");
+    expect((fetch.mock.calls as unknown as [string][]).map(([u]) => u)).toContain("/api/v1/auth/verify/resend");
   });
 });
 

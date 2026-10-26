@@ -41,6 +41,45 @@ func SetupAuthRouter(controller Controller) {
 		Security:    "disabled",
 	})
 
+	fiberoapi.Post(controller.FiberOapi, "/login/2fa/webauthn", controller.LoginKeyOptions, fiberoapi.OpenAPIOptions{
+		Summary:     "Use a security key to complete a login",
+		Description: "Returns WebAuthn assertion options for the login's challenge; send the browser's answer to /auth/login/2fa (or /auth/session/2fa) as credential, with ceremony.",
+		OperationID: "auth.login2faWebauthn",
+		Tags:        []string{"Auth"},
+		Security:    "disabled",
+	})
+
+	fiberoapi.Post(controller.FiberOapi, "/passkey", controller.PasskeyOptions, fiberoapi.OpenAPIOptions{
+		Summary:     "Start a passkey sign-in",
+		Description: "WebAuthn options for any passkey of this site (no email or password). Send the browser's answer to /auth/passkey/finish or /auth/session/passkey.",
+		OperationID: "auth.passkey",
+		Tags:        []string{"Auth"},
+		Security:    "disabled",
+	})
+
+	fiberoapi.Post(controller.FiberOapi, "/passkey/finish", controller.PasskeyLogin, fiberoapi.OpenAPIOptions{
+		Summary:     "Sign in with a passkey",
+		Description: "The passkey must verify the user (PIN or biometrics); it counts as two factors. Returns a token like /auth/login. Refused answers count as failed logins.",
+		OperationID: "auth.passkeyFinish",
+		Tags:        []string{"Auth"},
+		Security:    "disabled",
+	})
+
+	fiberoapi.Post(controller.FiberOapi, "/session/passkey", controller.SessionPasskey, fiberoapi.OpenAPIOptions{
+		Summary:     "Sign in to the web UI with a passkey",
+		Description: "Like /auth/passkey/finish, but the token goes into the session cookie.",
+		OperationID: "auth.sessionPasskey",
+		Tags:        []string{"Auth"},
+		Security:    "disabled",
+	})
+
+	fiberoapi.Post(controller.FiberOapi, "/sudo/webauthn", controller.SudoKeyOptions, fiberoapi.OpenAPIOptions{
+		Summary:     "Use a security key to confirm it's you",
+		Description: "WebAuthn assertion options; send the answer to /auth/sudo as credential, with ceremony.",
+		OperationID: "auth.sudoWebauthn",
+		Tags:        []string{"Auth"},
+	})
+
 	fiberoapi.Post(controller.FiberOapi, "/sudo", controller.Sudo, fiberoapi.OpenAPIOptions{
 		Summary:     "Confirm it's you",
 		Description: "Sensitive actions (two-factor changes, access tokens, SSH and deploy keys, repository tokens) need a session confirmed in the last 10 minutes; they answer 403 SUDO_REQUIRED otherwise. Signing in counts. Send code (with two-factor authentication) or password (without).",

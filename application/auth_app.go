@@ -118,22 +118,42 @@ func (c *AuthApp) Authenticate(email, password string, ctx *fiber.Ctx) (*dtos.Lo
 			if err != nil {
 				return nil, err
 			}
-			return &dtos.LoginResponse{TwoFactorRequired: true, Challenge: challenge}, nil
+			methods, err := c.TwoFactor.Methods(user.Id)
+			if err != nil {
+				return nil, err
+			}
+			return &dtos.LoginResponse{TwoFactorRequired: true, Challenge: challenge, Methods: methods}, nil
 		}
 	}
 	return c.newSession(user.Id, ctx.Get("User-Agent"), ctx.IP())
 }
 
 // CompleteTwoFactorLogin finishes a login with its second factor.
-func (c *AuthApp) CompleteTwoFactorLogin(challenge, code string) (*dtos.LoginResponse, error) {
+func (c *AuthApp) CompleteTwoFactorLogin(challenge, code string, key *KeyAssertion) (*dtos.LoginResponse, error) {
 	if c.TwoFactor == nil {
 		return nil, ErrChallengeExpired
 	}
-	user, ch, err := c.TwoFactor.CompleteLogin(challenge, code)
+	user, ch, err := c.TwoFactor.CompleteLogin(challenge, code, key)
 	if err != nil {
 		return nil, err
 	}
 	return c.newSession(user.Id, ch.UserAgent, ch.IpAddress)
+}
+
+// PasskeySignIn signs in with a passkey (no password: the passkey
+// verified the user).
+func (c *AuthApp) PasskeySignIn(key *KeyAssertion, userAgent, ip string) (*dtos.LoginResponse, error) {
+	if c.TwoFactor == nil {
+		return nil, ErrWebAuthnUnavailable
+	}
+	user, err := c.TwoFactor.FinishPasskeyLogin(key)
+	if err != nil {
+		return nil, err
+	}
+	if c.Config.Registration.RequireEmailVerification && user.EmailVerifiedAt == nil {
+		return nil, ErrEmailNotVerified
+	}
+	return c.newSession(user.Id, userAgent, ip)
 }
 
 // newSession creates a session and its token. A new session starts in
