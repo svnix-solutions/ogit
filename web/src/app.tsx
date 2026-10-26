@@ -21,6 +21,7 @@ const history = () => import("@/pages/repo-history");
 const pulls = () => import("@/pages/repo-pulls");
 const issues = () => import("@/pages/repo-issues");
 const releases = () => import("@/pages/repo-releases");
+const actions = () => import("@/pages/repo-actions");
 
 // Fixed paths win over /:owner (React Router ranks static segments first);
 // the server reserves these words as user and group names.
@@ -55,6 +56,8 @@ export const routes: RouteObject[] = [
           { path: "forks", lazy: page(() => import("@/pages/repo-forks"), "RepoForksPage") },
           { path: "releases", lazy: page(releases, "ReleasesPage") },
           { path: "releases/tag/*", lazy: page(releases, "ReleasePage") },
+          { path: "actions", lazy: page(actions, "ActionsPage") },
+          { path: "actions/runs/:number", lazy: page(actions, "RunPage") },
           {
             element: <RequireAuth />,
             children: [

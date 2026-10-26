@@ -44,6 +44,7 @@ var (
 	ErrRunnerToken       = errors.New("invalid runner token")
 	ErrRunNotRunning     = errors.New("the run is not running on this runner")
 	ErrRunnerScope       = errors.New("scope must be site, group or repository")
+	ErrRunNotDone        = errors.New("the run hasn't finished")
 )
 
 const (
@@ -567,12 +568,12 @@ func (c *ActionsApp) JobToken(token string) (*domain.Token, error) {
 // --- runs ------------------------------------------------------------------
 
 // Runs lists a repository's runs for a reader.
-func (c *ActionsApp) Runs(id, path *string, readerId string, offset, limit int) (*domain.Repository, []domain.ActionRun, int64, error) {
+func (c *ActionsApp) Runs(id, path *string, readerId string, f domain.RunFilter, offset, limit int) (*domain.Repository, []domain.ActionRun, int64, error) {
 	repo, err := c.Repositories.GetRepositoryForUser(id, path, readerId)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	runs, total, err := c.Pers.ListRuns(repo.Id, max(offset, 0), clampLimit(limit))
+	runs, total, err := c.Pers.ListRuns(repo.Id, f, max(offset, 0), clampLimit(limit))
 	return repo, runs, total, err
 }
 
@@ -633,6 +634,58 @@ func (c *ActionsApp) Cancel(id, path *string, actorId string, number int) (*doma
 	case domain.RunRunning:
 		run.CancelAsked = true
 		return run, c.Pers.UpdateRun(run, "cancel_asked")
+	}
+	return run, nil
+}
+
+// Rerun queues a finished run again: same workflow, event and commit
+// (writers).
+func (c *ActionsApp) Rerun(id, path *string, actorId string, number int) (*domain.ActionRun, error) {
+	repo, run, _, err := c.Run(id, path, actorId, number)
+	if err != nil {
+		return nil, err
+	}
+	ok, err := c.Repositories.CanUserAccess(repo.Id, actorId, "write")
+	if err != nil {
+		return nil, err
+	}
+	if !ok || !domain.IsPerson(actorId) {
+		return nil, ErrForbidden
+	}
+	if !domain.RunDone(run.Status) {
+		return nil, ErrRunNotDone
+	}
+	actor, _ := c.Repositories.UserPers.GetById(actorId)
+	again := &domain.ActionRun{
+		RepositoryId: run.RepositoryId, WorkflowPath: run.WorkflowPath, WorkflowName: run.WorkflowName, Workflow: run.Workflow,
+		Event: run.Event, EventPayload: run.EventPayload, Ref: run.Ref, Sha: run.Sha, ActorId: &actorId, ActorName: actor.Username,
+		Labels: run.Labels, Status: domain.RunQueued, Permissions: run.Permissions, FromFork: run.FromFork,
+		StatusSha: run.StatusSha, PullNumber: run.PullNumber, CreatedAt: c.now(),
+	}
+	if err := c.Pers.CreateRun(again); err != nil {
+		return nil, err
+	}
+	return again, nil
+}
+
+// LatestRun is the newest finished run of a workflow (by file name or
+// path) on a branch (default: the default branch), for badges.
+func (c *ActionsApp) LatestRun(repo *domain.Repository, workflow, branch string) (*domain.ActionRun, error) {
+	if branch == "" {
+		branch = repo.DefaultBranch
+	}
+	ref := "refs/heads/" + branch
+	if !strings.Contains(workflow, "/") {
+		for _, dir := range workflowDirs {
+			if run, err := c.Pers.LatestRun(repo.Id, dir+"/"+workflow, ref); err == nil {
+				return run, nil
+			}
+		}
+		return nil, ErrRunNotFound
+	}
+	run, err := c.Pers.LatestRun(repo.Id, workflow, ref)
+	if err != nil {
+		return nil, ErrRunNotFound
 	}
 	return run, nil
 }

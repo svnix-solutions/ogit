@@ -97,6 +97,7 @@ var mapping = []struct {
 	{application.ErrSecretTooLarge, fiber.StatusRequestEntityTooLarge, "TOO_LARGE"},
 	{application.ErrSecretNotFound, fiber.StatusNotFound, "NOT_FOUND"},
 	{application.ErrWorkflowNotFound, fiber.StatusNotFound, "WORKFLOW_NOT_FOUND"},
+	{application.ErrRunNotDone, fiber.StatusConflict, "RUN_NOT_DONE"},
 	{application.ErrRefNotFoundForDispatch, fiber.StatusNotFound, "REF_NOT_FOUND"},
 	{application.ErrInvalidInputs, fiber.StatusUnprocessableEntity, "INVALID_INPUTS"},
 	{application.ErrAssetExists, fiber.StatusUnprocessableEntity, "ASSET_EXISTS"},

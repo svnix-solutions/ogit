@@ -3,6 +3,7 @@ package application
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path"
 	"strings"
 	"time"
@@ -152,7 +153,7 @@ func dispatchInputs(cfg yaml.Node, given map[string]string) (map[string]string, 
 	out := map[string]string{}
 	for name := range given {
 		if _, ok := declared[name]; !ok {
-			return nil, ErrInvalidInputs
+			return nil, fmt.Errorf("%w: %s isn't one of the workflow's inputs", ErrInvalidInputs, name)
 		}
 	}
 	for name, def := range declared {
@@ -167,7 +168,7 @@ func dispatchInputs(cfg yaml.Node, given map[string]string) (map[string]string, 
 			v, ok = props["default"]
 		}
 		if !ok && props["required"] == "true" {
-			return nil, ErrInvalidInputs
+			return nil, fmt.Errorf("%w: %s is required", ErrInvalidInputs, name)
 		}
 		if ok {
 			out[name] = v
@@ -236,4 +237,98 @@ func (c *ActionsApp) Dispatch(id, idPath *string, actorId, workflow, ref string,
 		return nil, err
 	}
 	return run, nil
+}
+
+// WorkflowInput is a workflow_dispatch input, for the "Run workflow" form.
+type WorkflowInput struct {
+	Name        string
+	Description string
+	Required    bool
+	Default     string
+	Type        string // string (default), boolean, choice, number, environment
+	Options     []string
+}
+
+// WorkflowInfo describes a workflow of the default branch.
+type WorkflowInfo struct {
+	Path     string
+	Name     string
+	Dispatch bool
+	Inputs   []WorkflowInput
+	Error    string // set when the file doesn't parse
+}
+
+// Workflows lists the default branch's workflows (any reader), and whether
+// the repository uses Actions (workflows or runs).
+func (c *ActionsApp) Workflows(id, idPath *string, readerId string) ([]WorkflowInfo, bool, error) {
+	repo, err := c.Repositories.GetRepositoryForUser(id, idPath, readerId)
+	if err != nil {
+		return nil, false, err
+	}
+	out := []WorkflowInfo{}
+	if st, err := c.Repositories.StorageConfig.GetStorer(repo.StorageKey); err == nil {
+		if tip, err := st.Reference(plumbing.NewBranchReferenceName(repo.DefaultBranch)); err == nil {
+			files, err := ReadWorkflows(st, tip.Hash())
+			if err != nil {
+				return nil, false, err
+			}
+			for _, f := range files {
+				info := WorkflowInfo{Path: f.Path, Name: f.Path}
+				if f.Parsed == nil {
+					info.Error = "this workflow file doesn't parse"
+				} else {
+					if f.Parsed.Name != "" {
+						info.Name = f.Parsed.Name
+					}
+					if cfg, ok := f.Parsed.Events["workflow_dispatch"]; ok {
+						info.Dispatch, info.Inputs = true, inputsOf(cfg)
+					}
+				}
+				out = append(out, info)
+			}
+		}
+	}
+	used := len(out) > 0
+	if !used {
+		_, total, err := c.Pers.ListRuns(repo.Id, domain.RunFilter{}, 0, 1)
+		if err != nil {
+			return nil, false, err
+		}
+		used = total > 0
+	}
+	return out, used, nil
+}
+
+func inputsOf(cfg yaml.Node) []WorkflowInput {
+	var out []WorkflowInput
+	if cfg.Kind != yaml.MappingNode {
+		return out
+	}
+	for i := 0; i+1 < len(cfg.Content); i += 2 {
+		if cfg.Content[i].Value != "inputs" || cfg.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		inputs := cfg.Content[i+1]
+		for j := 0; j+1 < len(inputs.Content); j += 2 {
+			in := WorkflowInput{Name: inputs.Content[j].Value, Type: "string"}
+			def := inputs.Content[j+1]
+			for k := 0; def.Kind == yaml.MappingNode && k+1 < len(def.Content); k += 2 {
+				key, val := def.Content[k].Value, def.Content[k+1]
+				switch key {
+				case "description":
+					in.Description = val.Value
+				case "required":
+					in.Required = val.Value == "true"
+				case "default":
+					in.Default = val.Value
+				case "type":
+					in.Type = val.Value
+				case "options":
+					in.Options = runsOn(*val)
+				}
+			}
+			out = append(out, in)
+		}
+	}
+	return out
 }

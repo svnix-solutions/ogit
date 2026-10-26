@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { Pager } from "@/components/pager";
+import { ActionsSettings } from "@/components/actions-settings";
 import { ErrorText, Section } from "@/components/section";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +36,7 @@ export function AdminPage() {
       <Users />
       <Repositories />
       <GroupTransfer />
+      <ActionsSettings scope="every repository's" paths={{ runners: "/admin/runners", secrets: "/admin/actions/secrets", variables: "/admin/actions/variables" }} />
     </div>
   );
 }
