@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { formatSize } from "@/lib/browse";
 import { formatDate } from "@/lib/queries";
 
 // Runners, secrets and variables of a scope: a repository, a group or the
@@ -212,6 +213,57 @@ function Variables({ path, scope }: { path: string; scope: string }) {
         </ul>
       )}
       <NameValueForm label="Save variable" secret={false} pending={save.isPending} error={save.error} onSave={(name, value, reset) => save.mutate({ name, value, reset })} />
+    </Section>
+  );
+}
+
+type CacheEntry = { id: number; key: string; ref: string; size: number; created_at: string; last_used_at: string };
+
+// RepoCaches lists the repository's actions/cache entries, with their use
+// of the limit (maintainers).
+export function RepoCaches({ path }: { path: string }) {
+  const qc = useQueryClient();
+  const key = ["caches", path];
+  const caches = useQuery({ queryKey: key, queryFn: () => api<{ caches: CacheEntry[]; total_size: number; limit: number }>("GET", path) });
+  const remove = useMutation({
+    mutationFn: (id: number) => api("DELETE", `${path}/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+  });
+  const used = caches.data ? Math.min(100, (caches.data.total_size / caches.data.limit) * 100) : 0;
+  return (
+    <Section title="Caches" description="Saved by actions/cache. The least recently used go first beyond the limit; entries unused for 7 days are deleted.">
+      <ErrorText error={caches.error ?? remove.error} />
+      {caches.data && (
+        <div className="space-y-1">
+          <p className="text-sm">
+            {formatSize(caches.data.total_size)} of {formatSize(caches.data.limit)} used
+          </p>
+          <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label="Cache use" aria-valuenow={Math.round(used)} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-full bg-primary" style={{ width: `${used}%` }} />
+          </div>
+        </div>
+      )}
+      {caches.data?.caches.length === 0 && <p className="text-sm text-muted-foreground">No cache entries.</p>}
+      {caches.data && caches.data.caches.length > 0 && (
+        <ul className="divide-y text-sm">
+          {caches.data.caches.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-3 py-2">
+              <div className="min-w-0 flex-1">
+                <code className="block truncate font-medium" title={c.key}>
+                  {c.key}
+                </code>
+                <span className="text-xs text-muted-foreground">{c.ref.replace(/^refs\/(heads|tags)\//, "")}</span>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {formatSize(c.size)} · used {formatDate(c.last_used_at)}
+              </span>
+              <Button variant="ghost" size="icon" aria-label={`Delete cache ${c.key}`} onClick={() => window.confirm(`Delete ${c.key}?`) && remove.mutate(c.id)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
     </Section>
   );
 }

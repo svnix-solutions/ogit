@@ -54,6 +54,9 @@ type Config struct {
 	Actions struct {
 		ArtifactRetentionDays int
 		MaxArtifactSize       int64
+		// CacheSizeLimit bounds a repository's cache entries; the least
+		// recently used go first.
+		CacheSizeLimit int64
 	}
 
 	// Releases: uploaded assets are at most MaxAssetSize bytes.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { splitCompare } from "@/pages/repo-history";
-import { encodePath, joinSpec, relativeTime } from "./browse";
+import { encodePath, formatSize, joinSpec, relativeTime } from "./browse";
 import { language, splitLines } from "./highlight";
 import { renderMarkdown } from "./markdown";
 
@@ -45,5 +45,14 @@ describe("paths", () => {
   });
   it("formats relative times", () => {
     expect(relativeTime("2026-01-01T00:00:00Z", Date.parse("2026-01-01T00:05:00Z"))).toMatch(/5 minutes ago/);
+  });
+});
+
+describe("formatSize", () => {
+  it("picks a unit", () => {
+    expect(formatSize(512)).toBe("512 B");
+    expect(formatSize(2048)).toBe("2.0 KB");
+    expect(formatSize(3 << 20)).toBe("3.0 MB");
+    expect(formatSize(10 * 1024 ** 3)).toBe("10.0 GB");
   });
 });

@@ -179,6 +179,33 @@ type ActionArtifactBlock struct {
 
 func (ActionArtifactBlock) TableName() string { return "action_artifact_block" }
 
+// ActionCache is an actions/cache entry: a key and version saved by a run
+// of Scope (its ref), stored in the repository's "actions-cache" area
+// under its id; Complete once committed.
+type ActionCache struct {
+	Id           string `gorm:"primaryKey"`
+	ApiId        int64
+	RepositoryId string
+	Scope        string
+	CacheKey     string
+	Version      string
+	Size         int64
+	Complete     bool
+	CreatedAt    time.Time
+	LastUsedAt   time.Time
+}
+
+func (ActionCache) TableName() string { return "action_cache" }
+
+// ActionCacheChunk is an uploaded chunk of an entry, at Start.
+type ActionCacheChunk struct {
+	CacheId string `gorm:"primaryKey"`
+	Start   int64  `gorm:"primaryKey"`
+	Size    int64
+}
+
+func (ActionCacheChunk) TableName() string { return "action_cache_chunk" }
+
 // RunFilter narrows a run list; zero values match everything. Status
 // "waiting" is a queued run that needs approval.
 type RunFilter struct {
@@ -190,6 +217,27 @@ type RunFilter struct {
 }
 
 type ActionsPers interface {
+	// Cache.
+	CreateCache(c *ActionCache) error
+	CacheByApiId(repositoryId string, apiId int64) (*ActionCache, error)
+	CacheById(id string) (*ActionCache, error)
+	// CacheEntry is the complete entry of a scope with that key and version
+	// (prefix: the newest whose key starts with key).
+	CacheEntry(repositoryId, scope, key, version string, prefix bool) (*ActionCache, error)
+	CacheExisting(repositoryId, scope, key, version string) (*ActionCache, error)
+	Caches(repositoryId string) ([]ActionCache, error)
+	CompleteCache(id string, size int64) error
+	TouchCache(id string, at time.Time) error
+	DeleteCache(id string) error
+	AddCacheChunk(ch *ActionCacheChunk) error
+	CacheChunks(cacheId string) ([]ActionCacheChunk, error)
+	// StaleCaches lists entries unused since before, and uploads started
+	// before incompleteBefore and never committed.
+	StaleCaches(before, incompleteBefore time.Time, limit int) ([]ActionCache, error)
+	// CacheRepositoriesOver lists repositories whose complete entries
+	// weigh more than limit bytes.
+	CacheRepositoriesOver(limit int64) ([]string, error)
+
 	// Artifacts.
 	CreateArtifact(a *ActionArtifact) error
 	Artifact(runId, name string) (*ActionArtifact, error)
@@ -255,6 +303,9 @@ type ActionsPers interface {
 	ClaimRun(runId, runnerId, tokenHash string, now time.Time) (bool, error)
 	UpdateRun(r *ActionRun, fields ...string) error
 	RunByTokenHash(hash string) (*ActionRun, error)
+	// RequeueUnacknowledged puts back in the queue the runs claimed before
+	// before whose runner never reported (heartbeat still at the claim).
+	RequeueUnacknowledged(before time.Time) (int64, error)
 	// StaleRuns lists running runs whose heartbeat is older than before.
 	StaleRuns(before time.Time) ([]ActionRun, error)
 

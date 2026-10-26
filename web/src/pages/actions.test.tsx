@@ -153,6 +153,8 @@ describe("actions", () => {
       "/repository/r1/actions/secrets": { secrets: [{ name: "DEPLOY_KEY", updated_at: "2026-01-02T00:00:00Z" }] },
       "PUT /repository/r1/actions/secrets/NPM_TOKEN": { name: "NPM_TOKEN" },
       "/repository/r1/actions/variables": { variables: [{ name: "REGION", value: "eu", updated_at: "2026-01-02T00:00:00Z" }] },
+      "/repository/r1/actions/caches": { caches: [{ id: 5, key: "deps-linux-abc", ref: "refs/heads/main", size: 3 << 20, created_at: "2026-01-02T00:00:00Z", last_used_at: "2026-01-03T00:00:00Z" }], total_size: 3 << 20, limit: 10 << 20 },
+      "DELETE /repository/r1/actions/caches/5": { message: "cache entry deleted" },
     });
     renderRoutes(routes, "/acme/app/settings");
     expect(await screen.findByText("builder")).toBeInTheDocument();
@@ -169,6 +171,13 @@ describe("actions", () => {
     await userEvent.click(within(secrets).getByRole("button", { name: "Save secret" }));
     await waitFor(() => expect(sent(fetch, "PUT", "/repository/r1/actions/secrets/NPM_TOKEN")).toEqual([{ value: "s3cret" }]));
     expect(within(secrets).queryByText("s3cret")).not.toBeInTheDocument();
+
+    expect(screen.getByText("3.0 MB of 10.0 MB used")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Cache use" })).toHaveAttribute("aria-valuenow", "30");
+    expect(screen.getByText("deps-linux-abc")).toBeInTheDocument();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "Delete cache deps-linux-abc" }));
+    await waitFor(() => expect(sent(fetch, "DELETE", "/repository/r1/actions/caches/5")).toHaveLength(1));
   });
 
   it("lists a run's artifacts with downloads, and deletes them for writers", async () => {

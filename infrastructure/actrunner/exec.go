@@ -260,8 +260,10 @@ func run(ctx context.Context, rep *reporter, task *application.Task, opts Option
 			"GITHUB_REF_NAME":         ref.name,
 			"GITHUB_REF_TYPE":         ref.kind,
 			"SHA_REF":                 task.Sha,
-			"GITHUB_RUN_NUMBER":       fmt.Sprint(task.Number),
-			"GITHUB_RUN_ID":           runID(task),
+			// actions/cache: GitHub's cache API on this server.
+			"ACTIONS_CACHE_URL": strings.TrimSuffix(task.ServerURL, "/") + "/",
+			"GITHUB_RUN_NUMBER": fmt.Sprint(task.Number),
+			"GITHUB_RUN_ID":     runID(task),
 		},
 		Secrets:    secrets,
 		Vars:       task.Vars,

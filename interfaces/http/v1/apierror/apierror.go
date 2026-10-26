@@ -99,6 +99,7 @@ var mapping = []struct {
 	{application.ErrWorkflowNotFound, fiber.StatusNotFound, "WORKFLOW_NOT_FOUND"},
 	{application.ErrRunNotDone, fiber.StatusConflict, "RUN_NOT_DONE"},
 	{application.ErrArtifactNotFound, fiber.StatusNotFound, "ARTIFACT_NOT_FOUND"},
+	{application.ErrCacheNotFound, fiber.StatusNotFound, "CACHE_NOT_FOUND"},
 	{application.ErrRefNotFoundForDispatch, fiber.StatusNotFound, "REF_NOT_FOUND"},
 	{application.ErrInvalidInputs, fiber.StatusUnprocessableEntity, "INVALID_INPUTS"},
 	{application.ErrAssetExists, fiber.StatusUnprocessableEntity, "ASSET_EXISTS"},

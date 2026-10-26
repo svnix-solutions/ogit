@@ -2,6 +2,7 @@ package http
 
 import (
 	"github.com/labbs/ogit/infrastructure"
+	"github.com/labbs/ogit/interfaces/http/actionscache"
 	"github.com/labbs/ogit/interfaces/http/artifacts"
 	"github.com/labbs/ogit/interfaces/http/ghcompat"
 	"github.com/labbs/ogit/interfaces/http/git"
@@ -53,6 +54,9 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// The artifact service of actions/upload-artifact and download-artifact.
 	artifacts.Setup(artifacts.Controller{Config: deps.Config, Logger: deps.Logger, Actions: deps.ActionsApp}, deps.Http.Fiber)
+
+	// The cache API of actions/cache.
+	actionscache.Setup(actionscache.Controller{Config: deps.Config, Logger: deps.Logger, Actions: deps.ActionsApp}, deps.Http.Fiber)
 
 	// Setup v1 routes
 	v1.SetupRouterV1(deps)

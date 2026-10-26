@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
-import { ActionsSettings } from "@/components/actions-settings";
+import { ActionsSettings, RepoCaches } from "@/components/actions-settings";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { ErrorText, Section } from "@/components/section";
 import { Alert } from "@/components/ui/alert";
@@ -47,6 +47,7 @@ export function RepoSettingsPage() {
         scope="this repository's"
         paths={{ runners: `/repository/${r.data.id}/actions/runners`, secrets: `/repository/${r.data.id}/actions/secrets`, variables: `/repository/${r.data.id}/actions/variables` }}
       />
+      <RepoCaches path={`/repository/${r.data.id}/actions/caches`} />
       {isOwner && <Transfer repo={r.data} />}
       {isOwner && <Delete repo={r.data} />}
     </div>

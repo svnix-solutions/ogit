@@ -58,6 +58,16 @@ func ActionsFlags(cfg *Config) []cli.Flag {
 				altsrcyaml.YAML("actions.max_artifact_size", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
 			),
 		},
+		&cli.Int64Flag{
+			Name:        "actions.cache_size_limit",
+			Usage:       "Bytes of actions/cache entries kept per repository (least recently used evicted; unused for 7 days deleted)",
+			Value:       10 << 30,
+			Destination: &cfg.Actions.CacheSizeLimit,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("ACTIONS_CACHE_SIZE_LIMIT"),
+				altsrcyaml.YAML("actions.cache_size_limit", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
 	}
 }
 

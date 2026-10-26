@@ -34,7 +34,9 @@ import (
 //     its repository only: it reads it, pushes with `permissions:
 //     contents: write` and posts statuses with `statuses: write` (never
 //     from forks); its pushes start no workflows;
-//   - a running run whose runner stops reporting for 10 minutes fails;
+//   - a running run whose runner stops reporting for 10 minutes fails; one
+//     whose runner never reported at all goes back to the queue after 2
+//     minutes (the answer to its fetch was lost);
 //   - writers cancel runs; readers see runs, jobs and logs.
 
 var (
@@ -694,6 +696,21 @@ func (c *ActionsApp) LatestRun(repo *domain.Repository, workflow, branch string)
 	return run, nil
 }
 
+// unacknowledgedTimeout: a claimed run whose runner never reported (the
+// answer to its fetch was lost, e.g. it was stopped while polling) goes
+// back to the queue after this.
+const unacknowledgedTimeout = 2 * time.Minute
+
+// Requeue puts back claimed runs whose runner never reported; it returns
+// how many.
+func (c *ActionsApp) Requeue() int {
+	n, err := c.Pers.RequeueUnacknowledged(c.now().Add(-unacknowledgedTimeout))
+	if err != nil {
+		c.Logger.Error().Err(err).Str("component", "application.actions").Msg("failed to requeue runs")
+	}
+	return int(n)
+}
+
 // FailStale fails running runs whose runner stopped reporting.
 func (c *ActionsApp) FailStale() int {
 	runs, err := c.Pers.StaleRuns(c.now().Add(-runnerHeartbeatTimeout))
@@ -722,9 +739,11 @@ func (c *ActionsApp) Watch(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			c.Requeue()
 			c.FailStale()
 			c.RunSchedules()
 			c.SweepArtifacts()
+			c.SweepCaches()
 		}
 	}
 }
