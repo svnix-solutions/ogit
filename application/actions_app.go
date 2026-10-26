@@ -8,13 +8,14 @@ import (
 	"errors"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/labbs/ogit/domain"
 	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/helpers/secretbox"
 	"github.com/rs/zerolog"
 )
 
@@ -29,8 +30,10 @@ import (
 //     group's repositories) or repository maintainers (that repository).
 //     A runner takes queued runs from its scope whose runs-on labels it
 //     has, oldest first; a run is claimed once (conditional UPDATE);
-//   - each run gets a job token (GITHUB_TOKEN), valid while it runs: it
-//     clones its repository (read only for now);
+//   - each run gets a job token (GITHUB_TOKEN), valid while it runs, for
+//     its repository only: it reads it, pushes with `permissions:
+//     contents: write` and posts statuses with `statuses: write` (never
+//     from forks); its pushes start no workflows;
 //   - a running run whose runner stops reporting for 10 minutes fails;
 //   - writers cancel runs; readers see runs, jobs and logs.
 
@@ -59,7 +62,11 @@ type ActionsApp struct {
 	GroupApp     *GroupApp
 	Admin        *AdminApp
 	Webhooks     *WebhookApp
-	Now          func() time.Time
+	// Statuses posts a commit status per job (nil: none).
+	Statuses *StatusApp
+	// Box seals secrets (nil without security.encryption_key).
+	Box *secretbox.Box
+	Now func() time.Time
 }
 
 func (c *ActionsApp) now() time.Time {
@@ -82,11 +89,12 @@ func IsJobToken(token string) bool { return strings.HasPrefix(token, jobTokenPre
 
 // Pushed queues the workflows that a push runs. It never fails the push.
 func (c *ActionsApp) Pushed(repo *domain.Repository, pusher Pusher, objects storer.EncodedObjectStorer, updates []RefUpdate) {
-	if c == nil {
-		return
+	if c == nil || pusher.JobToken {
+		return // pushes by workflows don't start workflows
 	}
 	logger := c.Logger.With().Str("component", "application.actions").Str("repository", repo.FullPath()).Logger()
 	for _, u := range updates {
+		c.refEvent(repo, pusher, u)
 		if u.New.IsZero() || !(u.Name.IsBranch() || u.Name.IsTag()) {
 			continue
 		}
@@ -95,32 +103,34 @@ func (c *ActionsApp) Pushed(repo *domain.Repository, pusher Pusher, objects stor
 			logger.Warn().Err(err).Str("ref", u.Name.String()).Msg("failed to read workflows")
 			continue
 		}
+		var changed []string
+		changedRead := false
 		for _, f := range files {
 			if f.Parsed == nil || !f.Parsed.MatchesPush(u.Name) {
 				continue
 			}
+			cfg := f.Parsed.Events["push"]
+			if fl := filters(cfg); len(fl["paths"]) > 0 || len(fl["paths-ignore"]) > 0 {
+				if !changedRead {
+					changed, changedRead = changedPaths(objects, u.Old, u.New), true
+				}
+				if !matchesPaths(cfg, changed) {
+					continue
+				}
+			}
 			payload, _ := json.Marshal(c.Webhooks.PushPayloadFor(repo, pusher, objects, u))
-			if err := c.queue(repo, f, "push", string(payload), u.Name.String(), u.New, pusher.UserId, pusher.Name); err != nil {
+			run := c.newRun(repo, f, "push", string(payload), u.Name.String(), u.New, pusher.UserId, pusher.Name)
+			if err := c.Pers.CreateRun(run); err != nil {
 				logger.Error().Err(err).Str("workflow", f.Path).Msg("failed to queue a run")
 			}
+		}
+		if u.Name.IsBranch() && u.Name.Short() == repo.DefaultBranch {
+			c.updateSchedules(repo, files)
 		}
 	}
 }
 
-func (c *ActionsApp) queue(repo *domain.Repository, f WorkflowFile, event, payload, ref string, sha plumbing.Hash, actorId, actorName string) error {
-	run := &domain.ActionRun{
-		RepositoryId: repo.Id, WorkflowPath: f.Path, WorkflowName: f.Parsed.Name, Workflow: f.Content,
-		Event: event, EventPayload: payload, Ref: ref, Sha: sha.String(), ActorName: actorName,
-		Labels: strings.Join(f.Parsed.Labels, ","), Status: domain.RunQueued, CreatedAt: c.now(),
-	}
-	if run.WorkflowName == "" {
-		run.WorkflowName = f.Path
-	}
-	if domain.IsPerson(actorId) {
-		run.ActorId = &actorId
-	}
-	return c.Pers.CreateRun(run)
-}
+func joinLabels(labels []string) string { return strings.Join(labels, ",") }
 
 // --- runner scopes and registration -----------------------------------------
 
@@ -342,10 +352,14 @@ func (c *ActionsApp) FetchTask(r *domain.ActionRunner, labels []string, version,
 		if !json.Valid(payload) {
 			payload = json.RawMessage("{}")
 		}
+		secrets, vars, err := c.runSecrets(repo, run)
+		if err != nil {
+			return nil, err
+		}
 		return &Task{RunId: run.Id, Number: run.Number, Repository: repo.FullPath(), DefaultBranch: repo.DefaultBranch,
 			WorkflowPath: run.WorkflowPath, Workflow: run.Workflow, Event: run.Event, EventPayload: payload,
 			Ref: run.Ref, Sha: run.Sha, Actor: run.ActorName, Token: token, ServerURL: serverURL,
-			Secrets: map[string]string{}, Vars: map[string]string{}}, nil
+			Secrets: secrets, Vars: vars}, nil
 	}
 	return nil, nil
 }
@@ -401,6 +415,7 @@ func (c *ActionsApp) UpdateState(r *domain.ActionRunner, runId string, u StateUp
 		if err := c.Pers.UpsertJob(job); err != nil {
 			return false, err
 		}
+		c.postStatus(run, j.Name, j.Status)
 	}
 	run.HeartbeatAt = &now
 	fields := []string{"heartbeat_at"}
@@ -415,7 +430,71 @@ func (c *ActionsApp) UpdateState(r *domain.ActionRunner, runId string, u StateUp
 	if err := c.Pers.UpdateRun(run, fields...); err != nil {
 		return false, err
 	}
+	if domain.RunDone(run.Status) {
+		c.closeStatuses(run)
+	}
 	return run.CancelAsked, nil
+}
+
+// jobStates map a job's status to a commit status and its description.
+var jobStates = map[string][2]string{
+	"running":   {string(domain.StatusPending), "Running"},
+	"success":   {string(domain.StatusSuccess), "Successful"},
+	"failure":   {string(domain.StatusFailure), "Failed"},
+	"cancelled": {string(domain.StatusError), "Cancelled"},
+	"skipped":   {string(domain.StatusSuccess), "Skipped"},
+}
+
+// StatusContext is a job's commit status context.
+func StatusContext(run *domain.ActionRun, job string) string {
+	return run.WorkflowName + " / " + job + " (" + run.Event + ")"
+}
+
+// postStatus posts a job's state on the run's commit (a pull request's
+// head for pull request runs).
+func (c *ActionsApp) postStatus(run *domain.ActionRun, job, status string) {
+	state, ok := jobStates[status]
+	if c.Statuses == nil || !ok {
+		return
+	}
+	repo, err := c.Repositories.GetRepository(&run.RepositoryId, nil)
+	if err != nil {
+		return
+	}
+	sha := run.StatusSha
+	if sha == "" {
+		sha = run.Sha
+	}
+	target := ""
+	if base := strings.TrimSuffix(c.Config.Server.PublicURL, "/"); base != "" {
+		target = base + "/" + repo.FullPath() + "/actions/runs/" + strconv.Itoa(run.Number)
+	}
+	in := StatusInput{State: state[0], Context: StatusContext(run, job), Description: state[1], TargetURL: target}
+	if _, err := c.Statuses.Post(repo, sha, in); err != nil {
+		c.Logger.Warn().Err(err).Str("component", "application.actions").Str("run_id", run.Id).Msg("failed to post a job status")
+	}
+}
+
+// closeStatuses ends the statuses of jobs still running when the run ends
+// (cancelled, or its runner went away).
+func (c *ActionsApp) closeStatuses(run *domain.ActionRun) {
+	jobs, err := c.Pers.Jobs(run.Id)
+	if err != nil {
+		return
+	}
+	now := c.now()
+	for i := range jobs {
+		if jobs[i].Status != "running" {
+			continue
+		}
+		jobs[i].Status, jobs[i].FinishedAt = run.Status, &now
+		if jobs[i].Status == domain.RunSuccess {
+			jobs[i].Status = domain.RunFailure // a job can't succeed without saying so
+		}
+		if err := c.Pers.UpsertJob(&jobs[i]); err == nil {
+			c.postStatus(run, jobs[i].Name, jobs[i].Status)
+		}
+	}
 }
 
 // AppendLog adds output to a run's log.
@@ -446,6 +525,43 @@ func (c *ActionsApp) JobTokenRun(token string) (*domain.ActionRun, error) {
 		return nil, ErrGitUnauthenticated
 	}
 	return run, nil
+}
+
+// hasPermission reports whether a run's token has perm at level (write
+// includes read). Runs from forks only read.
+func hasPermission(run *domain.ActionRun, perm, level string) bool {
+	if run.FromFork && level == "write" {
+		return false
+	}
+	for _, p := range strings.Split(run.Permissions, ",") {
+		name, lvl, _ := strings.Cut(p, ":")
+		if name == perm && (lvl == level || lvl == "write") {
+			return true
+		}
+	}
+	return false
+}
+
+// JobToken turns a running job's token into a repository token for its
+// repository, with scopes from the workflow's permissions (API routes
+// that take repository tokens then accept it).
+func (c *ActionsApp) JobToken(token string) (*domain.Token, error) {
+	run, err := c.JobTokenRun(token)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	scopes := []domain.TokenScope{}
+	if hasPermission(run, "contents", "read") {
+		scopes = append(scopes, domain.ScopeReadRepository)
+	}
+	if hasPermission(run, "contents", "write") {
+		scopes = append(scopes, domain.ScopeWriteRepository)
+	}
+	if hasPermission(run, "statuses", "write") {
+		scopes = append(scopes, domain.ScopeWriteStatus)
+	}
+	repoId := run.RepositoryId
+	return &domain.Token{Name: "github-actions", Type: domain.TokenRepo, RepositoryId: &repoId, Active: true, Scopes: scopes}, nil
 }
 
 // --- runs ------------------------------------------------------------------
@@ -534,6 +650,7 @@ func (c *ActionsApp) FailStale() int {
 		run.Status, run.FinishedAt, run.TokenHash = domain.RunFailure, &now, ""
 		if err := c.Pers.UpdateRun(run, "status", "finished_at", "token_hash"); err == nil {
 			_ = c.Pers.AppendLog(run.Id, "\nThe runner stopped reporting: the run failed.\n")
+			c.closeStatuses(run)
 		}
 	}
 	return len(runs)
@@ -549,6 +666,7 @@ func (c *ActionsApp) Watch(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 			c.FailStale()
+			c.RunSchedules()
 		}
 	}
 }

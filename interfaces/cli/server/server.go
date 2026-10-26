@@ -260,8 +260,9 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Storage: deps.Storage, Locks: persistence.NewLFSLockPers(deps.Database.Db)}
 	deps.BrowseApp.LFS = deps.LFSApp
 	deps.ActionsApp = &application.ActionsApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewActionsPers(deps.Database.Db),
-		Repositories: deps.RepoApp, Groups: deps.GroupApp.GroupPers, GroupApp: deps.GroupApp, Admin: deps.AdminApp, Webhooks: deps.WebhookApp}
+		Repositories: deps.RepoApp, Groups: deps.GroupApp.GroupPers, GroupApp: deps.GroupApp, Admin: deps.AdminApp, Webhooks: deps.WebhookApp, Box: deps.TwoFactorApp.Box, Statuses: deps.StatusApp}
 	deps.WebhookApp.Actions = deps.ActionsApp
+	deps.TokenApp.JobToken = deps.ActionsApp.JobToken
 	deps.AuthApp.Actions = deps.ActionsApp
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)

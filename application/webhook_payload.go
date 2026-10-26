@@ -188,6 +188,8 @@ type Pusher struct {
 	// OnlyBranches, when set, are the only branches this push may change
 	// (maintainer edits on a fork).
 	OnlyBranches []string
+	// JobToken: an Actions job pushed (its pushes start no workflows).
+	JobToken bool
 }
 
 // LimitPush wraps next (nil: none) to refuse references outside
@@ -247,7 +249,7 @@ func (c *WebhookApp) Pushed(repo *domain.Repository, pusher Pusher, objects stor
 			c.emit(repo, "push", "", c.pushPayload(repo, pusher, objects, u))
 		}
 	}
-	if anyWants(hooks, "pull_request") {
+	if anyWants(hooks, "pull_request") || c.Actions != nil {
 		if refs, ok := objects.(storer.ReferenceStorer); ok {
 			c.synchronize(repo, pusher, refs, updates)
 		}

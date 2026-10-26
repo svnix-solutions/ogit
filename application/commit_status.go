@@ -118,6 +118,23 @@ func (c *StatusApp) Create(id, path *string, caller StatusCaller, sha string, in
 	if repo.IsArchived {
 		return nil, ErrGitArchived
 	}
+	creator := ""
+	if domain.IsPerson(caller.UserId) {
+		creator = caller.UserId
+	}
+	return c.post(repo, st, sha, in, creator)
+}
+
+// Post is a status from oGit itself (Actions jobs): no caller, no creator.
+func (c *StatusApp) Post(repo *domain.Repository, sha string, in StatusInput) (*domain.CommitStatus, error) {
+	st, err := c.Repositories.StorageConfig.GetStorer(repo.StorageKey)
+	if err != nil {
+		return nil, err
+	}
+	return c.post(repo, st, sha, in, "")
+}
+
+func (c *StatusApp) post(repo *domain.Repository, st storer.Storer, sha string, in StatusInput, creatorId string) (*domain.CommitStatus, error) {
 	status, err := validStatus(in)
 	if err != nil {
 		return nil, err
@@ -131,20 +148,18 @@ func (c *StatusApp) Create(id, path *string, caller StatusCaller, sha string, in
 		return nil, ErrCommitNotFound
 	}
 	status.RepositoryId, status.SHA = repo.Id, sha
-	if domain.IsPerson(caller.UserId) {
-		status.CreatorId = &caller.UserId
+	if creatorId != "" {
+		status.CreatorId = &creatorId
 	}
 	if err := c.Statuses.Create(status); err != nil {
 		return nil, err
 	}
-	sender := ""
 	if status.CreatorId != nil {
-		if u, err := c.Repositories.UserPers.GetById(caller.UserId); err == nil {
+		if u, err := c.Repositories.UserPers.GetById(creatorId); err == nil {
 			status.Creator = &u
 		}
-		sender = caller.UserId
 	}
-	c.Webhooks.StatusEvent(repo, st, commit, status, sender)
+	c.Webhooks.StatusEvent(repo, st, commit, status, creatorId)
 	if c.Failed != nil && (status.State == domain.StatusFailure || status.State == domain.StatusError) {
 		c.Failed(repo, st, sha, status)
 	}

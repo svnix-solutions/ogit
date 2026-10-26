@@ -23,6 +23,9 @@ type TokenApp struct {
 	// MustEnroll refuses the API to users who must set up 2FA first
 	// (TwoFactorApp.MustEnroll); nil: never.
 	MustEnroll func(userId string) (bool, error)
+	// JobToken turns an Actions job token into a repository token for its
+	// run (ActionsApp.JobToken); nil: none.
+	JobToken func(token string) (*domain.Token, error)
 }
 
 func NewTokenApp(config config.Config, logger zerolog.Logger, tokenPers domain.TokenPers) *TokenApp {
@@ -88,6 +91,12 @@ var ErrInvalidToken = errors.New("invalid token")
 // Authenticate returns the personal access token tokenStr (the plaintext
 // "ogit_..." value) if it can be used.
 func (c *TokenApp) Authenticate(tokenStr string) (*domain.Token, error) {
+	if IsJobToken(tokenStr) {
+		if c.JobToken == nil {
+			return nil, ErrInvalidToken
+		}
+		return c.JobToken(tokenStr)
+	}
 	token, err := c.TokenPers.GetByToken(HashToken(tokenStr))
 	if err != nil {
 		if !isNotFound(err) {

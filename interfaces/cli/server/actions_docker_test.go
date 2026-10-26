@@ -90,4 +90,27 @@ jobs:
 		_, body := srv.get(t, actionsAPI("owner/app")+"/runs/2", owner.session)
 		assert.Equal(t, "failure", body["status"])
 	})
+
+	t.Run("pull_request", func(t *testing.T) {
+		pushFiles(t, url, owner.git, "main", "pr ci", map[string]string{".github/workflows/ci.yml": `on: pull_request
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "pr $GITHUB_REF from $GITHUB_HEAD_REF into $GITHUB_BASE_REF secret=$SECRET"
+        shell: sh
+        env:
+          SECRET: ${{ secrets.DEPLOY }}
+`})
+		status, _ := srv.request(t, http.MethodPut, actionsAPI("owner/app")+"/secrets/DEPLOY", owner.session, map[string]any{"value": "hunter2"})
+		require.Equal(t, http.StatusOK, status)
+		pushFiles(t, url, owner.git, "topic", "work", map[string]string{"a.txt": "a\n"})
+		status, body := srv.post(t, pullsAPI("owner/app"), owner.session, map[string]any{"title": "Topic", "source": "topic"})
+		require.Equal(t, http.StatusOK, status, "%v", body)
+		result, logs := run(t, 3)
+		assert.Equal(t, "success", result, "%v", logs["log"])
+		log := logs["log"].(string)
+		assert.Contains(t, log, "pr refs/pull/1/merge from topic into main secret=***")
+		assert.NotContains(t, log, "hunter2")
+	})
 }

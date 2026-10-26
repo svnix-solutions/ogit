@@ -246,6 +246,7 @@ func (c *WebhookApp) emit(repo *domain.Repository, event, action string, payload
 	if c == nil {
 		return
 	}
+	c.Actions.Event(repo, event, action, payload)
 	hooks, err := c.Hooks.List(repo.Id)
 	if err != nil {
 		c.Logger.Error().Err(err).Str("component", "application.webhook").Msg("failed to list webhooks")
