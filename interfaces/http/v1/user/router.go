@@ -15,10 +15,13 @@ type Controller struct {
 	UserApp   *application.UserApp
 	TokenApp  *application.TokenApp
 	AuthApp   *application.AuthApp
+	TwoFactor *application.TwoFactorApp
 	Limits    *ratelimit.Guard
 }
 
 func SetupUserRouter(controller Controller) {
+	setupTwoFactorRoutes(controller)
+
 	fiberoapi.Get(controller.FiberOapi, "/profile", controller.GetProfile, fiberoapi.OpenAPIOptions{
 		Summary:     "Get user profile",
 		Description: "Retrieve the profile of the authenticated user",

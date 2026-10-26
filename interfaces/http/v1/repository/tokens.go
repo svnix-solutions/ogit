@@ -94,6 +94,9 @@ func (ctrl *Controller) CreateRepoToken(ctx *fiber.Ctx, req CreateRepoTokenReque
 	if err != nil {
 		return nil, apierror.Unauthenticated()
 	}
+	if err := ctrl.TwoFactor.RequireSudo(authCtx); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
 	scopes := make([]domain.TokenScope, 0, len(req.Scopes))
 	for _, s := range req.Scopes {
 		scopes = append(scopes, domain.TokenScope(s))

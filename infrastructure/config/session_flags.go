@@ -6,6 +6,21 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+func SecurityFlags(cfg *Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{
+			Name: "security.encryption_key",
+			Usage: "Key encrypting secrets stored in the database (authenticator app seeds), at least 32 bytes. " +
+				"Keep it: changing it turns off app-based two-factor authentication for everyone (recovery codes still work). Unset: no app-based 2FA.",
+			Destination: &cfg.Security.EncryptionKey,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("SECURITY_ENCRYPTION_KEY"),
+				altsrcyaml.YAML("security.encryption_key", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+	}
+}
+
 func SessionFlags(cfg *Config) []cli.Flag {
 	return []cli.Flag{
 		&cli.IntFlag{

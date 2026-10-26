@@ -11,6 +11,15 @@ import (
 // MinSessionSecretLength is the minimum HS256 key size (RFC 7518 §3.2).
 const MinSessionSecretLength = 32
 
+// ValidateEncryptionKey: security.encryption_key is optional (two-factor
+// authentication with an app needs it), but at least 32 bytes when set.
+func (c *Config) ValidateEncryptionKey() error {
+	if k := c.Security.EncryptionKey; k != "" && len(k) < MinSessionSecretLength {
+		return fmt.Errorf("security.encryption_key must be at least %d bytes, got %d", MinSessionSecretLength, len(k))
+	}
+	return nil
+}
+
 // EnsureSessionSecret validates the session secret. An unset secret is
 // replaced by a random one (with a warning, since sessions are then
 // invalidated on every restart); a secret shorter than

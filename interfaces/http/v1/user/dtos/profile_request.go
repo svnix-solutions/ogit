@@ -6,4 +6,6 @@ type ProfileResponse struct {
 	Email    string `json:"email"`
 	Avatar   string `json:"avatar"`
 	Role     string `json:"role"` // admin or user
+
+	TwoFactorEnabled bool `json:"two_factor_enabled"`
 }

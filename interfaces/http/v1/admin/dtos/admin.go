@@ -12,6 +12,8 @@ type UserResponse struct {
 	Active          bool       `json:"active"`
 	EmailVerifiedAt *time.Time `json:"email_verified_at"`
 	CreatedAt       time.Time  `json:"created_at"`
+
+	TwoFactorEnabled bool `json:"two_factor_enabled"`
 }
 
 type ListUsersRequest struct {

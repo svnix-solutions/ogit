@@ -41,4 +41,17 @@ func TestPromoteDemote(t *testing.T) {
 	assert.Error(t, run(cfg, "", "", domain.RoleAdmin, &out), "needs --email or --username")
 	assert.Error(t, run(cfg, "alice@example.com", "alice", domain.RoleAdmin, &out), "not both")
 	assert.ErrorContains(t, run(cfg, "nobody@example.com", "", domain.RoleAdmin, &out), "user not found")
+
+	// reset-2fa
+	require.NoError(t, db.Db.Create(&domain.UserTOTP{UserId: "u1", Secret: "sealed"}).Error)
+	require.NoError(t, db.Db.Create(&domain.RecoveryCode{Id: "c1", UserId: "u1", CodeHash: "h"}).Error)
+	out.Reset()
+	require.NoError(t, resetTwoFactor(cfg, "", "alice", &out))
+	assert.Equal(t, "two-factor authentication is off for alice (alice@example.com)\n", out.String())
+	var n int64
+	require.NoError(t, db.Db.Model(&domain.UserTOTP{}).Count(&n).Error)
+	assert.Zero(t, n)
+	require.NoError(t, db.Db.Model(&domain.RecoveryCode{}).Count(&n).Error)
+	assert.Zero(t, n)
+	assert.ErrorContains(t, resetTwoFactor(cfg, "", "nobody", &out), "user not found")
 }

@@ -10,6 +10,7 @@ type Config struct {
 	Logger        zerolog.Logger
 	CronScheduler cronscheduler.Config
 	SessionApp    application.SessionApp
+	TwoFactorApp  *application.TwoFactorApp // pending 2FA logins expire too
 }
 
 func (c *Config) SetupJobs() error {

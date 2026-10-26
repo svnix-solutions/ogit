@@ -40,4 +40,5 @@ type Deps struct {
 	MilestoneApp  *application.MilestoneApp
 	RepoTokenApp  *application.RepositoryTokenApp
 	ReleaseApp    *application.ReleaseApp
+	TwoFactorApp  *application.TwoFactorApp
 }

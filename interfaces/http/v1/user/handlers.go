@@ -34,12 +34,17 @@ func (ctrl *Controller) GetProfile(ctx *fiber.Ctx, input struct{}) (*dtos.Profil
 		}
 	}
 
+	twoFactor, err := ctrl.TwoFactor.Enabled(user.Id)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
 	return &dtos.ProfileResponse{
-		Id:       user.Id,
-		Username: user.Username,
-		Email:    user.Email,
-		Avatar:   user.AvatarUrl,
-		Role:     string(user.Role),
+		Id:               user.Id,
+		Username:         user.Username,
+		Email:            user.Email,
+		Avatar:           user.AvatarUrl,
+		Role:             string(user.Role),
+		TwoFactorEnabled: twoFactor,
 	}, nil
 }
 
@@ -56,6 +61,10 @@ func (ctrl *Controller) CreateToken(ctx *fiber.Ctx, req dtos.CreateTokenRequest)
 			Details: "Authentication required",
 			Type:    "AUTHENTICATION_REQUIRED",
 		}
+	}
+
+	if err := ctrl.TwoFactor.RequireSudo(authCtx); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
 	}
 
 	scopes := make([]domain.TokenScope, len(req.Scopes))

@@ -41,3 +41,7 @@ func (s *sessionPers) GetById(id string) (*domain.Session, error) {
 	err := s.db.Where("id = ?", id).First(&session).Error
 	return &session, err
 }
+
+func (s *sessionPers) SetSudoUntil(id string, until time.Time) error {
+	return s.db.Model(&domain.Session{}).Where("id = ?", id).Update("sudo_until", until).Error
+}

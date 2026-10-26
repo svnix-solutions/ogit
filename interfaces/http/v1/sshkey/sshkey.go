@@ -18,6 +18,7 @@ import (
 type Controller struct {
 	Logger    zerolog.Logger
 	SSHKeyApp *application.SSHKeyApp
+	TwoFactor *application.TwoFactorApp // sudo for new keys
 }
 
 func keyResponse(k *domain.SSHKey) dtos.SSHKeyResponse {
@@ -53,6 +54,9 @@ func (ctrl *Controller) AddUserKey(ctx *fiber.Ctx, req dtos.AddUserKeyRequest) (
 	auth, err := fiberoapi.GetAuthContext(ctx)
 	if err != nil {
 		return nil, apierror.Unauthenticated()
+	}
+	if err := ctrl.TwoFactor.RequireSudo(auth); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
 	}
 	key, err := ctrl.SSHKeyApp.AddUserKey(auth.UserID, req.Name, req.Key)
 	if err != nil {
@@ -96,6 +100,9 @@ func (ctrl *Controller) AddDeployKey(ctx *fiber.Ctx, req dtos.AddDeployKeyReques
 		readOnly = *req.ReadOnly
 	}
 	id, slug := repoid.Split(req.Identifier)
+	if err := ctrl.TwoFactor.RequireSudo(auth); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
 	key, err := ctrl.SSHKeyApp.AddDeployKey(id, slug, auth.UserID, req.Name, req.Key, readOnly)
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)

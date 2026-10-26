@@ -25,6 +25,29 @@ func SetupAuthRouter(controller Controller) {
 		Security:    "disabled",
 	})
 
+	fiberoapi.Post(controller.FiberOapi, "/login/2fa", controller.LoginTwoFactor, fiberoapi.OpenAPIOptions{
+		Summary:     "Complete a login with two-factor authentication",
+		Description: "When /auth/login answers two_factor_required, send its challenge with a code from the authenticator app or a recovery code. The challenge lasts 5 minutes and 5 attempts; wrong codes count as failed logins.",
+		OperationID: "auth.login2fa",
+		Tags:        []string{"Auth"},
+		Security:    "disabled",
+	})
+
+	fiberoapi.Post(controller.FiberOapi, "/session/2fa", controller.SessionTwoFactor, fiberoapi.OpenAPIOptions{
+		Summary:     "Complete a web UI login with two-factor authentication",
+		Description: "Like /auth/login/2fa, for /auth/session: the token goes into the session cookie.",
+		OperationID: "auth.session2fa",
+		Tags:        []string{"Auth"},
+		Security:    "disabled",
+	})
+
+	fiberoapi.Post(controller.FiberOapi, "/sudo", controller.Sudo, fiberoapi.OpenAPIOptions{
+		Summary:     "Confirm it's you",
+		Description: "Sensitive actions (two-factor changes, access tokens, SSH and deploy keys, repository tokens) need a session confirmed in the last 10 minutes; they answer 403 SUDO_REQUIRED otherwise. Signing in counts. Send code (with two-factor authentication) or password (without).",
+		OperationID: "auth.sudo",
+		Tags:        []string{"Auth"},
+	})
+
 	fiberoapi.Post(controller.FiberOapi, "/logout", controller.Logout, fiberoapi.OpenAPIOptions{
 		Summary:     "Logout user",
 		Description: "End the current session; its token stops working",

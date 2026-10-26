@@ -18,15 +18,16 @@ type Controller struct {
 	Logger    zerolog.Logger
 	FiberOapi *fiberoapi.OApiGroup
 	AdminApp  *application.AdminApp
+	TwoFactor *application.TwoFactorApp
 }
 
-func userResponse(u *domain.User) dtos.UserResponse {
+func userResponse(u *domain.User, twoFactor bool) dtos.UserResponse {
 	role := string(u.Role)
 	if role == "" {
 		role = string(domain.RoleUser)
 	}
 	return dtos.UserResponse{Id: u.Id, Username: u.Username, Email: u.Email, Role: role,
-		Active: u.Active, EmailVerifiedAt: u.EmailVerifiedAt, CreatedAt: u.CreatedAt}
+		Active: u.Active, EmailVerifiedAt: u.EmailVerifiedAt, CreatedAt: u.CreatedAt, TwoFactorEnabled: twoFactor}
 }
 
 func (ctrl *Controller) ListUsers(ctx *fiber.Ctx, req dtos.ListUsersRequest) (*dtos.ListUsersResponse, *fiberoapi.ErrorResponse) {
@@ -38,9 +39,17 @@ func (ctrl *Controller) ListUsers(ctx *fiber.Ctx, req dtos.ListUsersRequest) (*d
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
+	ids := make([]string, 0, len(users))
+	for _, u := range users {
+		ids = append(ids, u.Id)
+	}
+	twoFactor, err := ctrl.TwoFactor.EnabledUsers(ids)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
 	resp := &dtos.ListUsersResponse{Users: make([]dtos.UserResponse, 0, len(users)), Total: total}
 	for i := range users {
-		resp.Users = append(resp.Users, userResponse(&users[i]))
+		resp.Users = append(resp.Users, userResponse(&users[i], twoFactor[users[i].Id]))
 	}
 	return resp, nil
 }
@@ -54,7 +63,8 @@ func (ctrl *Controller) CreateUser(ctx *fiber.Ctx, req dtos.CreateUserRequest) (
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	resp := userResponse(user)
+	on, _ := ctrl.TwoFactor.Enabled(user.Id)
+	resp := userResponse(user, on)
 	return &resp, nil
 }
 
@@ -72,8 +82,20 @@ func (ctrl *Controller) UpdateUser(ctx *fiber.Ctx, req dtos.UpdateUserRequest) (
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	resp := userResponse(user)
+	on, _ := ctrl.TwoFactor.Enabled(user.Id)
+	resp := userResponse(user, on)
 	return &resp, nil
+}
+
+func (ctrl *Controller) ResetTwoFactor(ctx *fiber.Ctx, req dtos.UserRequest) (*dtos.MessageResponse, *fiberoapi.ErrorResponse) {
+	auth, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	if err := ctrl.AdminApp.ResetTwoFactor(auth, req.Username); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return &dtos.MessageResponse{Message: "two-factor authentication reset"}, nil
 }
 
 func (ctrl *Controller) DeleteUser(ctx *fiber.Ctx, req dtos.UserRequest) (*dtos.MessageResponse, *fiberoapi.ErrorResponse) {
@@ -163,6 +185,10 @@ func SetupAdminRouter(c Controller) {
 	fiberoapi.Patch(c.FiberOapi, "/users/:username", c.UpdateUser, fiberoapi.OpenAPIOptions{
 		Summary: "Update user", OperationID: "admin.users.update", Tags: tags,
 		Description: "Admins only. Set active (disabling ends all sessions immediately), email_verified: true, or role (admin/user). The last active admin cannot be demoted or disabled.",
+	})
+	fiberoapi.Post(c.FiberOapi, "/users/:username/reset-2fa", c.ResetTwoFactor, fiberoapi.OpenAPIOptions{
+		Summary: "Reset two-factor authentication", OperationID: "admin.users.reset_2fa", Tags: tags,
+		Description: "Admins only, sudo. Turns off the user's two-factor authentication (they lost their device and recovery codes); they are emailed and can set it up again. Audit-logged.",
 	})
 	fiberoapi.Delete(c.FiberOapi, "/users/:username", c.DeleteUser, fiberoapi.OpenAPIOptions{
 		Summary: "Delete user", OperationID: "admin.users.delete", Tags: tags,

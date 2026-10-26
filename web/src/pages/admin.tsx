@@ -43,6 +43,10 @@ function Users() {
     mutationFn: (v: { username: string; body: Record<string, unknown> }) => api("PATCH", `/admin/users/${encodeURIComponent(v.username)}`, v.body),
     onSettled: refresh,
   });
+  const resetTwoFactor = useMutation({
+    mutationFn: (username: string) => api("POST", `/admin/users/${encodeURIComponent(username)}/reset-2fa`),
+    onSettled: refresh,
+  });
   const [deleting, setDeleting] = useState<string | null>(null);
   const del = useMutation({
     mutationFn: (username: string) => api("DELETE", `/admin/users/${encodeURIComponent(username)}`),
@@ -80,12 +84,25 @@ function Users() {
                   {u.role === "admin" && <Badge>admin</Badge>}
                   {!u.active && <Badge>disabled</Badge>}
                   {!u.email_verified_at && <Badge>unverified</Badge>}
+                  {u.two_factor_enabled && <Badge>2FA</Badge>}
                 </td>
                 <td className="text-xs text-muted-foreground">{formatDate(u.created_at)}</td>
                 <td className="space-x-1 py-2 text-right whitespace-nowrap">
                   {!u.email_verified_at && (
                     <Button size="sm" variant="ghost" onClick={() => update.mutate({ username: u.username, body: { email_verified: true } })}>
                       Verify
+                    </Button>
+                  )}
+                  {u.two_factor_enabled && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        window.confirm(`Turn off two-factor authentication for ${u.username}? They'll be emailed and can set it up again.`) &&
+                        resetTwoFactor.mutate(u.username)
+                      }
+                    >
+                      Reset 2FA
                     </Button>
                   )}
                   <Button size="sm" variant="ghost" onClick={() => update.mutate({ username: u.username, body: { active: !u.active } })}>
@@ -104,7 +121,7 @@ function Users() {
         </table>
       </div>
       {users.data && <Pager page={page} perPage={perPage} count={users.data.users.length} total={users.data.total} onPage={setPage} />}
-      <ErrorText error={update.error} />
+      <ErrorText error={update.error ?? resetTwoFactor.error} />
       {deleting && (
         <div className="space-y-2 rounded-md border border-destructive/40 p-3">
           <p className="text-sm">Delete {deleting} and their sessions, tokens and memberships?</p>

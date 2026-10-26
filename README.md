@@ -7,6 +7,7 @@ storage (local filesystem or any S3-compatible object store).
 
 - **Git Smart HTTP**: clone, fetch and push with any git client
 - **Users and sessions**: registration and login with JWT sessions, plus a configurable registration policy
+- **Two-factor authentication**: authenticator apps (TOTP) with recovery codes, and re-confirmation before sensitive actions
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
@@ -433,6 +434,7 @@ directly, like `migration`:
 ```bash
 ./ogit admin promote -c config.yaml --email you@example.com   # or --username
 ./ogit admin demote  -c config.yaml --username someone
+./ogit admin reset-2fa -c config.yaml --username someone   # lost device and recovery codes
 # Docker: docker exec <container> ./app admin promote -c /config/config.yaml --email you@example.com
 ```
 
@@ -444,6 +446,7 @@ Admins use `/api/v1/admin` (`/documentation` lists the details):
 | `POST /api/v1/admin/users` | create a verified account with an initial password (works when registration is off) |
 | `PATCH /api/v1/admin/users/<username>` | `{"active": false}` disables the account and ends its sessions immediately; also `"email_verified": true`, `"role": "admin"` or `"user"` |
 | `DELETE /api/v1/admin/users/<username>` | delete a user and their sessions, tokens and memberships |
+| `POST /api/v1/admin/users/<username>/reset-2fa` | turn off a user's two-factor authentication (they're emailed and can set it up again) |
 | `GET /api/v1/admin/repositories` | list every repository |
 | `POST /api/v1/admin/repositories/<owner>%2F<slug>/owner` | make a user owner, e.g. when a repo's owners are gone |
 | `POST /api/v1/admin/repositories/<owner>%2F<slug>/transfer` | `{"namespace": "..."}` moves it to any user's or group's namespace |
@@ -509,6 +512,21 @@ Behind a reverse proxy, list it in `http.trusted_proxies`: otherwise every
 request seems to come from the proxy, and they all share one budget.
 `X-Forwarded-For` (and `X-Forwarded-Proto`) are only believed from those
 addresses, read from the right, so a client can't choose its own address.
+
+### Two-factor authentication
+
+Users turn it on in their settings (or `POST /api/v1/user/2fa/totp`, then
+`/api/v1/user/2fa/totp/confirm` with a first code) with any authenticator app.
+They get 10 single-use recovery codes, shown once. The server needs
+`security.encryption_key` (at least 32 bytes; it encrypts the app secrets): keep
+it, since changing it turns app codes off for everyone (recovery codes still
+work).
+
+- Signing in with 2FA: `POST /api/v1/auth/login` answers `{"two_factor_required": true, "challenge": "…"}`. Send `POST /api/v1/auth/login/2fa {"challenge": "…", "code": "123456"}` (or a recovery code) within 5 minutes; 5 wrong codes end the attempt, and wrong codes count as failed logins. The web UI does the same with `/auth/session` and `/auth/session/2fa`.
+- **Sudo mode:** turning 2FA off, new recovery codes, new access tokens, SSH and deploy keys, repository tokens, and resetting someone's 2FA need a session confirmed in the last 10 minutes. Otherwise they answer 403 `SUDO_REQUIRED`. Signing in counts; `POST /api/v1/auth/sudo` confirms again with `{"code": …}` (or `{"password": …}` without 2FA). The web UI asks automatically.
+- Access tokens and SSH keys keep working for git and CI without codes.
+- Users are emailed (when SMTP is set) when 2FA is turned on or off, or reset by an admin.
+- Lost device and recovery codes: an admin resets it (`POST /api/v1/admin/users/<username>/reset-2fa`, or `ogit admin reset-2fa`).
 
 ### Email verification
 

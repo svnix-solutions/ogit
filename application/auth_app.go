@@ -57,6 +57,9 @@ type AuthApp struct {
 	Mailer           mail.Sender
 	VerificationPers domain.EmailVerificationPers
 
+	// TwoFactor asks accounts that have it for a second factor at login.
+	TwoFactor *TwoFactorApp
+
 	// ForkEdits returns the branches of a fork a user may push to as a
 	// maintainer of pull requests from it (PullRequestApp.EditableBranches).
 	ForkEdits func(fork *domain.Repository, userId string) []string
@@ -105,22 +108,56 @@ func (c *AuthApp) Authenticate(email, password string, ctx *fiber.Ctx) (*dtos.Lo
 		return nil, ErrEmailNotVerified
 	}
 
+	if c.TwoFactor != nil {
+		on, err := c.TwoFactor.Enabled(user.Id)
+		if err != nil {
+			return nil, err
+		}
+		if on {
+			challenge, err := c.TwoFactor.StartLogin(user, ctx.Get("User-Agent"), ctx.IP())
+			if err != nil {
+				return nil, err
+			}
+			return &dtos.LoginResponse{TwoFactorRequired: true, Challenge: challenge}, nil
+		}
+	}
+	return c.newSession(user.Id, ctx.Get("User-Agent"), ctx.IP())
+}
+
+// CompleteTwoFactorLogin finishes a login with its second factor.
+func (c *AuthApp) CompleteTwoFactorLogin(challenge, code string) (*dtos.LoginResponse, error) {
+	if c.TwoFactor == nil {
+		return nil, ErrChallengeExpired
+	}
+	user, ch, err := c.TwoFactor.CompleteLogin(challenge, code)
+	if err != nil {
+		return nil, err
+	}
+	return c.newSession(user.Id, ch.UserAgent, ch.IpAddress)
+}
+
+// newSession creates a session and its token. A new session starts in
+// sudo mode (the password, and code, were just checked).
+func (c *AuthApp) newSession(userId, userAgent, ip string) (*dtos.LoginResponse, error) {
+	logger := c.Logger.With().Str("component", "application.auth.authenticate").Logger()
+	sudo := time.Now().Add(SudoWindow)
 	session := &domain.Session{
-		UserId:    user.Id,
-		UserAgent: ctx.Get("User-Agent"),
-		IpAddress: ctx.IP(),
+		UserId:    userId,
+		UserAgent: userAgent,
+		IpAddress: ip,
 		ExpiresAt: time.Now().Add(time.Minute * time.Duration(c.Config.Session.ExpirationMinutes)),
+		SudoUntil: &sudo,
 	}
 
-	err = c.SessionApp.Create(session)
+	err := c.SessionApp.Create(session)
 	if err != nil {
-		logger.Error().Err(err).Str("user_id", user.Id).Msg("failed to create session")
+		logger.Error().Err(err).Str("user_id", userId).Msg("failed to create session")
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
-	accessToken, err := tokenutil.CreateAccessToken(user.Id, session.Id, c.Config)
+	accessToken, err := tokenutil.CreateAccessToken(userId, session.Id, c.Config)
 	if err != nil {
-		logger.Error().Err(err).Str("user_id", user.Id).Str("session_id", session.Id).Msg("failed to create access token")
+		logger.Error().Err(err).Str("user_id", userId).Str("session_id", session.Id).Msg("failed to create access token")
 		return nil, fmt.Errorf("failed to create access token: %w", err)
 	}
 

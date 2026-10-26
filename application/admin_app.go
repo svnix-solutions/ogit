@@ -2,6 +2,7 @@ package application
 
 import (
 	"errors"
+	fiberoapi "github.com/labbs/fiber-oapi"
 	"strings"
 	"time"
 
@@ -64,6 +65,7 @@ type AdminApp struct {
 	RepositoryMemberPers domain.RepositoryMemberPers
 	GroupPers            domain.GroupPers
 	Storage              storage.Config
+	TwoFactor            *TwoFactorApp
 }
 
 // UserUpdate holds the changes for UpdateUser; nil fields are left alone.
@@ -71,6 +73,26 @@ type UserUpdate struct {
 	Active        *bool
 	EmailVerified *bool // only true is meaningful: mark verified
 	Role          *domain.Role
+}
+
+// ResetTwoFactor turns off username's two-factor authentication, for users
+// who lost their device and recovery codes. Needs the admin's sudo.
+func (c *AdminApp) ResetTwoFactor(auth *fiberoapi.AuthContext, username string) error {
+	if err := c.RequireAdmin(auth.UserID); err != nil {
+		return err
+	}
+	if err := c.TwoFactor.RequireSudo(auth); err != nil {
+		return err
+	}
+	user, err := c.userByUsername(username)
+	if err != nil {
+		return err
+	}
+	if err := c.TwoFactor.Reset(user.Id); err != nil {
+		return err
+	}
+	c.audit(auth.UserID, "user.reset_2fa").Str("user_id", user.Id).Msg("two-factor authentication reset")
+	return nil
 }
 
 // RequireAdmin returns ErrForbidden unless actorId is an active admin.
