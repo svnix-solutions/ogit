@@ -28,9 +28,43 @@ export function SettingsPage() {
         <ChangePassword />
       </Section>
       <TwoFactor />
+      <NotificationEmails />
       <Tokens />
       <SSHKeys />
     </div>
+  );
+}
+
+const emailLevels = [
+  { value: "participating", label: "Threads I take part in", hint: "Mentions, assignments, review requests, your own issues and pull requests, and threads you commented on." },
+  { value: "all", label: "Also activity on repositories I watch", hint: "New issues, pull requests and releases on watched repositories too." },
+  { value: "none", label: "No emails", hint: "Notifications stay in your inbox." },
+];
+
+function NotificationEmails() {
+  const qc = useQueryClient();
+  const settings = useQuery({ queryKey: ["notification-settings"], queryFn: () => api<{ email: string }>("GET", "/notifications/settings") });
+  const set = useMutation({
+    mutationFn: (email: string) => api<{ email: string }>("PUT", "/notifications/settings", { email }),
+    onSuccess: (r) => qc.setQueryData(["notification-settings"], r),
+  });
+  return (
+    <Section title="Notification emails" description="Notifications always reach your inbox; choose which ones are emailed too. What you get for each repository depends on how you watch it.">
+      <ErrorText error={settings.error ?? set.error} />
+      {settings.data && (
+        <div className="space-y-2 text-sm" role="radiogroup" aria-label="Notification emails">
+          {emailLevels.map((l) => (
+            <label key={l.value} className="flex items-start gap-2">
+              <input type="radio" name="email-level" className="mt-1" checked={settings.data.email === l.value} disabled={set.isPending} onChange={() => set.mutate(l.value)} />
+              <span>
+                {l.label}
+                <span className="block text-xs text-muted-foreground">{l.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+    </Section>
   );
 }
 

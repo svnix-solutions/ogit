@@ -1,7 +1,8 @@
-import { Compass, GitBranch, LogOut, Plus, Settings, Shield, Users } from "lucide-react";
+import { Bell, Compass, GitBranch, LogOut, Plus, Settings, Shield, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { useLogout, useProfile } from "@/lib/auth";
+import { useUnreadCount } from "@/lib/notifications";
 import { useInstance } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { SudoDialog } from "./sudo-dialog";
@@ -17,6 +18,22 @@ function NavItem({ to, icon: Icon, label }: { to: string; icon: typeof Compass; 
       <Icon className="h-4 w-4" />
       <span className="hidden sm:inline">{label}</span>
     </NavLink>
+  );
+}
+
+// NotificationBell links to the inbox, with the unread count.
+function NotificationBell() {
+  const count = useUnreadCount(true);
+  const n = count.data ?? 0;
+  return (
+    <ButtonLink to="/notifications" variant="ghost" size="icon" className="relative" aria-label={n ? `Notifications (${n} unread)` : "Notifications"} title="Notifications">
+      <Bell className="h-4 w-4" />
+      {n > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground">
+          {n > 99 ? "99+" : n}
+        </span>
+      )}
+    </ButtonLink>
   );
 }
 
@@ -67,6 +84,7 @@ export function Layout() {
                 <ButtonLink to="/new" variant="ghost" size="icon" aria-label="New repository" title="New repository">
                   <Plus className="h-4 w-4" />
                 </ButtonLink>
+                <NotificationBell />
                 {profile.role === "admin" && <NavItem to="/admin" icon={Shield} label="Admin" />}
                 <NavItem to="/settings" icon={Settings} label={profile.username} />
                 <Button variant="ghost" size="icon" aria-label="Sign out" title="Sign out" onClick={() => logout.mutate(undefined, { onSettled: () => navigate("/login") })}>

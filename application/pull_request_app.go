@@ -249,9 +249,7 @@ func (c *PullRequestApp) Create(id, path *string, actorId string, in NewPullRequ
 	opened := *pr
 	opened.HeadCommit, opened.BaseCommit = sourceTip.Hash.String(), targetTip.Hash.String()
 	c.Webhooks.PullRequestEvent(&PullRequestView{PullRequest: &opened, Repository: repo, SourceRepository: fork}, "opened", actorId, PullRequestPayload{})
-	if len(Mentions(in.Body)) > 0 {
-		c.notify(&PullRequestView{PullRequest: pr, Repository: repo}, actorId, "opened", in.Body)
-	}
+	c.notify(&PullRequestView{PullRequest: pr, Repository: repo}, actorId, "opened", in.Body) // watchers too, mentions or not
 	return pr, nil
 }
 

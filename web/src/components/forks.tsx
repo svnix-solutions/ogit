@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { api, atLeast, type Repository, type RepositorySummary } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
 import { useMyGroups } from "@/lib/queries";
+import { watchLevels, type WatchLevel } from "@/lib/notifications";
 
 // Forking: the Fork button, "forked from", and syncing a fork.
 
@@ -34,6 +35,39 @@ export function ForkedFrom({ repo }: { repo: Repository }) {
         "a repository you can't see"
       )}
     </p>
+  );
+}
+
+// WatchSelect sets the caller's watch level on a repository.
+export function WatchSelect({ repo }: { repo: Repository }) {
+  const profile = useProfile();
+  const qc = useQueryClient();
+  const key = ["watch", repo.id];
+  const watch = useQuery({
+    queryKey: key,
+    queryFn: async () => (await api<{ level: WatchLevel }>("GET", `/repository/${repo.id}/watch`)).level,
+    enabled: !!profile.data,
+  });
+  const set = useMutation({
+    mutationFn: (level: WatchLevel) => api<{ level: WatchLevel }>("PUT", `/repository/${repo.id}/watch`, { level }),
+    onSuccess: (r) => qc.setQueryData(key, r.level),
+  });
+  if (!profile.data || !watch.data) return null;
+  return (
+    <Select
+      aria-label="Watch"
+      className="h-8 text-xs"
+      value={watch.data}
+      title={watchLevels.find((w) => w.level === watch.data)?.hint}
+      disabled={set.isPending}
+      onChange={(e) => set.mutate(e.target.value as WatchLevel)}
+    >
+      {watchLevels.map((w) => (
+        <option key={w.level} value={w.level} title={w.hint}>
+          {w.level === "participating" ? "Watch: participating" : w.level === "ignore" ? "Ignoring" : `Watching: ${w.label.toLowerCase()}`}
+        </option>
+      ))}
+    </Select>
   );
 }
 

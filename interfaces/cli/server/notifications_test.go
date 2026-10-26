@@ -141,6 +141,12 @@ func TestNotifications(t *testing.T) {
 		status, _ = srv.post(t, issuesAPI("owner/app"), f.owner.session, map[string]any{"title": "Second", "body": "@maint please look"})
 		require.Equal(t, http.StatusOK, status)
 		assert.Equal(t, "subscribed", srv.inbox(t, f.dev, "")["Second"]["reason"], "all activity")
+		status, _ = srv.post(t, issuesAPI("owner/app"), f.reporter.session, map[string]any{"title": "No mention", "body": "Just a report"})
+		require.Equal(t, http.StatusOK, status)
+		assert.NotNil(t, srv.inbox(t, f.dev, "")["No mention"], "new issues reach watchers without any mention")
+		_, quiet := f.open(t, f.owner, "quiet", map[string]string{"q.txt": "q\n"}, map[string]any{"title": "Quiet PR", "body": "no mention"})
+		require.NotNil(t, quiet["number"])
+		assert.NotNil(t, srv.inbox(t, f.dev, "")["Quiet PR"], "and new pull requests")
 		assert.Nil(t, srv.inbox(t, f.reporter, "")["Second"], "releases only")
 		assert.Nil(t, srv.inbox(t, f.maint, "")["Second"], "ignore: not even mentions")
 

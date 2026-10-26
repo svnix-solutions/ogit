@@ -18,7 +18,7 @@ var reservedNames = map[string]bool{
 	"admin": true, "api": true, "api-spec.json": true, "api-spec.yaml": true,
 	"assets": true, "dashboard": true, "documentation": true, "explore": true,
 	"favicon.svg": true, "groups": true, "help": true, "login": true,
-	"logout": true, "new": true, "register": true, "settings": true,
+	"logout": true, "new": true, "notifications": true, "register": true, "settings": true,
 	"users": true, "verify": true,
 }
 
