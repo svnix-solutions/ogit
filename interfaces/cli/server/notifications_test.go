@@ -79,7 +79,7 @@ func TestNotifications(t *testing.T) {
 		assert.Empty(t, srv.inbox(t, f.outer, ""), "a mention can't leak a private repository")
 		assert.EqualValues(t, 1, srv.unread(t, f.maint))
 
-		assert.Eventually(t, func() bool { return mailed("maint", "reporter opened issue") }, 2*time.Second, 20*time.Millisecond, "participating: emailed")
+		assert.Eventually(t, func() bool { return mailed("maint", "reporter opened issue") }, asyncWait, 20*time.Millisecond, "participating: emailed")
 		time.Sleep(100 * time.Millisecond)
 		assert.False(t, mailed("owner", "Crash on start"), "watched activity isn't emailed by default")
 	})
@@ -204,7 +204,7 @@ func TestNotifications(t *testing.T) {
 		require.Equal(t, http.StatusOK, status)
 		status, _ = srv.post(t, issuesAPI("owner/app"), f.dev.session, map[string]any{"title": "Third", "body": "@maint"})
 		require.Equal(t, http.StatusOK, status)
-		assert.Eventually(t, func() bool { return mailed("owner", "Third") }, 2*time.Second, 20*time.Millisecond, "email: all, watched activity too")
+		assert.Eventually(t, func() bool { return mailed("owner", "Third") }, asyncWait, 20*time.Millisecond, "email: all, watched activity too")
 		time.Sleep(100 * time.Millisecond)
 		assert.False(t, mailed("maint", "Third"), "email: none")
 		assert.NotNil(t, srv.inbox(t, f.maint, "")["Third"], "still in the inbox")

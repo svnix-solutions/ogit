@@ -52,7 +52,7 @@ func TestRequestedReviewers(t *testing.T) {
 				}
 			}
 			return false
-		}, 2*time.Second, 20*time.Millisecond, "requested reviewers are emailed")
+		}, asyncWait, 20*time.Millisecond, "requested reviewers are emailed")
 	})
 
 	t.Run("who", func(t *testing.T) {

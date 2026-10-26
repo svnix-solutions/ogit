@@ -155,6 +155,7 @@ Repositories are addressed by **path, `<namespace>/<slug>`** (`application/names
 - Pinned test deps: gofakes3 v1.0.0, testcontainers-go v0.40.0 (and its redis module), grpc-gateway/v2 v2.16.0, go-redis v9.22.0 (v9.23 needs Go 1.26). Newer ones (or `go mod tidy` resolving @latest) can raise the `go` directive and upgrade the AWS SDK. Check `go.mod` after any `go get`/`tidy`.
 - Speed: `main_test.go` sets `application.PasswordCost` to `bcrypt.MinCost` (at the default, every hash takes about 0.5s under `-race`). Keep any new password hashing on `PasswordCost`. Only the three heaviest tests (`TestFetchNegotiation`, `TestS3RequestBudget`, `TestLastOwnerConcurrentDemotion`) call `t.Parallel()`. Before adding more, check for process globals: goose's are why `RunMigration` takes a mutex.
 - For security fixes, check that reverting the fix makes the test fail on an assertion, not on `log.Fatal` or a build error.
+- Timeouts in tests are for hangs, not speed: real git and ssh commands get `gitTimeout` (3 minutes; a 24 MB SSH clone from fake S3 once took over 30s on CI) and waits for goroutines (emails) use `asyncWait` (10s) in `assert.Eventually`. Use them for new tests rather than tight literals. CI steps that run the e2e package set `-timeout` explicitly (the package outgrew go test's default 10 minutes).
 
 ## Docker
 

@@ -180,14 +180,14 @@ func TestPullRequestEmails(t *testing.T) {
 
 	_, pr := f.open(t, f.dev, "feature", map[string]string{"a.txt": "a\n"}, map[string]any{"body": "cc @maint and @outer."})
 	n := pr["number"]
-	assert.Eventually(t, got("maint", "dev opened pull request #1"), 2*time.Second, 20*time.Millisecond, "mentioned")
+	assert.Eventually(t, got("maint", "dev opened pull request #1"), asyncWait, 20*time.Millisecond, "mentioned")
 	status, _ := f.srv.post(t, pullsAPI("owner/app", n, "comments"), f.reporter.session, map[string]any{"body": "Nice work"})
 	require.Equal(t, http.StatusOK, status)
-	assert.Eventually(t, got("dev", "reporter commented"), 2*time.Second, 20*time.Millisecond, "the author")
-	assert.Eventually(t, got("dev", "https://git.example.com/owner/app/pulls/1"), 2*time.Second, 20*time.Millisecond, "with a link")
+	assert.Eventually(t, got("dev", "reporter commented"), asyncWait, 20*time.Millisecond, "the author")
+	assert.Eventually(t, got("dev", "https://git.example.com/owner/app/pulls/1"), asyncWait, 20*time.Millisecond, "with a link")
 	status, _ = f.srv.post(t, pullsAPI("owner/app", n, "merge"), f.maint.session, map[string]any{"method": "squash"})
 	require.Equal(t, http.StatusOK, status)
-	assert.Eventually(t, got("reporter", "maint merged"), 2*time.Second, 20*time.Millisecond, "commenters")
+	assert.Eventually(t, got("reporter", "maint merged"), asyncWait, 20*time.Millisecond, "commenters")
 
 	time.Sleep(100 * time.Millisecond)
 	assert.Empty(t, rec.Messages("outer@example.com"), "can't read the private repository")
