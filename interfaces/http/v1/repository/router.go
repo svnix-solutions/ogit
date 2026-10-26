@@ -17,6 +17,7 @@ type Controller struct {
 	RepoTokens    *application.RepositoryTokenApp
 	WebhookApp    *application.WebhookApp
 	ProtectionApp *application.ProtectionApp
+	TwoFactor     *application.TwoFactorApp // sudo for repository tokens
 }
 
 func SetupRepositoryRouter(controller Controller) {

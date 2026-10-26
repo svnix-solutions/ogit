@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { useLogout, useProfile } from "@/lib/auth";
 import { useInstance } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { SudoDialog } from "./sudo-dialog";
 import { ThemeToggle } from "./theme";
 import { Button, ButtonLink } from "./ui/button";
 
@@ -64,6 +65,7 @@ export function Layout() {
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
         <Outlet />
       </main>
+      {profile && <SudoDialog />}
     </div>
   );
 }

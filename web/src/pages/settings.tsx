@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, type SSHKey, type Token } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
 import { formatDate } from "@/lib/queries";
+import { TwoFactor } from "./settings-2fa";
 
 export function SettingsPage() {
   const { data: profile } = useProfile();
@@ -26,6 +27,7 @@ export function SettingsPage() {
         </dl>
         <ChangePassword />
       </Section>
+      <TwoFactor />
       <Tokens />
       <SSHKeys />
     </div>

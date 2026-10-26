@@ -190,6 +190,7 @@ func startTestServer(t *testing.T, opts ...func(*config.Config)) *testServer {
 	cfg.Storage.Type = "local"
 	cfg.Storage.Local.Path = filepath.Join(dir, "repositories")
 	cfg.Session.SecretKey = "test-secret-at-least-32-bytes-long"
+	cfg.Security.EncryptionKey = "test-encryption-key-at-least-32-bytes"
 	cfg.Session.ExpirationMinutes = 60
 	cfg.Session.Issuer = "ogit-test"
 	cfg.Registration.Enabled = true

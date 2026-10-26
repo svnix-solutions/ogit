@@ -21,10 +21,24 @@ export function useProfile() {
   });
 }
 
+// A login answers two_factor_required with a challenge when the account has
+// two-factor authentication; useLoginCode then completes it.
+export type LoginResult = { two_factor_required?: boolean; challenge?: string };
+
 export function useLogin() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { email: string; password: string }) => api("POST", "/auth/session", v),
+    mutationFn: (v: { email: string; password: string }) => api<LoginResult>("POST", "/auth/session", v),
+    onSuccess: (r) => {
+      if (!r?.two_factor_required) qc.invalidateQueries({ queryKey: profileKey });
+    },
+  });
+}
+
+export function useLoginCode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { challenge: string; code: string }) => api("POST", "/auth/session/2fa", v),
     onSuccess: () => qc.invalidateQueries({ queryKey: profileKey }),
   });
 }

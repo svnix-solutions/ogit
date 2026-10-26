@@ -25,6 +25,13 @@ session:
   expiration_minutes: 43200   # 30 days
   issuer: ogit
 
+security:
+  # Encrypts secrets stored in the database (authenticator app seeds for
+  # two-factor authentication), at least 32 bytes (`openssl rand -hex 32`).
+  # Keep it: changing it turns off app-based 2FA for everyone (recovery codes
+  # still work). Unset: users can't add an authenticator app.
+  encryption_key: ""
+
 registration:
   enabled: true
   domain_whitelist: []        # e.g. ["example.com"]; empty allows any domain

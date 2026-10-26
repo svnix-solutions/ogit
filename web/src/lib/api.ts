@@ -1,3 +1,5 @@
+import { confirmSudo } from "./sudo";
+
 // Client for the oGit API. The session lives in an HttpOnly cookie that
 // scripts can't read; writes echo the ogit_csrf cookie in X-CSRF-Token
 // (see interfaces/http/websession).
@@ -34,6 +36,18 @@ export function apiError(status: number, statusText: string, data: unknown): Api
 }
 
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+  try {
+    return await request<T>(method, path, body);
+  } catch (e) {
+    // Sensitive actions may ask to confirm it's you first; then retry once.
+    if (e instanceof ApiError && e.type === "SUDO_REQUIRED" && path !== "/auth/sudo" && (await confirmSudo())) {
+      return request<T>(method, path, body);
+    }
+    throw e;
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET" && method !== "HEAD") {
@@ -69,7 +83,7 @@ export function isUnauthenticated(err: unknown): boolean {
   );
 }
 
-export type Profile = { id: string; username: string; email: string; avatar: string; role: "admin" | "user" };
+export type Profile = { id: string; username: string; email: string; avatar: string; role: "admin" | "user"; two_factor_enabled?: boolean };
 export type RepositorySummary = {
   id: string;
   namespace: string;
@@ -132,4 +146,5 @@ export type AdminUser = {
   active: boolean;
   email_verified_at: string | null;
   created_at: string;
+  two_factor_enabled?: boolean;
 };

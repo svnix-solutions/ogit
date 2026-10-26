@@ -1,8 +1,6 @@
 package auth
 
 import (
-	"time"
-
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/interfaces/http/v1/auth/dtos"
@@ -15,11 +13,11 @@ func (ctrl Controller) CreateSession(ctx *fiber.Ctx, req dtos.LoginRequest) (*dt
 	if errResp != nil {
 		return nil, errResp
 	}
-	expires := time.Now().Add(time.Duration(ctrl.Config.Session.ExpirationMinutes) * time.Minute)
-	if err := websession.Set(ctx, resp.Token, expires, websession.Secure(ctx, ctrl.Config.Server.PublicURL)); err != nil {
-		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusInternalServerError, Details: "internal error", Type: "INTERNAL_ERROR"}
+	if resp.TwoFactorRequired {
+		// No cookie yet: the code goes to /auth/session/2fa.
+		return &dtos.SessionResponse{TwoFactorRequired: true, Challenge: resp.Challenge}, nil
 	}
-	return &dtos.SessionResponse{ExpiresAt: expires}, nil
+	return ctrl.setSession(ctx, resp.Token)
 }
 
 // DeleteSession logs out and deletes the cookies.

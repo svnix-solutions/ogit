@@ -35,6 +35,8 @@ const (
 var public = map[string]bool{
 	"/api/v1/auth/session":       true,
 	"/api/v1/auth/login":         true,
+	"/api/v1/auth/login/2fa":     true,
+	"/api/v1/auth/session/2fa":   true,
 	"/api/v1/auth/register":      true,
 	"/api/v1/auth/verify":        true,
 	"/api/v1/auth/verify/resend": true,

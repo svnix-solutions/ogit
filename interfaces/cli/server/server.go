@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/labbs/ogit/infrastructure/helpers/secretbox"
 	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"net"
 	"strconv"
@@ -49,6 +50,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.LoggerFlags(cfg)...)
 	list = append(list, config.DatabaseFlags(cfg)...)
 	list = append(list, config.SessionFlags(cfg)...)
+	list = append(list, config.SecurityFlags(cfg)...)
 	list = append(list, config.RegistrationFlags(cfg)...)
 	list = append(list, config.StorageFlags(cfg)...)
 	list = append(list, config.SMTPFlags(cfg)...)
@@ -73,6 +75,7 @@ func runServer(cfg config.Config) error {
 		Logger:        deps.Logger,
 		CronScheduler: deps.CronScheduler,
 		SessionApp:    *deps.SessionApp,
+		TwoFactorApp:  deps.TwoFactorApp,
 	}
 
 	err = configJobs.SetupJobs()
@@ -120,6 +123,13 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		logger.Error().Err(err).Str("event", "http.runserver.config.session_secret").Msg("Invalid session configuration")
 		return deps, err
 	}
+	if err = cfg.ValidateEncryptionKey(); err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.encryption_key").Msg("Invalid security configuration")
+		return deps, err
+	}
+	if cfg.Security.EncryptionKey == "" {
+		logger.Warn().Str("event", "config.security.no_encryption_key").Msg("security.encryption_key is not set: two-factor authentication with an authenticator app is unavailable")
+	}
 	if err = cfg.ValidateEmailVerification(); err != nil {
 		logger.Error().Err(err).Str("event", "http.runserver.config.email_verification").Msg("Invalid email verification configuration")
 		return deps, err
@@ -160,6 +170,14 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 
 	deps.UserApp = application.NewUserApp(deps.Config, deps.Logger, userPers, groupPers)
 	deps.SessionApp = application.NewSessionApp(deps.Config, deps.Logger, sessionPers, deps.UserApp)
+	box, err := secretbox.New(deps.Config.Security.EncryptionKey)
+	if err != nil {
+		return deps, err
+	}
+	deps.TwoFactorApp = &application.TwoFactorApp{
+		Config: deps.Config, Logger: deps.Logger, Users: userPers, Sessions: sessionPers,
+		Pers: persistence.NewTwoFactorPers(deps.Database.Db), Box: box, Mailer: deps.Mailer,
+	}
 	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.BrowseApp = &application.BrowseApp{Repositories: deps.RepoApp, Storage: deps.Storage}
 	deps.PullApp = &application.PullRequestApp{
@@ -210,6 +228,8 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp,
 		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))
 	deps.AuthApp.ForkEdits = deps.PullApp.EditableBranches
+	deps.AuthApp.TwoFactor = deps.TwoFactorApp
+	deps.AdminApp.TwoFactor = deps.TwoFactorApp
 	deps.RepoTokenApp = &application.RepositoryTokenApp{Repositories: deps.RepoApp, Tokens: deps.TokenApp}
 	deps.ReleaseApp = &application.ReleaseApp{
 		Logger: deps.Logger, Repositories: deps.RepoApp, Releases: persistence.NewReleasePers(deps.Database.Db),

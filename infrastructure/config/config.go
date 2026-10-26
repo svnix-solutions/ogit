@@ -29,6 +29,12 @@ type Config struct {
 		Timeout      time.Duration
 	}
 
+	// Security: EncryptionKey encrypts secrets stored in the database
+	// (helpers/secretbox).
+	Security struct {
+		EncryptionKey string
+	}
+
 	// Git: a push (its pack, over HTTP or SSH) is at most MaxPushSize
 	// bytes; 0 means no limit.
 	Git struct {

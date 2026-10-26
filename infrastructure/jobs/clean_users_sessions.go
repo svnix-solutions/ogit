@@ -7,7 +7,12 @@ func (c *Config) CleanUsersSessions() error {
 
 	_, err := c.CronScheduler.CronScheduler.NewJob(
 		gocron.CronJob("*/1 * * * * ", false), // Every 1 minute
-		gocron.NewTask(func() { _ = c.SessionApp.DeleteExpired() }),
+		gocron.NewTask(func() {
+			_ = c.SessionApp.DeleteExpired()
+			if c.TwoFactorApp != nil {
+				_ = c.TwoFactorApp.DeleteExpiredChallenges()
+			}
+		}),
 		gocron.WithName("CleanUsersSessions"),
 	)
 	if err != nil {

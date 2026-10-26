@@ -41,6 +41,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		UserApp:   deps.UserApp,
 		TokenApp:  deps.TokenApp,
 		AuthApp:   deps.AuthApp,
+		TwoFactor: deps.TwoFactorApp,
 		Limits:    deps.Limits,
 	}
 	user.SetupUserRouter(userCtrl)
@@ -55,6 +56,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		RepoTokens:    deps.RepoTokenApp,
 		WebhookApp:    deps.WebhookApp,
 		ProtectionApp: deps.ProtectionApp,
+		TwoFactor:     deps.TwoFactorApp,
 	}
 	repository.SetupRepositoryRouter(repoCtrl)
 
@@ -69,9 +71,10 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		Logger:    deps.Logger,
 		FiberOapi: adminGrp,
 		AdminApp:  deps.AdminApp,
+		TwoFactor: deps.TwoFactorApp,
 	})
 
-	sshkey.Setup(sshkey.Controller{Logger: deps.Logger, SSHKeyApp: deps.SSHKeyApp}, userGrp, repoGrp, adminGrp)
+	sshkey.Setup(sshkey.Controller{Logger: deps.Logger, SSHKeyApp: deps.SSHKeyApp, TwoFactor: deps.TwoFactorApp}, userGrp, repoGrp, adminGrp)
 
 	browse.Setup(browse.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, BrowseApp: deps.BrowseApp}, repoGrp)
 
