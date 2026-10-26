@@ -83,7 +83,7 @@ export function isUnauthenticated(err: unknown): boolean {
   );
 }
 
-export type Profile = { id: string; username: string; email: string; avatar: string; role: "admin" | "user"; two_factor_enabled?: boolean };
+export type Profile = { id: string; username: string; email: string; avatar: string; role: "admin" | "user"; two_factor_enabled?: boolean; two_factor_required?: boolean };
 export type RepositorySummary = {
   id: string;
   namespace: string;
@@ -112,8 +112,8 @@ export type Repository = RepositorySummary & { owner_type: "user" | "group"; rol
 
 export type Member = { id: string; type: "user" | "group"; username?: string; group?: string; role: Role };
 
-export type Group = { id: string; name: string; description: string; role?: "owner" | "maintainer" | "member" };
-export type GroupMember = { username: string; role: "owner" | "maintainer" | "member" };
+export type Group = { id: string; name: string; description: string; role?: "owner" | "maintainer" | "member"; require_two_factor?: boolean };
+export type GroupMember = { username: string; role: "owner" | "maintainer" | "member"; two_factor_enabled?: boolean };
 
 export type NamespaceView = {
   name: string;

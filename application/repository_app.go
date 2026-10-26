@@ -26,6 +26,9 @@ type RepositoryApp struct {
 	StorageConfig        storage.Config
 	// Webhooks receives repository events; nil: none.
 	Webhooks *WebhookApp
+	// TwoFactorEnabled tells whether a user has 2FA, for groups that require
+	// it (two_factor_required.go); nil: groups can't.
+	TwoFactorEnabled func(userId string) (bool, error)
 }
 
 func NewRepositoryApp(config config.Config, logger zerolog.Logger, repoPers domain.RepositoryPers, repositoryMemberPers domain.RepositoryMemberPers, groupPers domain.GroupPers, userPers domain.UserPers, sshKeyPers domain.SSHKeyPers, storageConfig storage.Config) *RepositoryApp {
@@ -236,6 +239,9 @@ func (c *RepositoryApp) GetUserEffectiveRole(repositoryId, userId string) (domai
 	}
 
 	groupIds, err := c.GroupPers.GroupIdsForUser(userId)
+	if err == nil {
+		groupIds, err = c.usableGroups(userId, groupIds)
+	}
 	if err != nil {
 		logger.Error().Err(err).Str("user_id", userId).Msg("failed to get user groups")
 		return domain.AccessTypeNone, err

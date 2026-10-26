@@ -31,6 +31,9 @@ security:
   # Keep it: changing it turns off app-based 2FA for everyone (recovery codes
   # still work). Unset: users can't add an authenticator app.
   encryption_key: ""
+  # Require two-factor authentication from every user. When false, site
+  # admins can still turn the requirement on from the admin page.
+  require_2fa: false
 
 registration:
   enabled: true

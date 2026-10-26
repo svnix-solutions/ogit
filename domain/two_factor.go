@@ -113,3 +113,21 @@ type TwoFactorPers interface {
 	DeleteChallenge(id string) error
 	DeleteExpiredChallenges(now time.Time) (int64, error)
 }
+
+// SiteSetting is a setting changed at runtime from the admin page.
+type SiteSetting struct {
+	Key       string `gorm:"primaryKey"`
+	Value     string
+	UpdatedAt time.Time
+}
+
+func (SiteSetting) TableName() string { return "site_setting" }
+
+// SettingRequireTwoFactor ("true"/"false") requires 2FA from every user.
+const SettingRequireTwoFactor = "require_two_factor"
+
+type SiteSettingPers interface {
+	// Get returns the value, "" when unset.
+	Get(key string) (string, error)
+	Set(key, value string) error
+}

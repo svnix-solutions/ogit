@@ -112,3 +112,16 @@ func (g *groupPers) TransferOwnership(groupId, currentOwnerId, newOwnerId string
 		return tx.Model(&domain.Group{}).Where("id = ?", groupId).Update("owner_id", newOwnerId).Error
 	})
 }
+
+func (g *groupPers) RequiringTwoFactor(groupIds []string) ([]string, error) {
+	var ids []string
+	if len(groupIds) == 0 {
+		return ids, nil
+	}
+	err := g.db.Model(&domain.Group{}).Where("id IN ? AND require_two_factor = ?", groupIds, true).Pluck("id", &ids).Error
+	return ids, err
+}
+
+func (g *groupPers) SetRequireTwoFactor(groupId string, on bool) error {
+	return g.db.Model(&domain.Group{}).Where("id = ?", groupId).Update("require_two_factor", on).Error
+}

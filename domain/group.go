@@ -13,8 +13,11 @@ type Group struct {
 
 	// OwnerId is the group's single owner, kept in sync with the owner's
 	// group_member row.
-	OwnerId   string
-	OwnerUser User `gorm:"foreignKey:OwnerId;references:Id"`
+	OwnerId string
+	// RequireTwoFactor: members without two-factor authentication get no
+	// access to the group's repositories through the group.
+	RequireTwoFactor bool
+	OwnerUser        User `gorm:"foreignKey:OwnerId;references:Id"`
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -76,6 +79,9 @@ type GroupPers interface {
 	OwnedBy(userId string) ([]Group, error)
 	// GroupIdsForUser returns the IDs of the groups userId is a member of.
 	GroupIdsForUser(userId string) ([]string, error)
+	// RequiringTwoFactor returns those of groupIds that require 2FA.
+	RequiringTwoFactor(groupIds []string) ([]string, error)
+	SetRequireTwoFactor(groupId string, on bool) error
 
 	GetMember(groupId, userId string) (*GroupMember, error)
 	ListMembers(groupId string) ([]GroupMember, error)

@@ -8,4 +8,7 @@ type ProfileResponse struct {
 	Role     string `json:"role"` // admin or user
 
 	TwoFactorEnabled bool `json:"two_factor_enabled"`
+	// TwoFactorRequired: the site requires 2FA and the user has none; the
+	// API refuses everything but its setup until they add it.
+	TwoFactorRequired bool `json:"two_factor_required"`
 }

@@ -18,6 +18,15 @@ func SecurityFlags(cfg *Config) []cli.Flag {
 				altsrcyaml.YAML("security.encryption_key", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
 			),
 		},
+		&cli.BoolFlag{
+			Name:        "security.require_2fa",
+			Usage:       "Require two-factor authentication from every user (when false, site admins can still require it from the admin page)",
+			Destination: &cfg.Security.RequireTwoFactor,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("SECURITY_REQUIRE_2FA"),
+				altsrcyaml.YAML("security.require_2fa", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
 	}
 }
 

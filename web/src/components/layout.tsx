@@ -1,4 +1,5 @@
 import { Compass, GitBranch, LogOut, Plus, Settings, Shield, Users } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { useLogout, useProfile } from "@/lib/auth";
 import { useInstance } from "@/lib/queries";
@@ -19,9 +20,34 @@ function NavItem({ to, icon: Icon, label }: { to: string; icon: typeof Compass; 
   );
 }
 
+// EnrollTwoFactor replaces every page while the site requires 2FA and the
+// user has none: the API refuses everything else (TWO_FACTOR_REQUIRED).
+function EnrollTwoFactor({ onDone }: { onDone: () => void }) {
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      <h1 className="text-xl font-semibold">Set up two-factor authentication</h1>
+      <p className="text-sm text-muted-foreground">
+        This server requires two-factor authentication. Add an authenticator app or a security key to continue; your access tokens and SSH keys work again once
+        it's on.
+      </p>
+      <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+        <TwoFactorSetup onCodesSaved={onDone} />
+      </Suspense>
+    </div>
+  );
+}
+
+const TwoFactorSetup = lazy(async () => ({ default: (await import("@/pages/settings-2fa")).TwoFactor }));
+
 export function Layout() {
   const { data: profile } = useProfile();
   const instance = useInstance();
+  // Enrolling stays on screen until the recovery codes are acknowledged:
+  // the requirement clears as soon as 2FA is on, before they are saved.
+  const [enrolling, setEnrolling] = useState(false);
+  useEffect(() => {
+    if (profile?.two_factor_required) setEnrolling(true);
+  }, [profile?.two_factor_required]);
   const logout = useLogout();
   const navigate = useNavigate();
   return (
@@ -62,9 +88,7 @@ export function Layout() {
           </nav>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
-        <Outlet />
-      </main>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">{profile?.two_factor_required || enrolling ? <EnrollTwoFactor onDone={() => setEnrolling(false)} /> : <Outlet />}</main>
       {profile && <SudoDialog />}
     </div>
   );

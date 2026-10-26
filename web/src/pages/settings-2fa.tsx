@@ -67,7 +67,9 @@ export function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () =
 
 type Key = { id: string; name: string; passkey: boolean; last_used_at: string | null; created_at: string };
 
-export function TwoFactor() {
+// TwoFactor is the settings section; onCodesSaved runs when the user
+// acknowledges newly shown recovery codes.
+export function TwoFactor({ onCodesSaved }: { onCodesSaved?: () => void } = {}) {
   const qc = useQueryClient();
   const status = useQuery({ queryKey: statusKey, queryFn: () => api<Status>("GET", "/user/2fa") });
   const [setup, setSetup] = useState<Setup | null>(null);
@@ -100,7 +102,7 @@ export function TwoFactor() {
       description="Signing in asks for a second factor after your password: a code from an authenticator app, or a security key. Access tokens and SSH keys keep working for git."
     >
       <ErrorText error={status.error ?? start.error ?? regenerate.error ?? disable.error} />
-      {codes && <RecoveryCodes codes={codes} onDone={() => setCodes(null)} />}
+      {codes && <RecoveryCodes codes={codes} onDone={() => (setCodes(null), onCodesSaved?.())} />}
       {s && !codes && (
         <div className="space-y-5 text-sm">
           <p className="flex flex-wrap items-center gap-2">

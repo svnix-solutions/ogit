@@ -71,6 +71,8 @@ type TwoFactorApp struct {
 	// WebAuthn is nil without http.public_url (its host is the relying
 	// party): no security keys then.
 	WebAuthn *webauthn.WebAuthn
+	// Settings holds the admin's site-wide requirement (two_factor_required.go).
+	Settings domain.SiteSettingPers
 }
 
 // TwoFactorStatus is what the settings page shows.

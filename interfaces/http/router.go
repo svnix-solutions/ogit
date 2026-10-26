@@ -19,6 +19,8 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// Before any /api/v1 route: turns the web UI's cookie into a bearer token.
 	deps.Http.Fiber.Use("/api/v1", websession.Middleware())
+	// Users who must set up 2FA can only reach its setup.
+	deps.Http.Fiber.Use("/api/v1", twoFactorGate(deps.SessionApp, deps.TwoFactorApp, deps.Logger))
 	// Then the request budget per user (or IP).
 	deps.Http.Fiber.Use("/api/v1", apiLimit(deps.Config, deps.Limits))
 

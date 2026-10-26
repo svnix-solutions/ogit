@@ -182,6 +182,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.TwoFactorApp = &application.TwoFactorApp{
 		Config: deps.Config, Logger: deps.Logger, Users: userPers, Sessions: sessionPers,
 		Pers: persistence.NewTwoFactorPers(deps.Database.Db), Box: box, Mailer: deps.Mailer, WebAuthn: relyingParty,
+		Settings: persistence.NewSiteSettingPers(deps.Database.Db),
 	}
 	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.BrowseApp = &application.BrowseApp{Repositories: deps.RepoApp, Storage: deps.Storage}
@@ -221,7 +222,10 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.PullApp.Assignees, deps.PullApp.Milestones, deps.PullApp.Issues = assignees, milestones, deps.IssueApp
 	deps.MilestoneApp = &application.MilestoneApp{Logger: deps.Logger, Repositories: deps.RepoApp, Milestones: milestones, Webhooks: deps.WebhookApp}
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
+	deps.TokenApp.MustEnroll = deps.TwoFactorApp.MustEnroll
+	deps.RepoApp.TwoFactorEnabled = deps.TwoFactorApp.Enabled
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
+	deps.GroupApp.TwoFactor = deps.TwoFactorApp
 	deps.AdminApp = &application.AdminApp{
 		Config: deps.Config, Logger: deps.Logger, UserPers: userPers, SessionPers: sessionPers,
 		RepoPers: repoPers, RepositoryMemberPers: repositoryMemberPers, GroupPers: groupPers, Storage: deps.Storage,

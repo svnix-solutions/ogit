@@ -527,6 +527,10 @@ work).
 - **Sudo mode:** turning 2FA off, new recovery codes, new access tokens, SSH and deploy keys, repository tokens, and resetting someone's 2FA need a session confirmed in the last 10 minutes. Otherwise they answer 403 `SUDO_REQUIRED`. Signing in counts; `POST /api/v1/auth/sudo` confirms again with `{"code": …}` (or `{"password": …}` without 2FA). The web UI asks automatically.
 - Access tokens and SSH keys keep working for git and CI without codes.
 - Users are emailed (when SMTP is set) when 2FA is turned on or off, or reset by an admin.
+- **Requiring it:**
+  - site-wide with `security.require_2fa: true`, or from the admin page (`PATCH /api/v1/admin/settings {"require_two_factor": true}`). Users without 2FA can still sign in, but only reach its setup until they add an app or a key; the API answers 403 `TWO_FACTOR_REQUIRED`, and their access tokens and SSH keys are refused. Repository tokens and deploy keys keep working;
+  - per group, by its owner (`PATCH /api/v1/group/<name> {"require_two_factor": true}`): members without 2FA get no access to the group's repositories through the group, and can't create repositories in it, until they set it up. They stay members; owners and maintainers see who lacks 2FA;
+  - site admins always need 2FA for admin actions (`ADMIN_TWO_FACTOR_REQUIRED`). `ogit admin` on the server is not affected.
 - Lost device and recovery codes: an admin resets it (`POST /api/v1/admin/users/<username>/reset-2fa`, or `ogit admin reset-2fa`).
 
 ### Email verification

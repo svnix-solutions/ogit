@@ -99,3 +99,12 @@ type TransferRepositoryRequest struct {
 	Identifier string `path:"identifier" json:"-" validate:"required"`
 	Namespace  string `json:"namespace" validate:"required"`
 }
+
+type SettingsResponse struct {
+	RequireTwoFactor       bool `json:"require_two_factor"`
+	RequireTwoFactorForced bool `json:"require_two_factor_forced"` // by the configuration
+}
+
+type UpdateSettingsRequest struct {
+	RequireTwoFactor *bool `json:"require_two_factor"`
+}

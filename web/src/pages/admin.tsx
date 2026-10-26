@@ -17,14 +17,62 @@ type AdminRepo = { id: string; full_path: string; name: string; is_private: bool
 export function AdminPage() {
   const { data: profile } = useProfile();
   if (profile?.role !== "admin") return <Alert variant="destructive">Site administrators only.</Alert>;
+  if (!profile.two_factor_enabled)
+    return (
+      <Alert>
+        Site administration needs two-factor authentication.{" "}
+        <Link to="/settings" className="text-primary hover:underline">
+          Set it up in your settings
+        </Link>
+        .
+      </Alert>
+    );
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-semibold">Administration</h1>
       <p className="text-sm text-muted-foreground">Admins manage accounts and can recover repositories and groups. They don't see private repositories unless they make themselves an owner.</p>
+      <Settings />
       <Users />
       <Repositories />
       <GroupTransfer />
     </div>
+  );
+}
+
+// Settings: the site-wide 2FA requirement (the configuration may force it).
+function Settings() {
+  const qc = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["admin-settings"],
+    queryFn: () => api<{ require_two_factor: boolean; require_two_factor_forced: boolean }>("GET", "/admin/settings"),
+  });
+  const set = useMutation({
+    mutationFn: (on: boolean) => api("PATCH", "/admin/settings", { require_two_factor: on }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-settings"] }),
+  });
+  const s = settings.data;
+  return (
+    <Section
+      title="Two-factor authentication"
+      description="When required, users without two-factor authentication can only set it up after signing in; their access tokens and SSH keys stop working until they do. Repository tokens and deploy keys are not affected."
+    >
+      <ErrorText error={settings.error ?? set.error} />
+      {s && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={s.require_two_factor}
+            disabled={s.require_two_factor_forced || set.isPending}
+            onChange={(e) =>
+              (!e.target.checked || window.confirm("Require two-factor authentication from every user? Those without it will have to set it up before anything else.")) &&
+              set.mutate(e.target.checked)
+            }
+          />
+          Require two-factor authentication for everyone
+          {s.require_two_factor_forced && <span className="text-xs text-muted-foreground">(set by security.require_2fa in the configuration)</span>}
+        </label>
+      )}
+    </Section>
   );
 }
 

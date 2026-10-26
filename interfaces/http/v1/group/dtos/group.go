@@ -12,6 +12,14 @@ type GroupResponse struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Role        string `json:"role,omitempty"` // the caller's role in the group
+	// RequireTwoFactor: members without 2FA get no access to the group's
+	// repositories through it.
+	RequireTwoFactor bool `json:"require_two_factor"`
+}
+
+type UpdateGroupRequest struct {
+	Identifier       string `path:"identifier" json:"-" validate:"required"`
+	RequireTwoFactor *bool  `json:"require_two_factor"`
 }
 
 type ListGroupsResponse struct {
@@ -25,6 +33,8 @@ type GroupRequest struct {
 type MemberResponse struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
+	// TwoFactorEnabled is only shown to owners and maintainers.
+	TwoFactorEnabled *bool `json:"two_factor_enabled,omitempty"`
 }
 
 type ListMembersResponse struct {

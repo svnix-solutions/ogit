@@ -38,13 +38,18 @@ func (ctrl *Controller) GetProfile(ctx *fiber.Ctx, input struct{}) (*dtos.Profil
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
+	must, err := ctrl.TwoFactor.MustEnroll(user.Id)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
 	return &dtos.ProfileResponse{
-		Id:               user.Id,
-		Username:         user.Username,
-		Email:            user.Email,
-		Avatar:           user.AvatarUrl,
-		Role:             string(user.Role),
-		TwoFactorEnabled: twoFactor,
+		Id:                user.Id,
+		Username:          user.Username,
+		Email:             user.Email,
+		Avatar:            user.AvatarUrl,
+		Role:              string(user.Role),
+		TwoFactorEnabled:  twoFactor,
+		TwoFactorRequired: must,
 	}, nil
 }
 

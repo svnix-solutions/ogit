@@ -101,7 +101,44 @@ func (c *AdminApp) RequireAdmin(actorId string) error {
 	if err != nil || !u.Active || u.Role != domain.RoleAdmin {
 		return ErrForbidden
 	}
+	if c.TwoFactor != nil {
+		if on, err := c.TwoFactor.Enabled(actorId); err != nil {
+			return err
+		} else if !on {
+			return ErrAdminNeedsTwoFactor
+		}
+	}
 	return nil
+}
+
+// SiteSettings are the settings admins change from the admin page.
+type SiteSettings struct {
+	RequireTwoFactor       bool
+	RequireTwoFactorForced bool // by security.require_2fa: can't be turned off here
+}
+
+func (c *AdminApp) Settings(actorId string) (*SiteSettings, error) {
+	if err := c.RequireAdmin(actorId); err != nil {
+		return nil, err
+	}
+	on, forced, err := c.TwoFactor.SiteRequirement()
+	if err != nil {
+		return nil, err
+	}
+	return &SiteSettings{RequireTwoFactor: on, RequireTwoFactorForced: forced}, nil
+}
+
+// SetRequireTwoFactor turns the site-wide 2FA requirement on or off (the
+// configuration may force it on regardless).
+func (c *AdminApp) SetRequireTwoFactor(actorId string, on bool) (*SiteSettings, error) {
+	if err := c.RequireAdmin(actorId); err != nil {
+		return nil, err
+	}
+	if err := c.TwoFactor.SetSiteRequirement(on); err != nil {
+		return nil, err
+	}
+	c.audit(actorId, "site.require_2fa").Bool("on", on).Msg("site-wide two-factor requirement changed")
+	return c.Settings(actorId)
 }
 
 func (c *AdminApp) ListUsers(actorId, query string, limit, offset int) ([]domain.User, int64, error) {

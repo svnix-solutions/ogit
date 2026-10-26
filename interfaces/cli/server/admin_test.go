@@ -18,9 +18,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// promote makes username a site admin, with two-factor authentication
+// (admin actions need it; TestAdminsNeedTwoFactor checks that).
 func (s *testServer) promote(t *testing.T, username string) {
 	t.Helper()
 	require.NoError(t, s.deps.Database.Db.Model(&domain.User{}).Where("username = ?", username).Update("role", domain.RoleAdmin).Error)
+	var u domain.User
+	require.NoError(t, s.deps.Database.Db.Where("username = ?", username).First(&u).Error)
+	if on, err := s.deps.TwoFactorApp.Enabled(u.Id); err == nil && on {
+		return // keep a real authenticator app
+	}
+	now := time.Now()
+	require.NoError(t, s.deps.Database.Db.Save(&domain.UserTOTP{UserId: u.Id, Secret: "not-used", ConfirmedAt: &now}).Error)
 }
 
 func TestAdminRequiresAdmin(t *testing.T) {
@@ -289,12 +298,12 @@ func (s *testServer) bootstrapAdmin(t *testing.T) user {
 			Id: utils.UUIDv4(), Username: "root", Email: "root@example.com", Password: string(hash), Active: true, EmailVerifiedAt: &now,
 		}).Error)
 	}
-	s.promote(t, "root")
 	// An operator bootstrapping an instance with verification on verifies too.
 	require.NoError(t, s.deps.Database.Db.Model(&domain.User{}).Where("username = ?", "root").Update("email_verified_at", time.Now()).Error)
 	status, body := s.login(t, "root@example.com")
 	require.Equal(t, http.StatusOK, status, "%v", body)
 	session := body["token"].(string)
+	s.promote(t, "root") // after signing in: promoting adds 2FA
 	return user{name: "root", session: session, git: s.createToken(t, session, "root-git", "read:repository", "write:repository")}
 }
 
