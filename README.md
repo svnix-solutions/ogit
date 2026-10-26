@@ -11,6 +11,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
+- **Actions**: GitHub Actions workflows run by `ogit runner` (act, in Docker), with shared, group and repository runners
 - **Git LFS**: large files over HTTPS and SSH, stored with the repository (local or S3), file locking, and LFS files served by the web UI, raw links and archives
 - **Releases**: on tags, with drafts, pre-releases, generated notes, uploaded assets and protected tags; GitHub's releases API for release tools
 - **Forks**: fork any repository you can read, open pull requests from your fork, sync it with the original
@@ -211,6 +212,26 @@ curl "localhost:8080/api/v1/repository?scope=public&q=tools" -H "Authorization: 
 ### Push size
 
 Pushes over HTTP and SSH are streamed (never held in memory) and refused above `git.max_push_size` (2 GB by default, `0` for no limit); git shows `push is larger than the limit`. A refused or interrupted push leaves nothing behind in storage.
+
+### Actions
+
+Workflows use GitHub Actions syntax, in `.ogit/workflows/` (or `.github/workflows/` when that directory has none), and run on your own runners with [act](https://github.com/nektos/act), in Docker.
+
+```sh
+# A registration token: repository maintainers, group owners or site admins
+curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/actions/runners/registration-token -H "Authorization: Bearer $SESSION"
+#   (group: POST /api/v1/group/<name>/runners/registration-token; shared: POST /api/v1/admin/runners/registration-token)
+
+# On a machine with Docker
+ogit runner register --url https://git.example.com --token "$REGISTRATION_TOKEN" --labels ubuntu-latest:docker://node:20-bookworm
+ogit runner run
+```
+
+- **Triggers (for now):** `push`, with `branches`, `tags` and their `-ignore` filters. Other events, path filters, secrets, statuses and the Actions tab come in the next releases.
+- **Runners** take queued runs from their scope (one repository, a group's repositories, or every repository for shared runners) when they have every `runs-on` label of the workflow. A run is taken by one runner, which runs its jobs (`needs`, matrices) with act. Labels map to Docker images (`name:docker://image`); the defaults map `ubuntu-latest`, `ubuntu-24.04` and `ubuntu-22.04` to Node images with git.
+- **`GITHUB_TOKEN`** is a job token valid while the run runs: it clones the repository (read only for now), including through `actions/checkout`, over git or GitHub's archive API (`/api/v3/repos/<owner>/<repo>/tarball/<ref>`). `GITHUB_SERVER_URL` is `http.public_url`, which job containers must reach (`ogit runner run --network` picks their Docker network).
+- **Actions** (`uses:`) are fetched from this server first, then from github.com.
+- **Runs:** `GET /api/v1/repository/<owner>%2F<repo>/actions/runs`, `.../runs/<n>` (with jobs), `.../runs/<n>/logs?from=` (incremental), `POST .../runs/<n>/cancel` (writers). A run whose runner stops reporting for 10 minutes fails.
 
 ### Git LFS
 

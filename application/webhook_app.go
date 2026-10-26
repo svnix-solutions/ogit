@@ -53,7 +53,9 @@ type WebhookApp struct {
 	Assignees  domain.AssigneePers
 	Milestones domain.MilestonePers
 	Sender     *webhook.Sender
-	now        func() time.Time
+	// Actions queues the workflow runs of pushes (nil: none).
+	Actions *ActionsApp
+	now     func() time.Time
 }
 
 func (c *WebhookApp) clock() time.Time {
