@@ -58,6 +58,55 @@ export function AssigneesBox({ fullPath, base, assignees, canSet, onChange }: { 
   );
 }
 
+// ReviewersBox requests reviews on a pull request (its author and writers).
+// A request goes away when that person reviews.
+export function ReviewersBox({ fullPath, base, reviewers, author, canSet, onChange }: { fullPath: string; base: string; reviewers: string[]; author?: string; canSet: boolean; onChange: () => void }) {
+  const candidates = useAssignable(fullPath, canSet);
+  const [other, setOther] = useState("");
+  const set = useMutation({
+    mutationFn: (names: string[]) => api("PUT", `${base}/reviewers`, { reviewers: names }),
+    onSuccess: () => (setOther(""), onChange()),
+  });
+  const options = [...new Set([...(candidates.data ?? []), ...reviewers])].filter((n) => n !== author).sort();
+  return (
+    <div className="space-y-2">
+      <h3 className="font-medium">Reviewers</h3>
+      {!canSet && (reviewers.length === 0 ? <p className="text-muted-foreground">None requested</p> : <p>{reviewers.join(", ")}</p>)}
+      {canSet && (
+        <>
+          {options.length === 0 && <p className="text-muted-foreground">None requested</p>}
+          <div className="space-y-1">
+            {options.map((name) => (
+              <label key={name} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  aria-label={`Request a review from ${name}`}
+                  checked={reviewers.includes(name)}
+                  onChange={(e) => set.mutate(e.target.checked ? [...reviewers, name] : reviewers.filter((r) => r !== name))}
+                />
+                {name}
+              </label>
+            ))}
+          </div>
+          <form
+            className="flex gap-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (other.trim()) set.mutate([...reviewers, other.trim()]);
+            }}
+          >
+            <Input aria-label="Request a review from someone else" placeholder="username" value={other} onChange={(e) => setOther(e.target.value)} className="h-8" />
+            <Button type="submit" size="sm" variant="outline" disabled={!other.trim() || set.isPending}>
+              Add
+            </Button>
+          </form>
+        </>
+      )}
+      <ErrorText error={set.error} />
+    </div>
+  );
+}
+
 export function MilestoneBox({ fullPath, base, milestone, canSet, onChange }: { fullPath: string; base: string; milestone?: MilestoneRef; canSet: boolean; onChange: () => void }) {
   const milestones = useMilestones(fullPath, "open");
   const set = useMutation({ mutationFn: (id: string) => api("PUT", `${base}/milestone`, { milestone_id: id }), onSuccess: onChange });

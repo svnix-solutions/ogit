@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError, atLeast } from "@/lib/api";
 import { safeLink, useCombined, useStatuses } from "@/lib/statuses";
 import { CombinedIcon, StatusIcon } from "@/components/status-icon";
-import { AssigneesBox, MilestoneBox } from "@/components/tracking";
+import { AssigneesBox, MilestoneBox, ReviewersBox } from "@/components/tracking";
 import { useForks } from "@/components/forks";
 import { useProfile } from "@/lib/auth";
 import { relativeTime, shortHash, summary, useCompare, useRefs, type Comparison } from "@/lib/browse";
@@ -437,6 +437,8 @@ function Conversation({ pr, onChange }: { pr: Pull; onChange: () => void }) {
         <ReviewBox pr={pr} onChange={onChange} />
         <LabelsBox pr={pr} onChange={onChange} />
         <MaintainerEdits pr={pr} onChange={onChange} />
+        <ReviewersBox fullPath={repo.full_path} base={`${pullsBase(repo.full_path)}/${pr.number}`} reviewers={pr.requested_reviewers ?? []} author={pr.author}
+          canSet={pr.state === "open" && !repo.archived && (atLeast(repo.role, "developer") || (!!profile && profile.username === pr.author))} onChange={onChange} />
         <AssigneesBox fullPath={repo.full_path} base={`${pullsBase(repo.full_path)}/${pr.number}`} assignees={pr.assignees ?? []}
           canSet={atLeast(repo.role, "developer") && !repo.archived} onChange={onChange} />
         <MilestoneBox fullPath={repo.full_path} base={`${pullsBase(repo.full_path)}/${pr.number}`} milestone={pr.milestone}

@@ -62,11 +62,13 @@ type PullRequestPayload struct {
 	Changes     map[string]any  `json:"changes,omitempty"`
 	Label       *HookLabel      `json:"label,omitempty"`
 	Assignee    *HookUser       `json:"assignee,omitempty"`
-	Milestone   *HookMilestone  `json:"milestone,omitempty"`
-	Before      string          `json:"before,omitempty"` // synchronize
-	After       string          `json:"after,omitempty"`
-	Repository  HookRepository  `json:"repository"`
-	Sender      HookUser        `json:"sender"`
+	// RequestedReviewer: review_requested and review_request_removed.
+	RequestedReviewer *HookUser      `json:"requested_reviewer,omitempty"`
+	Milestone         *HookMilestone `json:"milestone,omitempty"`
+	Before            string         `json:"before,omitempty"` // synchronize
+	After             string         `json:"after,omitempty"`
+	Repository        HookRepository `json:"repository"`
+	Sender            HookUser       `json:"sender"`
 }
 
 type HookReview struct {

@@ -133,8 +133,9 @@ curl -X PATCH localhost:8080/api/v1/repository/me%2Fmy-project -H "Authorization
 
 - Anyone who can read the repository comments and reviews. Approvals and change requests count from developers and up (each reviewer's latest), never the author's own.
 - Merging needs `required_approvals` approvals (0 by default) and no outstanding request for changes.
+- The author and developers and up request reviews (`PUT /pulls/1/reviewers {"reviewers": ["alice"]}`) from anyone who can read the repository; a request goes away when that person reviews. Webhooks get `review_requested` / `review_request_removed`.
 - Maintainers manage labels (`/labels`); developers set them on pull requests (`PUT /pulls/1/labels`); `?label=` filters the list.
-- With SMTP configured, the author, reviewers, commenters and anyone @mentioned (who can read the repository) are emailed about others' comments, reviews, merges and closes. Set `http.public_url` for links.
+- With SMTP configured, the author, requested reviewers, reviewers, commenters and anyone @mentioned (who can read the repository) are emailed about others' comments, reviews, merges and closes. Set `http.public_url` for links.
 
 ### Raw files and archives
 

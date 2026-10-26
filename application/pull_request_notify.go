@@ -39,6 +39,13 @@ func (c *PullRequestApp) sendNotifications(repo *domain.Repository, pr *domain.P
 			}
 		}
 	}
+	if c.Reviewers != nil {
+		if requested, err := c.Reviewers.For([]string{pr.Id}); err == nil {
+			for _, u := range requested[pr.Id] {
+				ids[u.Id] = true
+			}
+		}
+	}
 	if reviews, err := c.Reviews.Reviews(pr.Id); err == nil {
 		for _, r := range reviews {
 			if r.AuthorId != nil {

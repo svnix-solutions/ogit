@@ -40,6 +40,7 @@ export type Pull = PullSummary & {
   required_checks: { context: string; state: "" | "pending" | "success" | "failure" | "error" }[];
   merge_blocked?: { type: string; message: string }; // why the viewer can't merge
   assignees: string[];
+  requested_reviewers?: string[];
   milestone?: MilestoneRef;
   allow_maintainer_edits: boolean;
 };

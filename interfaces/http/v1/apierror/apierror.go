@@ -101,6 +101,7 @@ var mapping = []struct {
 	{application.ErrMilestoneExists, fiber.StatusConflict, "MILESTONE_EXISTS"},
 	{application.ErrInvalidMilestone, fiber.StatusBadRequest, "INVALID_MILESTONE"},
 	{application.ErrInvalidAssignee, fiber.StatusBadRequest, "INVALID_ASSIGNEE"},
+	{application.ErrInvalidReviewer, fiber.StatusBadRequest, "INVALID_REVIEWER"},
 	{application.ErrIssuesDisabled, fiber.StatusConflict, "ISSUES_DISABLED"},
 	{application.ErrNumberNotFound, fiber.StatusNotFound, "NUMBER_NOT_FOUND"},
 	{application.ErrInvalidState, fiber.StatusBadRequest, "INVALID_STATE"},
