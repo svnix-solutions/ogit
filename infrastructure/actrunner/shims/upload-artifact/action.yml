@@ -1,0 +1,33 @@
+name: Upload a Build Artifact (oGit)
+description: Upload an artifact to oGit, with actions/upload-artifact@v4's inputs and outputs.
+inputs:
+  name:
+    description: Artifact name
+    default: artifact
+  path:
+    description: Files, directories or globs to upload (one per line, ! to exclude)
+    required: true
+  if-no-files-found:
+    description: "warn, error or ignore"
+    default: warn
+  retention-days:
+    description: Days to keep the artifact (can only shorten the server's setting)
+  compression-level:
+    description: Zip compression, 0 (none) to 9
+    default: "6"
+  overwrite:
+    description: Replace an artifact of the same name
+    default: "false"
+  include-hidden-files:
+    description: Upload files and directories whose names start with a dot
+    default: "false"
+outputs:
+  artifact-id:
+    description: The artifact's id
+  artifact-digest:
+    description: SHA-256 of the uploaded zip
+  artifact-url:
+    description: Where the run's artifacts are listed
+runs:
+  using: node20
+  main: index.js

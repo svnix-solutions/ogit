@@ -261,20 +261,27 @@ func run(ctx context.Context, rep *reporter, task *application.Task, opts Option
 			"GITHUB_REF_TYPE":         ref.kind,
 			"SHA_REF":                 task.Sha,
 			"GITHUB_RUN_NUMBER":       fmt.Sprint(task.Number),
-			"GITHUB_RUN_ID":           task.RunId,
+			"GITHUB_RUN_ID":           runID(task),
 		},
-		Secrets:               secrets,
-		Vars:                  task.Vars,
-		Token:                 task.Token,
-		Platforms:             opts.Platforms,
-		AutoRemove:            true,
-		LogOutput:             true,
+		Secrets:    secrets,
+		Vars:       task.Vars,
+		Token:      task.Token,
+		Platforms:  opts.Platforms,
+		AutoRemove: true,
+		LogOutput:  true,
+		// act passes ACTIONS_RUNTIME_URL/TOKEN (set below) to jobs only when
+		// this is set; it starts no server of its own here.
+		ArtifactServerPath:    dir,
 		NoSkipCheckout:        true,
 		ContainerDaemonSocket: opts.DockerHost,
 		ContainerNetworkMode:  containerNetwork(opts.ContainerNetwork),
 		ActionCache:           actionCache{inner: runner.GoGitActionCache{Path: filepath.Join(opts.WorkDir, "actions")}, server: task.ServerURL},
 		GitHubInstance:        hostOf(task.ServerURL),
 	}
+	// act hands these to job containers from the process environment:
+	// the artifact service (this server) and its token. One run at a time.
+	os.Setenv("ACTIONS_RUNTIME_URL", strings.TrimSuffix(task.ServerURL, "/")+"/")
+	os.Setenv("ACTIONS_RUNTIME_TOKEN", task.RuntimeToken)
 	r, err := runner.New(cfg)
 	if err != nil {
 		return err
@@ -283,6 +290,14 @@ func run(ctx context.Context, rep *reporter, task *application.Task, opts Option
 	logger := rep.WithJobLogger()
 	ctx = common.WithLogger(ctx, logger)
 	return r.NewPlanExecutor(plan)(ctx)
+}
+
+// runID is GITHUB_RUN_ID: the run's numeric API id (clients parse it).
+func runID(task *application.Task) string {
+	if task.RunApiId > 0 {
+		return fmt.Sprint(task.RunApiId)
+	}
+	return task.RunId
 }
 
 type refName struct{ name, kind string }

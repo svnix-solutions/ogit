@@ -294,6 +294,10 @@ type Task struct {
 	ServerURL     string            `json:"server_url"`
 	Secrets       map[string]string `json:"secrets"`
 	Vars          map[string]string `json:"vars"`
+	// RunApiId is GITHUB_RUN_ID; RuntimeToken is ACTIONS_RUNTIME_TOKEN
+	// (artifacts, at ServerURL).
+	RunApiId     int64  `json:"run_api_id"`
+	RuntimeToken string `json:"runtime_token"`
 }
 
 // scopeRepositories returns the repositories a runner serves (nil: all).
@@ -360,7 +364,7 @@ func (c *ActionsApp) FetchTask(r *domain.ActionRunner, labels []string, version,
 		return &Task{RunId: run.Id, Number: run.Number, Repository: repo.FullPath(), DefaultBranch: repo.DefaultBranch,
 			WorkflowPath: run.WorkflowPath, Workflow: run.Workflow, Event: run.Event, EventPayload: payload,
 			Ref: run.Ref, Sha: run.Sha, Actor: run.ActorName, Token: token, ServerURL: serverURL,
-			Secrets: secrets, Vars: vars}, nil
+			Secrets: secrets, Vars: vars, RunApiId: run.ApiId, RuntimeToken: c.RuntimeToken(run)}, nil
 	}
 	return nil, nil
 }
@@ -720,6 +724,7 @@ func (c *ActionsApp) Watch(ctx context.Context, interval time.Duration) {
 		case <-t.C:
 			c.FailStale()
 			c.RunSchedules()
+			c.SweepArtifacts()
 		}
 	}
 }

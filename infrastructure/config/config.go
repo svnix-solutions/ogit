@@ -49,6 +49,13 @@ type Config struct {
 		MaxObjectSize int64
 	}
 
+	// Actions: artifacts are kept ArtifactRetentionDays (a workflow can
+	// only shorten it) and are at most MaxArtifactSize bytes.
+	Actions struct {
+		ArtifactRetentionDays int
+		MaxArtifactSize       int64
+	}
+
 	// Releases: uploaded assets are at most MaxAssetSize bytes.
 	Releases struct {
 		MaxAssetSize int64

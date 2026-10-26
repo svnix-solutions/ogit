@@ -55,7 +55,10 @@ func (ActionRegistrationToken) TableName() string { return "action_registration_
 
 // ActionRun is one workflow run.
 type ActionRun struct {
-	Id           string `gorm:"primaryKey"`
+	Id string `gorm:"primaryKey"`
+	// ApiId is the run's number for GitHub's API and artifact clients
+	// (GITHUB_RUN_ID), random below 2^53.
+	ApiId        int64
 	RepositoryId string
 	Number       int
 	WorkflowPath string // e.g. .github/workflows/ci.yml
@@ -151,6 +154,31 @@ type ActionSchedule struct {
 
 func (ActionSchedule) TableName() string { return "action_schedule" }
 
+// ActionArtifact is an artifact uploaded by a run (actions/upload-artifact
+// v4), stored in the repository's "artifacts" area under its id. Ready
+// once its upload is finalized.
+type ActionArtifact struct {
+	Id           string `gorm:"primaryKey"`
+	ApiId        int64
+	RunId        string
+	RepositoryId string
+	Name         string
+	Size         int64
+	Ready        bool
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
+}
+
+func (ActionArtifact) TableName() string { return "action_artifact" }
+
+// ActionArtifactBlock is a stored block of an upload in progress.
+type ActionArtifactBlock struct {
+	ArtifactId string `gorm:"primaryKey"`
+	BlockId    string `gorm:"primaryKey"`
+}
+
+func (ActionArtifactBlock) TableName() string { return "action_artifact_block" }
+
 // RunFilter narrows a run list; zero values match everything. Status
 // "waiting" is a queued run that needs approval.
 type RunFilter struct {
@@ -162,6 +190,26 @@ type RunFilter struct {
 }
 
 type ActionsPers interface {
+	// Artifacts.
+	CreateArtifact(a *ActionArtifact) error
+	Artifact(runId, name string) (*ActionArtifact, error)
+	ArtifactByApiId(repositoryId string, apiId int64) (*ActionArtifact, error)
+	// Artifacts lists a run's ready artifacts, by name.
+	Artifacts(runId string) ([]ActionArtifact, error)
+	ArtifactById(id string) (*ActionArtifact, error)
+	SetArtifactSize(id string, size int64) error
+	// AddArtifactBlock records a stored block; ArtifactBlocks lists them
+	// and ForgetArtifactBlocks drops the records.
+	AddArtifactBlock(artifactId, blockId string) error
+	ArtifactBlocks(artifactId string) ([]string, error)
+	ForgetArtifactBlocks(artifactId string) error
+	MarkArtifactReady(id string, size int64) error
+	DeleteArtifact(id string) error
+	// ExpiredArtifacts lists expired artifacts and uploads unfinished for a
+	// day.
+	ExpiredArtifacts(now time.Time, limit int) ([]ActionArtifact, error)
+	RunByApiId(repositoryId string, apiId int64) (*ActionRun, error)
+
 	// Secrets and variables of a scope (scopeId "" for the site).
 	Secrets(scopeType, scopeId string) ([]ActionSecret, error)
 	PutSecret(s *ActionSecret) error

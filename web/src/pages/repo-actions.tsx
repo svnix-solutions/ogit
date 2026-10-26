@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Ban, CheckCircle2, CircleDashed, Clock, Loader2, Play, RotateCw, ShieldAlert, XCircle } from "lucide-react";
+import { Ban, CheckCircle2, CircleDashed, Clock, Loader2, Package, Play, RotateCw, ShieldAlert, Trash2, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { CopyField } from "@/components/copy-field";
@@ -21,6 +21,7 @@ import {
   runDone,
   shortRef,
   statusLabel,
+  useArtifacts,
   useRun,
   useRunLog,
   useRuns,
@@ -30,7 +31,8 @@ import {
   type Workflow,
 } from "@/lib/actions";
 import { api, ApiError, atLeast } from "@/lib/api";
-import { relativeTime, shortHash } from "@/lib/browse";
+import { formatSize, relativeTime, shortHash } from "@/lib/browse";
+import { formatDate } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { NotFoundPage } from "./not-found";
 
@@ -351,8 +353,46 @@ export function RunPage() {
           </ul>
         )}
       </Card>
+      <Artifacts number={r.number} done={runDone(r.status)} canDelete={canWrite} />
       <LogView fullPath={repo.full_path} number={r.number} />
     </div>
+  );
+}
+
+// Artifacts lists what the run uploaded (actions: ogit/upload-artifact),
+// with a zip download each.
+function Artifacts({ number, done, canDelete }: { number: number; done: boolean; canDelete: boolean }) {
+  const repo = useRepo();
+  const qc = useQueryClient();
+  const artifacts = useArtifacts(repo.full_path, number, done);
+  const remove = useMutation({
+    mutationFn: (id: number) => api("DELETE", `${actionsBase(repo.full_path)}/artifacts/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [...actionsKey(repo.full_path), "artifacts", number] }),
+  });
+  if (!artifacts.data?.length) return null;
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b bg-muted/40 px-4 py-2 text-sm font-medium">Artifacts</div>
+      <ErrorText error={remove.error} />
+      <ul className="divide-y">
+        {artifacts.data.map((a) => (
+          <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm">
+            <Package className="h-4 w-4 text-muted-foreground" />
+            <a href={`/api/v1${actionsBase(repo.full_path)}/artifacts/${a.id}/zip`} className="flex-1 font-medium text-primary hover:underline" download>
+              {a.name}
+            </a>
+            <span className="text-xs text-muted-foreground">
+              {formatSize(a.size)} · expires {formatDate(a.expires_at)}
+            </span>
+            {canDelete && (
+              <Button variant="ghost" size="icon" aria-label={`Delete artifact ${a.name}`} onClick={() => window.confirm(`Delete ${a.name}?`) && remove.mutate(a.id)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 

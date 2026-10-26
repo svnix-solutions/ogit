@@ -60,6 +60,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.ReleaseFlags(cfg)...)
 	list = append(list, config.GitFlags(cfg)...)
 	list = append(list, config.LFSFlags(cfg)...)
+	list = append(list, config.ActionsFlags(cfg)...)
 	return
 }
 

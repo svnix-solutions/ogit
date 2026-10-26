@@ -2,6 +2,7 @@ package http
 
 import (
 	"github.com/labbs/ogit/infrastructure"
+	"github.com/labbs/ogit/interfaces/http/artifacts"
 	"github.com/labbs/ogit/interfaces/http/ghcompat"
 	"github.com/labbs/ogit/interfaces/http/git"
 	"github.com/labbs/ogit/interfaces/http/lfs"
@@ -50,6 +51,9 @@ func SetupRoutes(deps infrastructure.Deps) {
 	// The protocol of `ogit runner`.
 	runner.Setup(runner.Controller{Config: deps.Config, Logger: deps.Logger, Actions: deps.ActionsApp, Limits: deps.Limits}, deps.Http.Fiber)
 
+	// The artifact service of actions/upload-artifact and download-artifact.
+	artifacts.Setup(artifacts.Controller{Config: deps.Config, Logger: deps.Logger, Actions: deps.ActionsApp}, deps.Http.Fiber)
+
 	// Setup v1 routes
 	v1.SetupRouterV1(deps)
 
@@ -57,7 +61,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 	deps.Http.Fiber.Use("/api/v3", apiLimit(deps.Config, deps.Limits))
 	deps.Http.Fiber.Use("/api/uploads", apiLimit(deps.Config, deps.Limits))
 	ghcompat.Setup(ghcompat.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp,
-		Limits: deps.Limits, Statuses: deps.StatusApp, Releases: deps.ReleaseApp}, deps.Http.Fiber)
+		Limits: deps.Limits, Statuses: deps.StatusApp, Releases: deps.ReleaseApp, Actions: deps.ActionsApp}, deps.Http.Fiber)
 
 	// Raw files and archives: /<owner>/<repo>/raw/... and /archive/...
 	raw.Setup(raw.Controller{Logger: deps.Logger, AuthApp: deps.AuthApp, SessionApp: deps.SessionApp, BrowseApp: deps.BrowseApp,

@@ -38,6 +38,13 @@ type Config interface {
 	OpenAsset(repoPath, id string) (io.ReadCloser, error)
 	DeleteAsset(repoPath, id string) error
 
+	// PutFile, OpenFile and DeleteFile store files of an area of the
+	// repository: "artifacts" and "actions-cache" (Actions), with the
+	// same rules as assets ("release-assets").
+	PutFile(repoPath, area, id string, r io.Reader) error
+	OpenFile(repoPath, area, id string) (io.ReadCloser, error)
+	DeleteFile(repoPath, area, id string) error
+
 	// LFS objects (oid: lowercase hex SHA-256, checked by the caller) are
 	// stored with the repository too. StatLFSObject reports a missing
 	// object as ok false.

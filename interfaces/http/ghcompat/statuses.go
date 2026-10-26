@@ -29,6 +29,7 @@ type Controller struct {
 	Limits     *ratelimit.Guard
 	Statuses   *application.StatusApp
 	Releases   *application.ReleaseApp
+	Actions    *application.ActionsApp
 }
 
 type ghUser struct {
@@ -71,6 +72,7 @@ func Setup(c Controller, app *fiber.App) {
 	// Refs may contain slashes: /commits/<ref>/status and /commits/<ref>/statuses.
 	g.Get("/commits/*", c.commits)
 	setupReleases(c, app)
+	setupArtifacts(c, app)
 }
 
 func (c Controller) base() string {
