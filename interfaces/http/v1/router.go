@@ -95,7 +95,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 
 	notifications.Setup(notifications.Controller{Logger: deps.Logger, Notifications: deps.NotificationApp}, grp, repoGrp)
 
-	actions.Setup(actions.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Actions: deps.ActionsApp}, grp, repoGrp)
+	actions.Setup(actions.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Actions: deps.ActionsApp}, grp, repoGrp, deps.Http.Fiber)
 
 	site.Setup(site.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, RepositoryApp: deps.RepoApp}, grp)
 }

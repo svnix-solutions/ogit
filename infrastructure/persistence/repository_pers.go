@@ -74,6 +74,9 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Exec("DELETE FROM thread_mute WHERE thread_id IN (SELECT thread_id FROM notification WHERE repository_id = ?)", id).Error; err != nil {
 			return err
 		}
+		if err := tx.Exec("DELETE FROM action_artifact_block WHERE artifact_id IN (SELECT id FROM action_artifact WHERE repository_id = ?)", id).Error; err != nil {
+			return err
+		}
 		for _, table := range []string{"action_log", "action_job"} {
 			if err := tx.Exec("DELETE FROM "+table+" WHERE run_id IN (SELECT id FROM action_run WHERE repository_id = ?)", id).Error; err != nil {
 				return err
@@ -90,7 +93,7 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.ActionSchedule{}).Error; err != nil {
 			return err
 		}
-		for _, model := range []any{&domain.ReleaseAsset{}, &domain.Release{}, &domain.ProtectedTag{}, &domain.Notification{}, &domain.RepositoryWatch{}, &domain.LFSLock{}, &domain.ActionRun{}} {
+		for _, model := range []any{&domain.ReleaseAsset{}, &domain.Release{}, &domain.ProtectedTag{}, &domain.Notification{}, &domain.RepositoryWatch{}, &domain.LFSLock{}, &domain.ActionArtifact{}, &domain.ActionRun{}} {
 			if err := tx.Where("repository_id = ?", id).Delete(model).Error; err != nil {
 				return err
 			}

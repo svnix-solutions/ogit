@@ -24,6 +24,18 @@ export type Run = {
   finished_at: string | null;
 };
 
+export type Artifact = { id: number; name: string; size: number; created_at: string; expires_at: string; download_url: string };
+
+// useArtifacts lists a run's artifacts; done: the run is over (no more
+// will come), so polling stops.
+export function useArtifacts(fullPath: string, number: number, done: boolean) {
+  return useQuery({
+    queryKey: [...actionsKey(fullPath), "artifacts", number],
+    queryFn: async () => (await api<{ artifacts: Artifact[] }>("GET", `${actionsBase(fullPath)}/runs/${number}/artifacts`)).artifacts,
+    refetchInterval: done ? false : 5_000,
+  });
+}
+
 export type Job = { name: string; status: string; started_at: string | null; finished_at: string | null };
 
 export type WorkflowInput = { name: string; description: string; required: boolean; default: string; type: string; options: string[] };

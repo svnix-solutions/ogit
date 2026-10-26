@@ -5,7 +5,9 @@ package server
 import (
 	"context"
 	"net/http"
+	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,5 +114,56 @@ jobs:
 		log := logs["log"].(string)
 		assert.Contains(t, log, "pr refs/pull/1/merge from topic into main secret=***")
 		assert.NotContains(t, log, "hunter2")
+	})
+
+	t.Run("artifacts", func(t *testing.T) {
+		node := opts
+		node.Platforms = map[string]string{"ubuntu-latest": "node:20-alpine"}
+		pushFiles(t, url, owner.git, "main", "artifacts", map[string]string{".github/workflows/ci.yml": `on: push
+defaults:
+  run:
+    shell: sh
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: mkdir -p out/sub && echo "hello artifact" > out/a.txt && head -c 300000 /dev/urandom > out/sub/blob.bin && sha256sum out/sub/blob.bin | cut -d' ' -f1 > sum.txt
+      - uses: ogit/upload-artifact@v4
+        with:
+          name: out
+          path: out
+      - uses: ogit/upload-artifact@v4
+        with:
+          name: sum
+          path: sum.txt
+  use:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ogit/download-artifact@v4
+        with:
+          path: got
+      - run: cat got/out/a.txt && test "$(sha256sum got/out/sub/blob.bin | cut -d' ' -f1)" = "$(cat got/sum/sum.txt)" && echo "checksums match"
+`})
+		task, err := runner.Fetch(context.Background(), []string{"ubuntu-latest"}, "test", 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, task)
+		if runtime.GOOS == "darwin" {
+			// Docker Desktop: job containers reach the host by this name.
+			task.ServerURL = strings.Replace(task.ServerURL, "127.0.0.1", "host.docker.internal", 1)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		status := actrunner.Execute(ctx, runner, task, node)
+		_, logs := srv.get(t, actionsAPI("owner/app")+"/runs/"+strconv.Itoa(task.Number)+"/logs", owner.session)
+		require.Equal(t, "success", status, "%v", logs["log"])
+		assert.Contains(t, logs["log"], "hello artifact")
+		assert.Contains(t, logs["log"], "checksums match")
+		_, body := srv.get(t, actionsAPI("owner/app")+"/runs/"+strconv.Itoa(task.Number)+"/artifacts", owner.session)
+		names := []string{}
+		for _, a := range body["artifacts"].([]any) {
+			names = append(names, a.(map[string]any)["name"].(string))
+		}
+		assert.Equal(t, []string{"out", "sum"}, names)
 	})
 }

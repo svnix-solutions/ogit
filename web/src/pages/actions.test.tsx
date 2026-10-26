@@ -171,6 +171,22 @@ describe("actions", () => {
     expect(within(secrets).queryByText("s3cret")).not.toBeInTheDocument();
   });
 
+  it("lists a run's artifacts with downloads, and deletes them for writers", async () => {
+    const fetch = fakeAPI({
+      ...base("developer"),
+      [`${A}/runs/7`]: { ...run(), jobs: [] },
+      [`${A}/runs/7/logs?from=1`]: { log: "", next: 1, done: true },
+      [`${A}/runs/7/artifacts`]: { artifacts: [{ id: 42, name: "dist", size: 2048, created_at: "2026-01-02T00:00:00Z", expires_at: "2026-04-02T00:00:00Z", download_url: "/x" }] },
+      [`DELETE ${A}/artifacts/42`]: { message: "artifact deleted" },
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderRoutes(routes, "/acme/app/actions/runs/7");
+    expect(await screen.findByRole("link", { name: "dist" })).toHaveAttribute("href", "/api/v1/repository/acme%2Fapp/actions/artifacts/42/zip");
+    expect(screen.getByText(/2.0 KB · expires/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Delete artifact dist" }));
+    await waitFor(() => expect(sent(fetch, "DELETE", `${A}/artifacts/42`)).toHaveLength(1));
+  });
+
   it("formats durations", () => {
     expect(duration("2026-01-01T00:00:00Z", "2026-01-01T00:00:09Z")).toBe("9s");
     expect(duration("2026-01-01T00:00:00Z", "2026-01-01T01:02:00Z")).toBe("1h 2m");

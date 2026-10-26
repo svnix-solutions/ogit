@@ -14,17 +14,33 @@ import (
 // Release assets are stored at <repository key>/release-assets/<id>, so
 // DeleteRepository removes them; nothing else lists that prefix.
 
-func (s3s *S3Storage) assetKey(repoPath, id string) (string, error) {
-	if id == "" || strings.ContainsAny(id, "/\\") || id == "." || id == ".." {
-		return "", errors.New("invalid asset id")
+// Actions artifacts and cache entries use the same layout:
+// <repository key>/<area>/<id>.
+func (s3s *S3Storage) areaKey(repoPath, area, id string) (string, error) {
+	if !storageAreas[area] || id == "" || strings.ContainsAny(id, "/\\") || id == "." || id == ".." {
+		return "", errors.New("invalid file id")
 	}
-	return s3s.getRepoKey(repoPath) + "/release-assets/" + id, nil
+	return s3s.getRepoKey(repoPath) + "/" + area + "/" + id, nil
+}
+
+var storageAreas = map[string]bool{"release-assets": true, "artifacts": true, "actions-cache": true}
+
+func (s3s *S3Storage) PutAsset(repoPath, id string, r io.Reader) error {
+	return s3s.PutFile(repoPath, "release-assets", id, r)
+}
+
+func (s3s *S3Storage) OpenAsset(repoPath, id string) (io.ReadCloser, error) {
+	return s3s.OpenFile(repoPath, "release-assets", id)
+}
+
+func (s3s *S3Storage) DeleteAsset(repoPath, id string) error {
+	return s3s.DeleteFile(repoPath, "release-assets", id)
 }
 
 // PutAsset stages r in a temporary file (S3 needs the length up front),
 // then uploads it.
-func (s3s *S3Storage) PutAsset(repoPath, id string, r io.Reader) error {
-	key, err := s3s.assetKey(repoPath, id)
+func (s3s *S3Storage) PutFile(repoPath, area, id string, r io.Reader) error {
+	key, err := s3s.areaKey(repoPath, area, id)
 	if err != nil {
 		return err
 	}
@@ -49,8 +65,8 @@ func (s3s *S3Storage) PutAsset(repoPath, id string, r io.Reader) error {
 	return err
 }
 
-func (s3s *S3Storage) OpenAsset(repoPath, id string) (io.ReadCloser, error) {
-	key, err := s3s.assetKey(repoPath, id)
+func (s3s *S3Storage) OpenFile(repoPath, area, id string) (io.ReadCloser, error) {
+	key, err := s3s.areaKey(repoPath, area, id)
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +77,8 @@ func (s3s *S3Storage) OpenAsset(repoPath, id string) (io.ReadCloser, error) {
 	return out.Body, nil
 }
 
-func (s3s *S3Storage) DeleteAsset(repoPath, id string) error {
-	key, err := s3s.assetKey(repoPath, id)
+func (s3s *S3Storage) DeleteFile(repoPath, area, id string) error {
+	key, err := s3s.areaKey(repoPath, area, id)
 	if err != nil {
 		return err
 	}

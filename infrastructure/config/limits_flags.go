@@ -36,6 +36,31 @@ func LFSFlags(cfg *Config) []cli.Flag {
 	}
 }
 
+func ActionsFlags(cfg *Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.IntFlag{
+			Name:        "actions.artifact_retention_days",
+			Usage:       "Days Actions artifacts are kept (a workflow's retention-days can only shorten it)",
+			Value:       90,
+			Destination: &cfg.Actions.ArtifactRetentionDays,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("ACTIONS_ARTIFACT_RETENTION_DAYS"),
+				altsrcyaml.YAML("actions.artifact_retention_days", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+		&cli.Int64Flag{
+			Name:        "actions.max_artifact_size",
+			Usage:       "Largest Actions artifact accepted, in bytes (uploads are streamed)",
+			Value:       2 << 30,
+			Destination: &cfg.Actions.MaxArtifactSize,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("ACTIONS_MAX_ARTIFACT_SIZE"),
+				altsrcyaml.YAML("actions.max_artifact_size", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+	}
+}
+
 func ReleaseFlags(cfg *Config) []cli.Flag {
 	return []cli.Flag{
 		&cli.Int64Flag{

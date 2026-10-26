@@ -13,8 +13,9 @@ import (
 // and git pushes (git.max_push_size).
 var streamedRoutes = regexp.MustCompile(`^(/api/(v1/repository/[^/]+|v3/repos/[^/]+/[^/]+|uploads/repos/[^/]+/[^/]+)/releases/[^/]+/assets/?|/[^/]+/[^/]+/git-receive-pack)$`)
 
-// lfsUploadRoute: Git LFS object uploads (lfs.max_object_size).
-var lfsUploadRoute = regexp.MustCompile(`^/[^/]+/[^/]+/info/lfs/objects/[0-9a-f]{64}$`)
+// lfsUploadRoute: PUT uploads that are streamed: Git LFS objects
+// (lfs.max_object_size) and Actions artifacts (actions.max_artifact_size).
+var lfsUploadRoute = regexp.MustCompile(`^/[^/]+/[^/]+/info/lfs/objects/[0-9a-f]{64}$|^/twirp/github\.actions\.results\.api\.v1\.ArtifactService/UploadArtifact$`)
 
 // bodyLimit restores the BodyLimit that StreamRequestBody lifts: fasthttp
 // streams bodies over the limit (and chunked ones) instead of refusing

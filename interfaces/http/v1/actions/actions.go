@@ -137,7 +137,7 @@ type MessageResponse struct {
 	Message string `json:"message"`
 }
 
-func Setup(c Controller, grp, repoGrp *fiberoapi.OApiGroup) {
+func Setup(c Controller, grp, repoGrp *fiberoapi.OApiGroup, app *fiber.App) {
 	tags := []string{"Actions"}
 	private := func(summary, id, desc string) fiberoapi.OpenAPIOptions {
 		return fiberoapi.OpenAPIOptions{Summary: summary, OperationID: id, Tags: tags, Description: desc}
@@ -160,6 +160,7 @@ func Setup(c Controller, grp, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Get(repoGrp, "/:identifier/actions/runs/:number", c.Run, public("Get a workflow run", "actions.run", "With its jobs."))
 	fiberoapi.Get(repoGrp, "/:identifier/actions/runs/:number/logs", c.Logs, public("Read a run's log", "actions.logs", "?from= the next value of the previous call: the log so far, then what follows."))
 	setupSecrets(c, grp, repoGrp)
+	setupArtifacts(c, repoGrp, app)
 	fiberoapi.Get(repoGrp, "/:identifier/actions/workflows", c.Workflows, public("List workflows", "actions.workflows",
 		"The default branch's workflows, with their workflow_dispatch inputs, and whether the repository uses Actions."))
 	fiberoapi.Post(repoGrp, "/:identifier/actions/runs/:number/rerun", c.Rerun, private("Re-run a workflow run", "actions.rerun",

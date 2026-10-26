@@ -6,6 +6,7 @@ import (
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/labbs/ogit/domain"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type actionsPers struct{ db *gorm.DB }
@@ -80,7 +81,7 @@ func (p *actionsPers) TouchRunner(id, labels, version string, at time.Time) erro
 }
 
 func (p *actionsPers) CreateRun(r *domain.ActionRun) error {
-	r.Id = utils.UUIDv4()
+	r.Id, r.ApiId = utils.UUIDv4(), newApiId()
 	return p.db.Transaction(func(tx *gorm.DB) error {
 		res := tx.Exec("UPDATE repository SET last_run_number = last_run_number + 1 WHERE id = ?", r.RepositoryId)
 		if res.Error != nil {
@@ -312,4 +313,85 @@ func (p *actionsPers) HasMergedPull(repositoryId, userId string) (bool, error) {
 	var n int64
 	err := p.db.Model(&domain.PullRequest{}).Where("repository_id = ? AND author_id = ? AND state = ?", repositoryId, userId, domain.PullRequestMerged).Count(&n).Error
 	return n > 0, err
+}
+
+func (p *actionsPers) CreateArtifact(a *domain.ActionArtifact) error {
+	a.Id, a.ApiId = utils.UUIDv4(), newApiId()
+	return p.db.Create(a).Error
+}
+
+func (p *actionsPers) Artifact(runId, name string) (*domain.ActionArtifact, error) {
+	var a domain.ActionArtifact
+	if err := p.db.Where("run_id = ? AND name = ?", runId, name).First(&a).Error; err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (p *actionsPers) ArtifactByApiId(repositoryId string, apiId int64) (*domain.ActionArtifact, error) {
+	var a domain.ActionArtifact
+	if err := p.db.Where("repository_id = ? AND api_id = ?", repositoryId, apiId).First(&a).Error; err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (p *actionsPers) Artifacts(runId string) ([]domain.ActionArtifact, error) {
+	var out []domain.ActionArtifact
+	err := p.db.Where("run_id = ? AND ready = ?", runId, true).Order("name").Find(&out).Error
+	return out, err
+}
+
+func (p *actionsPers) ArtifactById(id string) (*domain.ActionArtifact, error) {
+	var a domain.ActionArtifact
+	if err := p.db.Where("id = ?", id).First(&a).Error; err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (p *actionsPers) SetArtifactSize(id string, size int64) error {
+	return p.db.Model(&domain.ActionArtifact{}).Where("id = ?", id).Update("size", size).Error
+}
+
+func (p *actionsPers) AddArtifactBlock(artifactId, blockId string) error {
+	return p.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&domain.ActionArtifactBlock{ArtifactId: artifactId, BlockId: blockId}).Error
+}
+
+func (p *actionsPers) ArtifactBlocks(artifactId string) ([]string, error) {
+	var out []string
+	err := p.db.Model(&domain.ActionArtifactBlock{}).Where("artifact_id = ?", artifactId).Pluck("block_id", &out).Error
+	return out, err
+}
+
+func (p *actionsPers) ForgetArtifactBlocks(artifactId string) error {
+	return p.db.Where("artifact_id = ?", artifactId).Delete(&domain.ActionArtifactBlock{}).Error
+}
+
+func (p *actionsPers) MarkArtifactReady(id string, size int64) error {
+	return p.db.Model(&domain.ActionArtifact{}).Where("id = ?", id).Updates(map[string]any{"ready": true, "size": size}).Error
+}
+
+func (p *actionsPers) DeleteArtifact(id string) error {
+	return p.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("artifact_id = ?", id).Delete(&domain.ActionArtifactBlock{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&domain.ActionArtifact{}).Error
+	})
+}
+
+func (p *actionsPers) ExpiredArtifacts(now time.Time, limit int) ([]domain.ActionArtifact, error) {
+	var out []domain.ActionArtifact
+	// Uploads never finalized go after a day.
+	err := p.db.Where("expires_at < ? OR (ready = ? AND created_at < ?)", now, false, now.Add(-24*time.Hour)).Order("expires_at").Limit(limit).Find(&out).Error
+	return out, err
+}
+
+func (p *actionsPers) RunByApiId(repositoryId string, apiId int64) (*domain.ActionRun, error) {
+	var r domain.ActionRun
+	if err := p.db.Where("repository_id = ? AND api_id = ?", repositoryId, apiId).First(&r).Error; err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
