@@ -185,3 +185,32 @@ func basicAuth(user, pass string) map[string]string {
 	req.SetBasicAuth(user, pass)
 	return map[string]string{"Authorization": req.Header.Get("Authorization")}
 }
+
+func TestGoProxySubgroups(t *testing.T) {
+	srv := startTestServer(t, withGoHost)
+	alice := srv.newUser(t, "alice")
+	status, body := srv.post(t, "/api/v1/group", alice.session, map[string]any{"name": "org"})
+	require.Equal(t, http.StatusOK, status, "%v", body)
+	status, body = srv.subgroup(t, alice, "org", "team")
+	require.Equal(t, http.StatusOK, status, "%v", body)
+	for name, private := range map[string]bool{"Lib": false, "Secret": true} {
+		status, body = srv.createIn(t, alice, "org/team", name, private)
+		require.Equal(t, http.StatusOK, status, "%v", body)
+	}
+	url := srv.url + "/org/team/lib.git"
+	pushFiles(t, url, alice.git, "main", "v1", map[string]string{"go.mod": "module " + goHost + "/org/team/lib\n", "lib.go": "package lib\n"})
+	pushTag(t, url, alice, "main", "v1.0.0")
+
+	status, _, data := fetch(t, srv.url+"/api/packages/go/"+goHost+"/org/team/lib/@v/list", nil)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "v1.0.0\n", string(data))
+	status, _, _ = fetch(t, srv.url+"/api/packages/go/"+goHost+"/org/team/lib/@v/v1.0.0.zip", nil)
+	assert.Equal(t, http.StatusOK, status)
+
+	meta := func(path string) string {
+		_, _, data := fetch(t, srv.url+path+"?go-get=1", nil)
+		return string(data)
+	}
+	assert.Contains(t, meta("/org/team/lib/sub/pkg"), `content="`+goHost+`/org/team/lib mod `, "the repository is the module root")
+	assert.Contains(t, meta("/org/team/secret/pkg"), `content="`+goHost+`/org/team mod `, "a private repository: the answer says nothing about it")
+}

@@ -5,11 +5,15 @@ package dtos
 type CreateGroupRequest struct {
 	Name        string `json:"name" validate:"required"`
 	Description string `json:"description"`
+	// Parent makes a sub-group of this group (its path or id): the new
+	// group's path is <parent>/<name>.
+	Parent string `json:"parent"`
 }
 
 type GroupResponse struct {
 	Id          string `json:"id"`
-	Name        string `json:"name"`
+	Name        string `json:"name"` // the full path, org/team for a sub-group
+	Parent      string `json:"parent,omitempty"`
 	Description string `json:"description"`
 	Role        string `json:"role,omitempty"` // the caller's role in the group
 	// RequireTwoFactor: members without 2FA get no access to the group's
@@ -33,6 +37,9 @@ type GroupRequest struct {
 type MemberResponse struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
+	// InheritedFrom: the ancestor group the role comes from (a member of
+	// it); empty for the group's own members.
+	InheritedFrom string `json:"inherited_from,omitempty"`
 	// TwoFactorEnabled is only shown to owners and maintainers.
 	TwoFactorEnabled *bool `json:"two_factor_enabled,omitempty"`
 }
@@ -65,4 +72,8 @@ type TransferRequest struct {
 
 type MessageResponse struct {
 	Message string `json:"message"`
+}
+
+type ListSubgroupsResponse struct {
+	Groups []GroupResponse `json:"groups"`
 }

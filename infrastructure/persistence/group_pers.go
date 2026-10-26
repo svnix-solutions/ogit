@@ -1,6 +1,8 @@
 package persistence
 
 import (
+	"strings"
+
 	"github.com/labbs/ogit/domain"
 	"gorm.io/gorm"
 )
@@ -32,6 +34,56 @@ func (g *groupPers) GetByName(name string) (*domain.Group, error) {
 	var group domain.Group
 	err := g.db.Where("name = ?", name).First(&group).Error
 	return &group, err
+}
+
+func (g *groupPers) GetByNames(names []string) ([]domain.Group, error) {
+	var groups []domain.Group
+	if len(names) == 0 {
+		return groups, nil
+	}
+	err := g.db.Where("name IN ?", names).Order("name").Find(&groups).Error
+	return groups, err
+}
+
+func (g *groupPers) GetByIds(ids []string) ([]domain.Group, error) {
+	var groups []domain.Group
+	if len(ids) == 0 {
+		return groups, nil
+	}
+	err := g.db.Where("id IN ?", ids).Order("name").Find(&groups).Error
+	return groups, err
+}
+
+// likePrefix escapes a path for LIKE (names may contain '_').
+func likePrefix(path string) string {
+	return strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(path) + "/%"
+}
+
+func (g *groupPers) Descendants(path string) ([]domain.Group, error) {
+	var groups []domain.Group
+	err := g.db.Where(`name LIKE ? ESCAPE '\'`, likePrefix(path)).Order("name").Find(&groups).Error
+	return groups, err
+}
+
+func (g *groupPers) Children(parentId string) ([]domain.Group, error) {
+	var groups []domain.Group
+	err := g.db.Where("parent_id = ?", parentId).Order("name").Find(&groups).Error
+	return groups, err
+}
+
+func (g *groupPers) MembershipsOf(userId string) ([]domain.GroupMember, error) {
+	var members []domain.GroupMember
+	err := g.db.Where("user_id = ?", userId).Find(&members).Error
+	return members, err
+}
+
+func (g *groupPers) MembershipsIn(userId string, groupIds []string) ([]domain.GroupMember, error) {
+	var members []domain.GroupMember
+	if len(groupIds) == 0 {
+		return members, nil
+	}
+	err := g.db.Where("user_id = ? AND group_id IN ?", userId, groupIds).Find(&members).Error
+	return members, err
 }
 
 // Delete removes dependent rows explicitly: sqlite does not enforce the

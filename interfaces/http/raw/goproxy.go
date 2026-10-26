@@ -137,11 +137,41 @@ func (c Controller) goGet(ctx *fiber.Ctx) error {
 	if len(parts) < 2 || domain.ValidNamespaceName(parts[0]) != nil || parts[1] == "" {
 		return ctx.Next()
 	}
-	root := c.GoProxy.Host(ctx.Hostname()) + "/" + parts[0] + "/" + strings.TrimSuffix(parts[1], ".git")
+	repo := parts[0] + "/" + strings.TrimSuffix(parts[1], ".git")
+	if nested := c.nestedRepo(ctx, parts); nested != "" {
+		repo = nested
+	}
+	root := c.GoProxy.Host(ctx.Hostname()) + "/" + repo
 	proxy := ctx.BaseURL() + "/api/packages/go"
 	if u := strings.TrimSuffix(c.GoProxy.Config.Server.PublicURL, "/"); u != "" {
 		proxy = u + "/api/packages/go"
 	}
 	ctx.Set(fiber.HeaderContentType, "text/html; charset=utf-8")
 	return ctx.SendString(`<!doctype html><html><head><meta name="go-import" content="` + html.EscapeString(root+" mod "+proxy) + `"></head><body>go get ` + html.EscapeString(root) + `</body></html>`)
+}
+
+// nestedRepo is the path of a sub-group's repository the go-get path is
+// in (the deepest group among its leading segments, then one more), if the
+// caller can read it; "" otherwise, so the answer discloses nothing.
+func (c Controller) nestedRepo(ctx *fiber.Ctx, parts []string) string {
+	var prefixes []string
+	for i := 2; i < len(parts) && i <= domain.MaxGroupDepth; i++ {
+		prefixes = append(prefixes, strings.Join(parts[:i], "/"))
+	}
+	if len(prefixes) == 0 {
+		return ""
+	}
+	groups, err := c.BrowseApp.Repositories.GroupPers.GetByNames(prefixes)
+	if err != nil || len(groups) == 0 {
+		return ""
+	}
+	depth := 0
+	for _, g := range groups {
+		depth = max(depth, strings.Count(g.Name, "/")+1)
+	}
+	candidate := strings.Join(parts[:depth], "/") + "/" + strings.TrimSuffix(parts[depth], ".git")
+	if _, _, _, err := c.openPath(ctx, candidate); err != nil {
+		return ""
+	}
+	return candidate
 }

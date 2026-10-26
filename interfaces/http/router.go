@@ -10,6 +10,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/packages"
 	"github.com/labbs/ogit/interfaces/http/raw"
 	"github.com/labbs/ogit/interfaces/http/registry"
+	"github.com/labbs/ogit/interfaces/http/repopath"
 	"github.com/labbs/ogit/interfaces/http/runner"
 	v1 "github.com/labbs/ogit/interfaces/http/v1"
 	"github.com/labbs/ogit/interfaces/http/websession"
@@ -20,7 +21,17 @@ func SetupRoutes(deps infrastructure.Deps) {
 	logger := deps.Logger.With().Str("component", "http.router").Logger()
 	logger.Info().Str("event", "setup_routes").Msg("Setting up HTTP routes")
 
-	// First: bodies over the usual limit only reach the upload routes.
+	// First: sub-groups' repository URLs (/org/team/app.git/...) take the
+	// repository routes, rewritten (so the body limit below sees them too).
+	deps.Http.Fiber.Use(repopath.Middleware(func(paths []string) ([]string, error) {
+		groups, err := deps.GroupApp.GroupPers.GetByNames(paths)
+		names := make([]string, 0, len(groups))
+		for _, g := range groups {
+			names = append(names, g.Name)
+		}
+		return names, err
+	}))
+	// Bodies over the usual limit only reach the upload routes.
 	deps.Http.Fiber.Use(bodyLimit(deps.Http.Fiber.Config().BodyLimit))
 
 	// Before any /api/v1 route: turns the web UI's cookie into a bearer token.

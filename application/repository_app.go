@@ -96,6 +96,9 @@ func (c *RepositoryApp) create(namespace, creator string, tmpl *domain.Repositor
 		ForkOfId:      tmpl.ForkOfId,
 	}
 
+	if err := groupAtPath(c.GroupPers, ns.Path, repoSlug); err != nil {
+		return nil, err
+	}
 	err = c.RepoPres.Create(repo)
 	if helperError.Catch(err) == gorm.ErrDuplicatedKey {
 		return nil, ErrRepositoryNameTaken
@@ -242,10 +245,7 @@ func (c *RepositoryApp) GetUserEffectiveRole(repositoryId, userId string) (domai
 		return domain.AccessTypeNone, err
 	}
 
-	groupIds, err := c.GroupPers.GroupIdsForUser(userId)
-	if err == nil {
-		groupIds, err = c.usableGroups(userId, groupIds)
-	}
+	groupIds, err := c.effectiveGroupIds(userId)
 	if err != nil {
 		logger.Error().Err(err).Str("user_id", userId).Msg("failed to get user groups")
 		return domain.AccessTypeNone, err

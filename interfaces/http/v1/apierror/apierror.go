@@ -27,6 +27,8 @@ var mapping = []struct {
 	{application.ErrInvalidMember, fiber.StatusBadRequest, "INVALID_MEMBER"},
 	{application.ErrAlreadyMember, fiber.StatusConflict, "ALREADY_MEMBER"},
 	{application.ErrGroupNameTaken, fiber.StatusConflict, "GROUP_NAME_TAKEN"},
+	{application.ErrGroupHasSubgroups, fiber.StatusConflict, "GROUP_HAS_SUBGROUPS"},
+	{application.ErrInheritedRole, fiber.StatusConflict, "INHERITED_ROLE"},
 	{application.ErrLastOwner, fiber.StatusConflict, "LAST_OWNER"},
 	{application.ErrOwnerMustTransfer, fiber.StatusConflict, "OWNER_MUST_TRANSFER"},
 	{application.ErrLastAdmin, fiber.StatusConflict, "LAST_ADMIN"},

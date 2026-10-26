@@ -8,6 +8,7 @@ package ghcompat
 
 import (
 	"errors"
+	"github.com/labbs/ogit/interfaces/http/repopath"
 	"strings"
 	"time"
 
@@ -101,7 +102,7 @@ func (c Controller) failWith(ctx *fiber.Ctx, err error) error {
 
 func (c Controller) caller(ctx *fiber.Ctx) (application.StatusCaller, *string, error) {
 	caller, err := optauth.Caller(ctx, c.SessionApp, c.TokenApp, c.Limits)
-	path := ctx.Params("owner") + "/" + strings.TrimSuffix(ctx.Params("repo"), ".git")
+	path := repopath.Path(ctx)
 	return caller, &path, err
 }
 

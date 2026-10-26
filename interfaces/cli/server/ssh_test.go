@@ -269,14 +269,19 @@ func TestSSHAccessRules(t *testing.T) {
 	})
 
 	t.Run("bad_commands", func(t *testing.T) {
-		for _, cmd := range []string{"git-upload-pack '../etc'", "git-upload-pack 'owner/../etc.git'", "git-upload-pack '../owner/private-repo.git'", "git-upload-pack 'owner/private-repo/x.git'", "ls -la", "git-upload-archive 'owner/private-repo.git'"} {
+		for _, cmd := range []string{"git-upload-pack '../etc'", "git-upload-pack 'owner/../etc.git'", "git-upload-pack '../owner/private-repo.git'", "git-upload-pack 'a/b/c/d/e/f/x.git'", "ls -la", "git-upload-archive 'owner/private-repo.git'"} {
 			out, err := ownerGit.ssh("git", cmd)
 			assert.Error(t, err, cmd)
 			assert.Contains(t, out, "oGit only serves git-upload-pack and git-receive-pack", cmd)
 		}
 
+		// A sub-group's path is well-formed: an unknown one is not found.
+		out, err := ownerGit.ssh("git", "git-upload-pack 'owner/private-repo/x.git'")
+		assert.Error(t, err)
+		assert.Contains(t, out, "not found")
+
 		// Flat paths are the pre-namespace form: rejected with a hint.
-		out, err := ownerGit.ssh("git", "git-upload-pack 'private-repo.git'")
+		out, err = ownerGit.ssh("git", "git-upload-pack 'private-repo.git'")
 		assert.Error(t, err)
 		assert.Contains(t, out, "<owner>/<name>", "flat paths point to the new form")
 
