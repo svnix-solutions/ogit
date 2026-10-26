@@ -7,7 +7,7 @@ storage (local filesystem or any S3-compatible object store).
 
 - **Git Smart HTTP**: clone, fetch and push with any git client
 - **Users and sessions**: registration and login with JWT sessions, plus a configurable registration policy
-- **Two-factor authentication**: authenticator apps (TOTP) with recovery codes, and re-confirmation before sensitive actions
+- **Two-factor authentication**: authenticator apps (TOTP), security keys and passkeys (WebAuthn, including passwordless sign-in), recovery codes, and re-confirmation before sensitive actions
 - **Access control**: public and private repositories, per-repository roles (owner, maintainer, developer, reporter), and personal access tokens with `read:repository` / `write:repository` scopes
 - **Storage backends**: local filesystem, or S3-compatible object storage (AWS S3, MinIO, Outscale, ...)
 - **Database**: SQLite or PostgreSQL
@@ -522,7 +522,8 @@ They get 10 single-use recovery codes, shown once. The server needs
 it, since changing it turns app codes off for everyone (recovery codes still
 work).
 
-- Signing in with 2FA: `POST /api/v1/auth/login` answers `{"two_factor_required": true, "challenge": "…"}`. Send `POST /api/v1/auth/login/2fa {"challenge": "…", "code": "123456"}` (or a recovery code) within 5 minutes; 5 wrong codes end the attempt, and wrong codes count as failed logins. The web UI does the same with `/auth/session` and `/auth/session/2fa`.
+- **Security keys and passkeys** (WebAuthn) are added in the settings too; they need `http.public_url`, whose host is the relying party, so keys only work on that address. A key added as a passkey verifies the user (PIN, biometrics) and can also sign in without the password ("Sign in with a passkey"), which counts as both factors. The first second factor (app or key) comes with the recovery codes; removing the last one turns 2FA off. A key whose signature counter goes backwards (a clone) is refused.
+- Signing in with 2FA: `POST /api/v1/auth/login` answers `{"two_factor_required": true, "challenge": "…", "methods": ["totp", "webauthn"]}`. With a key, `POST /api/v1/auth/login/2fa/webauthn {"challenge"}` returns WebAuthn options, and the browser's answer goes to `/auth/login/2fa` as `credential` with the `ceremony`. Send `POST /api/v1/auth/login/2fa {"challenge": "…", "code": "123456"}` (or a recovery code) within 5 minutes; 5 wrong codes end the attempt, and wrong codes count as failed logins. The web UI does the same with `/auth/session` and `/auth/session/2fa`.
 - **Sudo mode:** turning 2FA off, new recovery codes, new access tokens, SSH and deploy keys, repository tokens, and resetting someone's 2FA need a session confirmed in the last 10 minutes. Otherwise they answer 403 `SUDO_REQUIRED`. Signing in counts; `POST /api/v1/auth/sudo` confirms again with `{"code": …}` (or `{"password": …}` without 2FA). The web UI asks automatically.
 - Access tokens and SSH keys keep working for git and CI without codes.
 - Users are emailed (when SMTP is set) when 2FA is turned on or off, or reset by an admin.

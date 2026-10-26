@@ -24,8 +24,8 @@ func (ctrl Controller) LoginTwoFactor(ctx *fiber.Ctx, req dtos.TwoFactorLoginReq
 	if r, blocked := ctrl.Limits.LoginBlocked(ctx.UserContext(), ip, user.Email); blocked {
 		return nil, ratelimit.Refused(ctx, r)
 	}
-	resp, err := ctrl.AuthApp.CompleteTwoFactorLogin(req.Challenge, req.Code)
-	if errors.Is(err, application.ErrInvalidCode) {
+	resp, err := ctrl.AuthApp.CompleteTwoFactorLogin(req.Challenge, req.Code, key(req.Ceremony, req.Credential))
+	if errors.Is(err, application.ErrInvalidCode) || errors.Is(err, application.ErrInvalidKey) {
 		ctrl.Limits.LoginFailed(ctx.UserContext(), ip, user.Email)
 	}
 	if err != nil {
@@ -66,8 +66,8 @@ func (ctrl Controller) Sudo(ctx *fiber.Ctx, req dtos.SudoRequest) (*dtos.SudoRes
 	if r, blocked := ctrl.Limits.LoginBlocked(ctx.UserContext(), ip, user.Email); blocked {
 		return nil, ratelimit.Refused(ctx, r)
 	}
-	until, err := ctrl.AuthApp.TwoFactor.Sudo(auth, req.Code, req.Password)
-	if errors.Is(err, application.ErrInvalidCode) || errors.Is(err, application.ErrInvalidCredentials) {
+	until, err := ctrl.AuthApp.TwoFactor.Sudo(auth, req.Code, req.Password, key(req.Ceremony, req.Credential))
+	if errors.Is(err, application.ErrInvalidCode) || errors.Is(err, application.ErrInvalidCredentials) || errors.Is(err, application.ErrInvalidKey) {
 		ctrl.Limits.LoginFailed(ctx.UserContext(), ip, user.Email)
 	}
 	if err != nil {

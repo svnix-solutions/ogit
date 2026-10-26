@@ -6,7 +6,9 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/lib/api";
-import { useLogin, useLoginCode } from "@/lib/auth";
+import { useLogin, useLoginCode, usePasskeyLogin } from "@/lib/auth";
+import { useInstance } from "@/lib/queries";
+import { keyError, loginKey, passkeyAnswer, webauthnSupported } from "@/lib/webauthn";
 
 // Only same-site paths: ?next= must not send the user to another site.
 export function safeNext(next: string | null): string {
@@ -14,10 +16,20 @@ export function safeNext(next: string | null): string {
 }
 
 // CodeStep is the second step for accounts with two-factor authentication.
-function CodeStep({ challenge, onDone, onRestart }: { challenge: string; onDone: () => void; onRestart: () => void }) {
+function CodeStep({ challenge, methods, onDone, onRestart }: { challenge: string; methods: string[]; onDone: () => void; onRestart: () => void }) {
   const [code, setCode] = useState("");
+  const [keyFailed, setKeyFailed] = useState("");
   const verify = useLoginCode();
   const err = verify.error instanceof ApiError ? verify.error : null;
+  const useKey = methods.includes("webauthn") && webauthnSupported();
+  const tryKey = async () => {
+    setKeyFailed("");
+    try {
+      verify.mutate({ challenge, ...(await loginKey(challenge)) }, { onSuccess: onDone });
+    } catch (e) {
+      setKeyFailed(keyError(e));
+    }
+  };
   return (
     <div className="mx-auto max-w-sm pt-8">
       <h1 className="mb-6 text-center text-2xl font-semibold">Two-factor authentication</h1>
@@ -29,10 +41,13 @@ function CodeStep({ challenge, onDone, onRestart }: { challenge: string; onDone:
             verify.mutate({ challenge, code }, { onSuccess: onDone });
           }}
         >
+          {keyFailed && <Alert variant="destructive">{keyFailed}</Alert>}
           {err && (
             <Alert variant="destructive">
               {err.type === "INVALID_CODE"
                 ? "That code didn't work. Try the current one, or a recovery code."
+                : err.type === "INVALID_KEY"
+                  ? "The security key wasn't accepted. Try again, or use a code."
                 : err.type === "CHALLENGE_EXPIRED"
                   ? "This sign-in expired. Start again."
                   : err.message}
@@ -45,7 +60,7 @@ function CodeStep({ challenge, onDone, onRestart }: { challenge: string; onDone:
           ) : (
             <>
               <div className="space-y-1.5">
-                <Label htmlFor="code">Authentication code</Label>
+                <Label htmlFor="code">{methods.includes("totp") || !useKey ? "Authentication code" : "Recovery code"}</Label>
                 <Input
                   id="code"
                   autoFocus
@@ -55,11 +70,18 @@ function CodeStep({ challenge, onDone, onRestart }: { challenge: string; onDone:
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">From your authenticator app. Lost it? Use one of your recovery codes.</p>
+                <p className="text-xs text-muted-foreground">
+                  {methods.includes("totp") ? "From your authenticator app. Lost it? Use one of your recovery codes." : "If you can't use your security key."}
+                </p>
               </div>
               <Button type="submit" className="w-full" disabled={verify.isPending}>
                 {verify.isPending ? "Verifying…" : "Verify"}
               </Button>
+              {useKey && (
+                <Button type="button" variant="outline" className="w-full" onClick={tryKey} disabled={verify.isPending}>
+                  Use your security key
+                </Button>
+              )}
             </>
           )}
         </form>
@@ -73,6 +95,10 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [resent, setResent] = useState(false);
   const [challenge, setChallenge] = useState("");
+  const [methods, setMethods] = useState<string[]>([]);
+  const instance = useInstance();
+  const passkey = usePasskeyLogin();
+  const [passkeyFailed, setPasskeyFailed] = useState("");
   const login = useLogin();
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -83,11 +109,21 @@ export function LoginPage() {
     setResent(false);
     login.mutate(
       { email, password },
-      { onSuccess: (r) => (r?.two_factor_required && r.challenge ? (setChallenge(r.challenge), setPassword("")) : done()) },
+      { onSuccess: (r) => (r?.two_factor_required && r.challenge ? (setChallenge(r.challenge), setMethods(r.methods ?? []), setPassword("")) : done()) },
     );
   }
 
-  if (challenge) return <CodeStep challenge={challenge} onDone={done} onRestart={() => setChallenge("")} />;
+  if (challenge) return <CodeStep challenge={challenge} methods={methods} onDone={done} onRestart={() => setChallenge("")} />;
+
+  async function signInWithPasskey() {
+    setPasskeyFailed("");
+    try {
+      passkey.mutate(await passkeyAnswer(), { onSuccess: done });
+    } catch (e) {
+      setPasskeyFailed(keyError(e));
+    }
+  }
+  const passkeyErr = passkey.error instanceof ApiError ? passkey.error : null;
 
   const err = login.error instanceof ApiError ? login.error : null;
   return (
@@ -129,6 +165,16 @@ export function LoginPage() {
             {login.isPending ? "Signing in…" : "Sign in"}
           </Button>
         </form>
+        {instance.data?.passkeys && webauthnSupported() && (
+          <div className="mt-4 space-y-2 border-t pt-4">
+            {(passkeyFailed || passkeyErr) && (
+              <Alert variant="destructive">{passkeyFailed || (passkeyErr?.type === "INVALID_KEY" ? "That passkey wasn't accepted." : passkeyErr?.message)}</Alert>
+            )}
+            <Button type="button" variant="outline" className="w-full" onClick={signInWithPasskey} disabled={passkey.isPending}>
+              Sign in with a passkey
+            </Button>
+          </div>
+        )}
       </Card>
       <p className="mt-4 text-center text-sm text-muted-foreground">
         New here? <Link to="/register" className="text-primary hover:underline">Create an account</Link>

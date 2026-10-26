@@ -27,6 +27,7 @@ type InstanceResponse struct {
 	SSHEnabled          bool   `json:"ssh_enabled"`
 	SSHPort             int    `json:"ssh_port,omitempty"`
 	MaxAssetSize        int64  `json:"max_asset_size"` // bytes per release asset
+	Passkeys            bool   `json:"passkeys"`       // security keys and passkey sign-in (needs http.public_url)
 }
 
 type Repository struct {
@@ -90,6 +91,7 @@ func (c Controller) Instance(ctx *fiber.Ctx, _ struct{}) (*InstanceResponse, *fi
 		RegistrationEnabled: c.Config.Registration.Enabled,
 		SSHEnabled:          c.Config.SSH.Enabled,
 		MaxAssetSize:        c.Config.Releases.MaxAssetSize,
+		Passkeys:            c.Config.Server.PublicURL != "",
 	}
 	if resp.MaxAssetSize <= 0 {
 		resp.MaxAssetSize = application.DefaultMaxAssetSize

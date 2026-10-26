@@ -174,9 +174,14 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	if err != nil {
 		return deps, err
 	}
+	relyingParty, err := application.NewWebAuthn(deps.Config.Server.PublicURL)
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.webauthn").Msg("Invalid http.public_url for security keys")
+		return deps, err
+	}
 	deps.TwoFactorApp = &application.TwoFactorApp{
 		Config: deps.Config, Logger: deps.Logger, Users: userPers, Sessions: sessionPers,
-		Pers: persistence.NewTwoFactorPers(deps.Database.Db), Box: box, Mailer: deps.Mailer,
+		Pers: persistence.NewTwoFactorPers(deps.Database.Db), Box: box, Mailer: deps.Mailer, WebAuthn: relyingParty,
 	}
 	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
 	deps.BrowseApp = &application.BrowseApp{Repositories: deps.RepoApp, Storage: deps.Storage}

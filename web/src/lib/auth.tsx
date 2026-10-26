@@ -23,7 +23,7 @@ export function useProfile() {
 
 // A login answers two_factor_required with a challenge when the account has
 // two-factor authentication; useLoginCode then completes it.
-export type LoginResult = { two_factor_required?: boolean; challenge?: string };
+export type LoginResult = { two_factor_required?: boolean; challenge?: string; methods?: string[] };
 
 export function useLogin() {
   const qc = useQueryClient();
@@ -35,10 +35,20 @@ export function useLogin() {
   });
 }
 
+// useLoginCode completes it with a code, or a security key's answer.
 export function useLoginCode() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { challenge: string; code: string }) => api("POST", "/auth/session/2fa", v),
+    mutationFn: (v: { challenge: string; code?: string; ceremony?: string; credential?: unknown }) => api("POST", "/auth/session/2fa", v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: profileKey }),
+  });
+}
+
+// usePasskeyLogin signs in with a passkey (no email or password).
+export function usePasskeyLogin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { ceremony: string; credential: unknown }) => api("POST", "/auth/session/passkey", v),
     onSuccess: () => qc.invalidateQueries({ queryKey: profileKey }),
   });
 }

@@ -124,7 +124,7 @@ export type NamespaceView = {
   total: number;
 };
 
-export type Instance = { version: string; registration_enabled: boolean; ssh_enabled: boolean; ssh_port?: number; max_asset_size?: number };
+export type Instance = { version: string; registration_enabled: boolean; ssh_enabled: boolean; ssh_port?: number; max_asset_size?: number; passkeys?: boolean };
 
 export type Token = { id: string; name: string; description: string; scopes: string[]; expires_at?: string; created_at: string };
 

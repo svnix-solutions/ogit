@@ -1,7 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
 import { setSudoHandler } from "@/lib/sudo";
+import { keyError, sudoKey, webauthnSupported } from "@/lib/webauthn";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -39,6 +41,25 @@ export function SudoDialog() {
     setOpen(false);
   };
   const twoFactor = !!profile?.two_factor_enabled;
+  const status = useQuery({
+    queryKey: ["two-factor"],
+    queryFn: () => api<{ totp: boolean; keys: unknown[] }>("GET", "/user/2fa"),
+    enabled: open && twoFactor,
+  });
+  const hasKeys = (status.data?.keys?.length ?? 0) > 0 && webauthnSupported();
+
+  async function useKey() {
+    setBusy(true);
+    setError("");
+    try {
+      await api("POST", "/auth/sudo", await sudoKey());
+      finish(true);
+    } catch (err) {
+      setError(err instanceof ApiError && err.type === "INVALID_KEY" ? "The security key wasn't accepted." : keyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -84,6 +105,11 @@ export function SudoDialog() {
             <Button type="submit" disabled={busy}>
               Confirm
             </Button>
+            {hasKeys && (
+              <Button type="button" variant="outline" onClick={useKey} disabled={busy}>
+                Use security key
+              </Button>
+            )}
             <Button type="button" variant="ghost" onClick={() => finish(false)}>
               Cancel
             </Button>

@@ -33,13 +33,17 @@ const (
 // stale one never blocks logging in again. Only POST: DELETE
 // /api/v1/auth/session (logout) needs the session.
 var public = map[string]bool{
-	"/api/v1/auth/session":       true,
-	"/api/v1/auth/login":         true,
-	"/api/v1/auth/login/2fa":     true,
-	"/api/v1/auth/session/2fa":   true,
-	"/api/v1/auth/register":      true,
-	"/api/v1/auth/verify":        true,
-	"/api/v1/auth/verify/resend": true,
+	"/api/v1/auth/session":            true,
+	"/api/v1/auth/login":              true,
+	"/api/v1/auth/login/2fa":          true,
+	"/api/v1/auth/session/2fa":        true,
+	"/api/v1/auth/login/2fa/webauthn": true,
+	"/api/v1/auth/passkey":            true,
+	"/api/v1/auth/passkey/finish":     true,
+	"/api/v1/auth/session/passkey":    true,
+	"/api/v1/auth/register":           true,
+	"/api/v1/auth/verify":             true,
+	"/api/v1/auth/verify/resend":      true,
 }
 
 func isPublic(c *fiber.Ctx) bool {
