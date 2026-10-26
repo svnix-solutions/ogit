@@ -26,6 +26,8 @@ type TokenApp struct {
 	// JobToken turns an Actions job token into a repository token for its
 	// run (ActionsApp.JobToken); nil: none.
 	JobToken func(token string) (*domain.Token, error)
+	// JobTokenHash is JobToken by the token's hash (ActionsApp.JobTokenByHash).
+	JobTokenHash func(hash string) (*domain.Token, error)
 }
 
 func NewTokenApp(config config.Config, logger zerolog.Logger, tokenPers domain.TokenPers) *TokenApp {
@@ -82,6 +84,8 @@ var grantableScopes = []domain.TokenScope{
 	domain.ScopeReadRepository,
 	domain.ScopeWriteRepository,
 	domain.ScopeWriteStatus,
+	domain.ScopeReadPackages,
+	domain.ScopeWritePackages,
 }
 
 // ErrInvalidToken is any unusable token: unknown, inactive, expired, or of a
@@ -97,10 +101,20 @@ func (c *TokenApp) Authenticate(tokenStr string) (*domain.Token, error) {
 		}
 		return c.JobToken(tokenStr)
 	}
-	token, err := c.TokenPers.GetByToken(HashToken(tokenStr))
+	return c.AuthenticateHash(HashToken(tokenStr))
+}
+
+// AuthenticateHash is Authenticate for a personal access or repository
+// token known by its hash (registry tokens carry it, to check the token
+// again on each use).
+func (c *TokenApp) AuthenticateHash(hash string) (*domain.Token, error) {
+	token, err := c.TokenPers.GetByToken(hash)
 	if err != nil {
 		if !isNotFound(err) {
 			return nil, err
+		}
+		if c.JobTokenHash != nil {
+			return c.JobTokenHash(hash) // an Actions job token
 		}
 		return nil, ErrInvalidToken
 	}

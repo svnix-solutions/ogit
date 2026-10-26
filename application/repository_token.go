@@ -31,7 +31,7 @@ var (
 	ErrTokenNameTaken      = errors.New("this repository already has a token with this name")
 )
 
-var repositoryScopes = []domain.TokenScope{domain.ScopeReadRepository, domain.ScopeWriteRepository, domain.ScopeWriteStatus}
+var repositoryScopes = []domain.TokenScope{domain.ScopeReadRepository, domain.ScopeWriteRepository, domain.ScopeWriteStatus, domain.ScopeReadPackages, domain.ScopeWritePackages}
 
 type RepositoryTokenApp struct {
 	Repositories *RepositoryApp

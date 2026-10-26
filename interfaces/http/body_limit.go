@@ -20,6 +20,10 @@ var lfsUploadRoute = regexp.MustCompile(`^/[^/]+/[^/]+/info/lfs/objects/[0-9a-f]
 // cacheUploadRoute: actions/cache chunk uploads (32 MB each).
 var cacheUploadRoute = regexp.MustCompile(`^/_apis/artifactcache/caches/[0-9]+$`)
 
+// packageUploadRoute: package uploads (packages.max_file_size): generic
+// files (PUT) and container blobs (POST, PATCH, PUT).
+var packageUploadRoute = regexp.MustCompile(`^/api/packages/[^/]+/generic/[^/]+/[^/]+/[^/]+$|^/v2/.+/blobs/uploads/[0-9a-f-]*$`)
+
 // bodyLimit restores the BodyLimit that StreamRequestBody lifts: fasthttp
 // streams bodies over the limit (and chunked ones) instead of refusing
 // them, and ctx.Body() would then read them whole into memory. Other
@@ -32,7 +36,8 @@ func bodyLimit(limit int) fiber.Handler {
 		}
 		if ctx.Method() == fiber.MethodPost && streamedRoutes.MatchString(ctx.Path()) ||
 			ctx.Method() == fiber.MethodPut && lfsUploadRoute.MatchString(ctx.Path()) ||
-			ctx.Method() == fiber.MethodPatch && cacheUploadRoute.MatchString(ctx.Path()) {
+			ctx.Method() == fiber.MethodPatch && cacheUploadRoute.MatchString(ctx.Path()) ||
+			ctx.Method() != fiber.MethodGet && packageUploadRoute.MatchString(ctx.Path()) {
 			// A handler may answer without reading the whole body (refused,
 			// not found). fasthttp would then parse the rest as the next
 			// request on this connection, a desync behind a proxy that

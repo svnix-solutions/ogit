@@ -41,6 +41,7 @@ var (
 type OrphanError struct {
 	Repositories []string // paths of repositories the user solely owns or that are in their namespace
 	Groups       []string // names of groups the user owns
+	Packages     []string // <type>/<name> of the packages in their namespace
 }
 
 func (e *OrphanError) Error() string {
@@ -50,6 +51,9 @@ func (e *OrphanError) Error() string {
 	}
 	if len(e.Groups) > 0 {
 		parts = append(parts, "groups: "+strings.Join(e.Groups, ", "))
+	}
+	if len(e.Packages) > 0 {
+		parts = append(parts, "packages: "+strings.Join(e.Packages, ", "))
 	}
 	return ErrWouldOrphan.Error() + " (" + strings.Join(parts, "; ") + ")"
 }
@@ -66,6 +70,7 @@ type AdminApp struct {
 	GroupPers            domain.GroupPers
 	Storage              storage.Config
 	TwoFactor            *TwoFactorApp
+	Packages             domain.PackagesPers // nil: none to check
 }
 
 // UserUpdate holds the changes for UpdateUser; nil fields are left alone.
@@ -268,8 +273,17 @@ func (c *AdminApp) DeleteUser(actorId, username string) error {
 	if err != nil {
 		return err
 	}
-	if len(repos) > 0 || len(inNamespace) > 0 || len(groups) > 0 {
+	var packages []domain.Package
+	if c.Packages != nil {
+		if packages, err = c.Packages.ListPackages(user.Id, ""); err != nil {
+			return err
+		}
+	}
+	if len(repos) > 0 || len(inNamespace) > 0 || len(groups) > 0 || len(packages) > 0 {
 		orphan := &OrphanError{}
+		for _, p := range packages {
+			orphan.Packages = append(orphan.Packages, p.Type+"/"+p.Name)
+		}
 		seen := map[string]bool{}
 		for _, r := range append(inNamespace, repos...) {
 			if !seen[r.Id] {

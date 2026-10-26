@@ -68,6 +68,15 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.BranchProtection{}).Error; err != nil {
 			return err
 		}
+		// Packages stay with their namespace, unlinked (and private if they
+		// followed the repository).
+		if err := tx.Exec("UPDATE package SET visibility = ? WHERE repository_id = ? AND visibility = ?",
+			domain.PackageVisibilityPrivate, id, domain.PackageVisibilityRepository).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE package SET repository_id = NULL WHERE repository_id = ?", id).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.CommitStatus{}).Error; err != nil {
 			return err
 		}

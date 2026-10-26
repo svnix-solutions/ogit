@@ -7,7 +7,9 @@ import (
 	"github.com/labbs/ogit/interfaces/http/ghcompat"
 	"github.com/labbs/ogit/interfaces/http/git"
 	"github.com/labbs/ogit/interfaces/http/lfs"
+	"github.com/labbs/ogit/interfaces/http/packages"
 	"github.com/labbs/ogit/interfaces/http/raw"
+	"github.com/labbs/ogit/interfaces/http/registry"
 	"github.com/labbs/ogit/interfaces/http/runner"
 	v1 "github.com/labbs/ogit/interfaces/http/v1"
 	"github.com/labbs/ogit/interfaces/http/websession"
@@ -57,6 +59,11 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// The cache API of actions/cache.
 	actionscache.Setup(actionscache.Controller{Config: deps.Config, Logger: deps.Logger, Actions: deps.ActionsApp}, deps.Http.Fiber)
+
+	// The container registry (docker push and pull) and package formats.
+	registry.Setup(registry.Controller{Config: deps.Config, Logger: deps.Logger, Packages: deps.PackagesApp, Limits: deps.Limits}, deps.Http.Fiber)
+	deps.Http.Fiber.Use("/api/packages", apiLimit(deps.Config, deps.Limits))
+	packages.Setup(packages.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Packages: deps.PackagesApp, Limits: deps.Limits}, deps.Http.Fiber)
 
 	// Setup v1 routes
 	v1.SetupRouterV1(deps)

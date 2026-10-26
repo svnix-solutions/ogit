@@ -180,6 +180,10 @@ func (ls *LocalStorage) ListRepositories() ([]string, error) {
 			return err
 		}
 
+		// Package files are not repositories.
+		if info.IsDir() && path == filepath.Join(ls.basePath, "packages") {
+			return filepath.SkipDir
+		}
 		// Check if this is a git repository (ends with .git and is a directory)
 		if info.IsDir() && strings.HasSuffix(info.Name(), ".git") {
 			// Get relative path from base

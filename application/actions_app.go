@@ -553,7 +553,18 @@ func hasPermission(run *domain.ActionRun, perm, level string) bool {
 // repository, with scopes from the workflow's permissions (API routes
 // that take repository tokens then accept it).
 func (c *ActionsApp) JobToken(token string) (*domain.Token, error) {
-	run, err := c.JobTokenRun(token)
+	if !IsJobToken(token) {
+		return nil, ErrInvalidToken
+	}
+	return c.JobTokenByHash(HashToken(token))
+}
+
+// JobTokenByHash is JobToken for a token known by its hash.
+func (c *ActionsApp) JobTokenByHash(hash string) (*domain.Token, error) {
+	if c == nil || hash == "" {
+		return nil, ErrInvalidToken
+	}
+	run, err := c.Pers.RunByTokenHash(hash)
 	if err != nil {
 		return nil, ErrInvalidToken
 	}
@@ -566,6 +577,12 @@ func (c *ActionsApp) JobToken(token string) (*domain.Token, error) {
 	}
 	if hasPermission(run, "statuses", "write") {
 		scopes = append(scopes, domain.ScopeWriteStatus)
+	}
+	if hasPermission(run, "packages", "read") {
+		scopes = append(scopes, domain.ScopeReadPackages)
+	}
+	if hasPermission(run, "packages", "write") {
+		scopes = append(scopes, domain.ScopeWritePackages)
 	}
 	repoId := run.RepositoryId
 	return &domain.Token{Name: "github-actions", Type: domain.TokenRepo, RepositoryId: &repoId, Active: true, Scopes: scopes}, nil

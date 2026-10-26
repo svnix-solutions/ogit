@@ -75,6 +75,9 @@ git:
 lfs:
   max_object_size: 2147483648   # bytes (2 GB) per Git LFS object
 
+packages:
+  max_file_size: 2147483648     # bytes (2 GB) per package file or container layer
+
 actions:
   artifact_retention_days: 90   # a workflow's retention-days can only shorten it
   max_artifact_size: 2147483648 # bytes (2 GB) per artifact
