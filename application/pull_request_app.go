@@ -59,6 +59,7 @@ type PullRequestApp struct {
 	Protection   *ProtectionApp // nil: no branch protection
 	Statuses     *StatusApp     // required checks of protected branches
 	Assignees    domain.AssigneePers
+	Reviewers    domain.RequestedReviewerPers // pull_request_reviewers.go
 	Milestones   domain.MilestonePers
 	Issues       *IssueApp // closes "Fixes #N" issues on merge
 	Labels       domain.LabelPers
@@ -98,8 +99,10 @@ type PullRequestView struct {
 	MergeBlocked error
 	Labels       []domain.Label
 	Assignees    []domain.User
-	Milestone    *domain.Milestone
-	viewerId     string
+	// RequestedReviewers have been asked to review and haven't yet.
+	RequestedReviewers []domain.User
+	Milestone          *domain.Milestone
+	viewerId           string
 }
 
 // Viewer is who the view was computed for ("" anonymous).
@@ -354,6 +357,13 @@ func (c *PullRequestApp) Get(id, path *string, userId string, number int) (*Pull
 			return nil, err
 		}
 		view.Assignees = assignees[pr.Id]
+	}
+	if c.Reviewers != nil {
+		reviewers, err := c.Reviewers.For([]string{pr.Id})
+		if err != nil {
+			return nil, err
+		}
+		view.RequestedReviewers = reviewers[pr.Id]
 	}
 	if pr.MilestoneId != nil && c.Milestones != nil {
 		if m, err := c.Milestones.Get(repo.Id, *pr.MilestoneId); err == nil {

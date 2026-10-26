@@ -220,6 +220,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Webhooks: deps.WebhookApp, Mailer: deps.Mailer,
 	}
 	deps.PullApp.Assignees, deps.PullApp.Milestones, deps.PullApp.Issues = assignees, milestones, deps.IssueApp
+	deps.PullApp.Reviewers = persistence.NewRequestedReviewerPers(deps.Database.Db)
 	deps.MilestoneApp = &application.MilestoneApp{Logger: deps.Logger, Repositories: deps.RepoApp, Milestones: milestones, Webhooks: deps.WebhookApp}
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.TokenApp.MustEnroll = deps.TwoFactorApp.MustEnroll

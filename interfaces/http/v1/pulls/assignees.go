@@ -24,6 +24,16 @@ type AssigneesResponse struct {
 	Assignees []string `json:"assignees"`
 }
 
+type ReviewersRequest struct {
+	Identifier string   `path:"identifier" json:"-" validate:"required"`
+	Number     string   `path:"number" json:"-" validate:"required"`
+	Reviewers  []string `json:"reviewers"` // usernames who can read the repository, at most 10
+}
+
+type ReviewersResponse struct {
+	Reviewers []string `json:"reviewers"`
+}
+
 type MilestoneRequest struct {
 	Identifier  string `path:"identifier" json:"-" validate:"required"`
 	Number      string `path:"number" json:"-" validate:"required"`
@@ -34,6 +44,8 @@ func setupAssignees(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	tags := []string{"Pull requests"}
 	fiberoapi.Put(repoGrp, "/:identifier/pulls/:number/assignees", c.SetAssignees, fiberoapi.OpenAPIOptions{Summary: "Set a pull request's assignees",
 		OperationID: "pulls.assignees", Tags: tags, Description: "Developers and up. Usernames of users with write access (at most 10)."})
+	fiberoapi.Put(repoGrp, "/:identifier/pulls/:number/reviewers", c.SetReviewers, fiberoapi.OpenAPIOptions{Summary: "Request reviews",
+		OperationID: "pulls.reviewers", Tags: tags, Description: "The author or developers and up, on open pull requests. Replaces the requested reviewers (usernames who can read the repository, not the author, at most 10). A request goes away when that person reviews."})
 	fiberoapi.Put(repoGrp, "/:identifier/pulls/:number/milestone", c.SetMilestone, fiberoapi.OpenAPIOptions{Summary: "Set a pull request's milestone",
 		OperationID: "pulls.milestone", Tags: tags, Description: "Developers and up. milestone_id, or \"\" to remove it."})
 }
@@ -68,6 +80,23 @@ func (c Controller) SetAssignees(ctx *fiber.Ctx, req AssigneesRequest) (*Assigne
 		return nil, apierror.From(err, c.Logger)
 	}
 	return &AssigneesResponse{Assignees: usernames(users)}, nil
+}
+
+func (c Controller) SetReviewers(ctx *fiber.Ctx, req ReviewersRequest) (*ReviewersResponse, *fiberoapi.ErrorResponse) {
+	auth, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	n, errResp := number(req.Number)
+	if errResp != nil {
+		return nil, errResp
+	}
+	id, path := repoid.Split(req.Identifier)
+	users, err := c.Pulls.SetReviewers(id, path, auth.UserID, n, req.Reviewers)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return &ReviewersResponse{Reviewers: usernames(users)}, nil
 }
 
 func (c Controller) SetMilestone(ctx *fiber.Ctx, req MilestoneRequest) (*Detail, *fiberoapi.ErrorResponse) {

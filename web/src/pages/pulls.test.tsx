@@ -76,6 +76,38 @@ describe("pull requests", () => {
     expect(screen.getByRole("button", { name: "Close pull request" })).toBeInTheDocument();
   });
 
+  it("lets the author request reviews, never from themselves", async () => {
+    const fetch = fakeAPI({
+      "/instance": instance, "/user/profile": me("dev"), "/repository/acme%2Fapp": repo("reporter"),
+      "/repository/acme%2Fapp/pulls/7": pull({ requested_reviewers: ["maint"] }),
+      "/repository/acme%2Fapp/pulls/7/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [] },
+      "/repository/acme%2Fapp/members": { members: ["dev", "maint", "ops"].map((u) => ({ id: u, type: "user", username: u, role: "developer" })) },
+      "PUT /repository/acme%2Fapp/pulls/7/reviewers": { reviewers: ["maint", "ops"] },
+    });
+    renderRoutes(routes, "/acme/app/pulls/7");
+    expect(await screen.findByLabelText("Request a review from maint")).toBeChecked();
+    expect(screen.queryByLabelText("Request a review from dev")).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByLabelText("Request a review from ops"));
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([u, i]) => u === "/api/v1/repository/acme%2Fapp/pulls/7/reviewers" && i?.method === "PUT").map(([, i]) => JSON.parse(i!.body as string))).toEqual([
+        { reviewers: ["maint", "ops"] },
+      ]),
+    );
+  });
+
+  it("shows requested reviewers read-only to others", async () => {
+    fakeAPI({
+      "/instance": instance, "/user/profile": me("someone"), "/repository/acme%2Fapp": repo("reporter"),
+      "/repository/acme%2Fapp/pulls/7": pull({ requested_reviewers: ["maint", "ops"] }),
+      "/repository/acme%2Fapp/pulls/7/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/labels": { labels: [] },
+    });
+    renderRoutes(routes, "/acme/app/pulls/7");
+    expect(await screen.findByText("maint, ops")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Request a review from someone else")).not.toBeInTheDocument();
+  });
+
   it("names the protecting rule, its refusal, and an owner's bypass", async () => {
     fakeAPI({
       "/instance": instance, "/user/profile": me("maint"), "/repository/acme%2Fapp": repo("maintainer"),

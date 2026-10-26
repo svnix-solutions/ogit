@@ -147,7 +147,9 @@ type Detail struct {
 	// MergeBlocked says why the caller can't merge an open pull request.
 	MergeBlocked *MergeBlocked `json:"merge_blocked,omitempty"`
 	Assignees    []string      `json:"assignees"` // usernames
-	Milestone    *Milestone    `json:"milestone,omitempty"`
+	// RequestedReviewers have been asked to review and haven't yet.
+	RequestedReviewers []string   `json:"requested_reviewers"`
+	Milestone          *Milestone `json:"milestone,omitempty"`
 }
 
 type RequiredCheck struct {
@@ -215,6 +217,7 @@ func detail(v *application.PullRequestView) *Detail {
 		Approved: v.Approvals.Approved, ChangesRequested: v.Approvals.ChangesRequested, RequiredApprovals: v.RequiredApprovals,
 	}
 	d.Assignees, d.Milestone = usernames(v.Assignees), toMilestone(v.Milestone)
+	d.RequestedReviewers = usernames(v.RequestedReviewers)
 	if v.SourceRepositoryId != nil {
 		d.SourceRepository = "deleted fork"
 		if v.SourceRepository != nil {

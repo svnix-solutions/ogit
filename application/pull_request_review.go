@@ -24,6 +24,7 @@ import (
 //   - comment authors edit their comments; they and maintainers delete
 //     them;
 //   - maintainers manage labels; developers set them on pull requests;
+//   - requested reviewers: pull_request_reviewers.go;
 //   - participants (author, reviewers, commenters, @mentioned) are emailed
 //     about others' activity when SMTP is configured.
 
@@ -214,6 +215,11 @@ func (c *PullRequestApp) SubmitReview(id, path *string, actorId string, number i
 	review := &domain.Review{PullRequestId: view.Id, AuthorId: &actorId, State: state, Body: body, CommitId: view.HeadCommit}
 	if err := c.Reviews.CreateReview(review, comments); err != nil {
 		return nil, err
+	}
+	if c.Reviewers != nil {
+		if _, err := c.Reviewers.Remove(view.Id, actorId); err != nil { // the request is answered
+			return nil, err
+		}
 	}
 	verb := map[domain.ReviewState]string{domain.ReviewApproved: "approved", domain.ReviewChangesRequested: "requested changes", domain.ReviewCommented: "reviewed"}[state]
 	text := body
