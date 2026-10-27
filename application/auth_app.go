@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -70,6 +71,9 @@ type AuthApp struct {
 	PasswordBlocked func(user *domain.User) bool
 	// SSOOnly: sign-in only through providers (no registration).
 	SSOOnly func() bool
+	// Directory tries the sign-in form's credentials on LDAP directories
+	// first (application/sso_ldap.go); nil: none.
+	Directory func(ctx context.Context, input, password, userAgent, ip string) (*SSOOutcome, bool, error)
 }
 
 func NewAuthApp(config config.Config, logger zerolog.Logger, userApp UserApp, sessionApp SessionApp, tokenApp TokenApp, repositoryApp RepositoryApp, mailer mail.Sender, verificationPers domain.EmailVerificationPers) *AuthApp {
@@ -87,6 +91,22 @@ func NewAuthApp(config config.Config, logger zerolog.Logger, userApp UserApp, se
 
 func (c *AuthApp) Authenticate(email, password string, ctx *fiber.Ctx) (*dtos.LoginResponse, error) {
 	logger := c.Logger.With().Str("component", "application.auth.authenticate").Logger()
+
+	if c.Directory != nil {
+		out, handled, err := c.Directory(ctx.UserContext(), email, password, ctx.Get("User-Agent"), ctx.IP())
+		if err != nil {
+			return nil, err
+		}
+		if handled {
+			switch {
+			case out.LinkToken != "":
+				return &dtos.LoginResponse{LinkToken: out.LinkToken}, nil
+			case out.Challenge != "":
+				return &dtos.LoginResponse{TwoFactorRequired: true, Challenge: out.Challenge, Methods: out.Methods}, nil
+			}
+			return out.Login, nil
+		}
+	}
 
 	// An unknown email and a wrong password must be indistinguishable, in
 	// the answer and in timing: compare against a dummy hash when there is no

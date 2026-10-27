@@ -4,7 +4,24 @@ import { api } from "./api";
 // Single sign-on (application/sso_app.go): providers on the sign-in page,
 // a user's linked providers, and the admins' providers.
 
-export type SSOProvider = { slug: string; name: string; kind: "oidc" | "github" };
+export type SSOProvider = { slug: string; name: string; kind: "oidc" | "github" | "ldap" };
+
+// LDAPSettings: how a directory finds users and their groups.
+export type LDAPSettings = {
+  user_base: string;
+  user_filter?: string;
+  username_attribute?: string;
+  email_attribute?: string;
+  name_attribute?: string;
+  subject_attribute?: string;
+  member_of_attribute?: string;
+  group_base?: string;
+  group_filter?: string;
+  group_name_attribute?: string;
+  start_tls?: boolean;
+  root_ca?: string;
+  insecure_skip_verify?: boolean;
+};
 
 export type Identity = {
   id: string;
@@ -31,6 +48,7 @@ export type AdminProvider = SSOProvider & {
   groups_claim: string;
   admin_group: string;
   group_mappings: GroupMapping[];
+  ldap?: LDAPSettings;
 };
 
 // GroupMapping: members of a provider's group get an oGit group's role.

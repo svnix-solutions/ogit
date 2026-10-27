@@ -6,6 +6,7 @@ import "time"
 const (
 	SSOKindOIDC   = "oidc"
 	SSOKindGitHub = "github"
+	SSOKindLDAP   = "ldap" // LDAP or Active Directory: the sign-in form
 )
 
 // SSO flow purposes.
@@ -48,13 +49,40 @@ type SSOProvider struct {
 	AdminGroup string
 	// GroupMappings: JSON list of SSOGroupMapping.
 	GroupMappings string
-	Enabled       bool
-	FromConfig    bool `gorm:"-"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// LDAPConfig (kind ldap): LDAPSettings as JSON. Issuer is the URL
+	// (ldap:// or ldaps://), ClientId and ClientSecret the service
+	// account's DN and password (empty: anonymous search).
+	LDAPConfig string `gorm:"column:ldap_config"`
+	Enabled    bool
+	FromConfig bool `gorm:"-"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 func (SSOProvider) TableName() string { return "sso_provider" }
+
+// LDAPSettings say how to find users and their groups in a directory.
+type LDAPSettings struct {
+	UserBase string `json:"user_base" yaml:"user_base"`
+	// UserFilter finds the user; {input} is what they typed (escaped).
+	UserFilter        string `json:"user_filter" yaml:"user_filter"`
+	UsernameAttribute string `json:"username_attribute" yaml:"username_attribute"` // uid; AD: sAMAccountName
+	EmailAttribute    string `json:"email_attribute" yaml:"email_attribute"`       // mail
+	NameAttribute     string `json:"name_attribute" yaml:"name_attribute"`         // cn
+	// SubjectAttribute: a stable id (entryUUID; AD: objectGUID); empty:
+	// the DN.
+	SubjectAttribute string `json:"subject_attribute" yaml:"subject_attribute"`
+	// Groups: from MemberOfAttribute on the user's entry (AD: memberOf),
+	// else searched under GroupBase with GroupFilter ({dn}, {username}).
+	MemberOfAttribute  string `json:"member_of_attribute" yaml:"member_of_attribute"`
+	GroupBase          string `json:"group_base" yaml:"group_base"`
+	GroupFilter        string `json:"group_filter" yaml:"group_filter"`
+	GroupNameAttribute string `json:"group_name_attribute" yaml:"group_name_attribute"` // cn
+	StartTLS           bool   `json:"start_tls" yaml:"start_tls"`
+	// RootCA: PEM certificates to trust (else the system's).
+	RootCA             string `json:"root_ca" yaml:"root_ca"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
+}
 
 // SSOGroupMapping makes members of an IdP group members of an oGit group.
 type SSOGroupMapping struct {

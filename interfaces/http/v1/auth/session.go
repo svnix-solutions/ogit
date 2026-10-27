@@ -13,6 +13,9 @@ func (ctrl Controller) CreateSession(ctx *fiber.Ctx, req dtos.LoginRequest) (*dt
 	if errResp != nil {
 		return nil, errResp
 	}
+	if resp.LinkToken != "" {
+		return &dtos.SessionResponse{LinkToken: resp.LinkToken}, nil
+	}
 	if resp.TwoFactorRequired {
 		// No cookie yet: the code goes to /auth/session/2fa.
 		return &dtos.SessionResponse{TwoFactorRequired: true, Challenge: resp.Challenge, Methods: resp.Methods}, nil

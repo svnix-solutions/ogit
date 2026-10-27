@@ -23,14 +23,16 @@ export function useProfile() {
 
 // A login answers two_factor_required with a challenge when the account has
 // two-factor authentication; useLoginCode then completes it.
-export type LoginResult = { two_factor_required?: boolean; challenge?: string; methods?: string[] };
+// A directory sign-in whose email belongs to an account here answers
+// link_token instead (confirmed on /login/link).
+export type LoginResult = { two_factor_required?: boolean; challenge?: string; methods?: string[]; link_token?: string };
 
 export function useLogin() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { email: string; password: string }) => api<LoginResult>("POST", "/auth/session", v),
     onSuccess: (r) => {
-      if (!r?.two_factor_required) qc.invalidateQueries({ queryKey: profileKey });
+      if (!r?.two_factor_required && !r?.link_token) qc.invalidateQueries({ queryKey: profileKey });
     },
   });
 }

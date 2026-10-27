@@ -242,7 +242,7 @@ func (c *SSOApp) Start(ctx context.Context, slug, purpose, redirect string, auth
 	if err != nil {
 		return nil, err
 	}
-	if !p.Enabled {
+	if !p.Enabled || p.Kind == domain.SSOKindLDAP { // directories use the sign-in form
 		return nil, ErrSSOProviderNotFound
 	}
 	flow := &domain.SSOFlow{Provider: p.Slug, Purpose: purpose, Nonce: randomToken(""), Verifier: sso.GenerateVerifier(),
@@ -348,8 +348,15 @@ func (c *SSOApp) Callback(ctx context.Context, slug, state, code, providerError,
 		c.audit(*flow.UserId, "sso.link").Str("provider", slug).Msg("sign-in provider linked")
 		return out, nil
 	}
+	return c.completeLogin(out, p, identity, claims, userAgent, ip)
+}
 
+// completeLogin signs in the user of an identity, or links or creates
+// one for it (sign-ins through any provider, directories included).
+func (c *SSOApp) completeLogin(out *SSOOutcome, p *domain.SSOProvider, identity *domain.UserIdentity, claims *sso.Claims, userAgent, ip string) (*SSOOutcome, error) {
+	slug := p.Slug
 	var user domain.User
+	var err error
 	if identity != nil {
 		if user, err = c.Users.GetById(identity.UserId); err != nil {
 			return nil, err
@@ -364,7 +371,7 @@ func (c *SSOApp) Callback(ctx context.Context, slug, state, code, providerError,
 				token := randomToken("")
 				groups, _ := json.Marshal(claims.Groups)
 				err := c.Pers.CreatePendingLink(&domain.SSOPendingLink{Id: hashToken(token), UserId: existing.Id, Provider: slug, Subject: claims.Subject,
-					Email: claims.Email, Username: claims.Username, Groups: string(groups), Redirect: flow.Redirect, ExpiresAt: c.now().Add(ssoLinkTTL), CreatedAt: c.now()})
+					Email: claims.Email, Username: claims.Username, Groups: string(groups), Redirect: out.Redirect, ExpiresAt: c.now().Add(ssoLinkTTL), CreatedAt: c.now()})
 				if err != nil {
 					return nil, err
 				}
@@ -397,7 +404,8 @@ func (c *SSOApp) Callback(ctx context.Context, slug, state, code, providerError,
 // signIn opens the session, or asks for oGit 2FA when the provider
 // requires it.
 func (c *SSOApp) signIn(out *SSOOutcome, p *domain.SSOProvider, user *domain.User, userAgent, ip string) (*SSOOutcome, error) {
-	if p.RequireTwoFactor {
+	requireTwoFactor := !trustsMFA(p)
+	if requireTwoFactor {
 		on, err := c.TwoFactor.Enabled(user.Id)
 		if err != nil {
 			return nil, err
@@ -416,7 +424,7 @@ func (c *SSOApp) signIn(out *SSOOutcome, p *domain.SSOProvider, user *domain.Use
 		}
 	}
 	var trusted *string
-	if !p.RequireTwoFactor {
+	if !requireTwoFactor {
 		trusted = &p.Slug
 	}
 	login, err := c.Auth.newSessionVia(user.Id, userAgent, ip, trusted)
@@ -426,6 +434,12 @@ func (c *SSOApp) signIn(out *SSOOutcome, p *domain.SSOProvider, user *domain.Use
 	c.audit(user.Id, "sso.login").Str("provider", p.Slug).Msg("signed in through a provider")
 	out.Login = login
 	return out, nil
+}
+
+// trustsMFA: the provider's own MFA stands for oGit's 2FA (not with
+// require_two_factor, and never for directories, which check a password).
+func trustsMFA(p *domain.SSOProvider) bool {
+	return !p.RequireTwoFactor && p.Kind != domain.SSOKindLDAP
 }
 
 func domainAllowed(p *domain.SSOProvider, claims *sso.Claims) bool {
@@ -577,7 +591,7 @@ func (c *SSOApp) CompleteLink(token, password, code, userAgent, ip string) (*dto
 	_ = json.Unmarshal([]byte(l.Groups), &groups)
 	c.syncGroups(p, &user, groups)
 	var trusted *string
-	if !p.RequireTwoFactor {
+	if trustsMFA(p) {
 		trusted = &p.Slug
 	}
 	login, err := c.Auth.newSessionVia(user.Id, userAgent, ip, trusted)
@@ -655,7 +669,7 @@ func (c *SSOApp) Trusted(userId string) (bool, error) {
 	}
 	for _, i := range ids {
 		p, err := c.provider(i.Provider)
-		if err != nil || !p.Enabled || p.RequireTwoFactor {
+		if err != nil || !p.Enabled || !trustsMFA(p) {
 			return false, nil
 		}
 	}
@@ -704,6 +718,7 @@ type ProviderInput struct {
 	AutoCreate, RequireTwoFactor, Enabled *bool
 	GroupsClaim, AdminGroup               *string
 	GroupMappings                         *[]domain.SSOGroupMapping
+	LDAP                                  *domain.LDAPSettings // kind ldap
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -739,9 +754,21 @@ func (c *SSOApp) apply(p *domain.SSOProvider, in ProviderInput) error {
 	if p.Kind == domain.SSOKindGitHub && p.Issuer == "" {
 		p.Issuer = "https://github.com"
 	}
-	u, err := url.Parse(p.Issuer)
-	if !slugPattern.MatchString(p.Slug) || p.Name == "" || (p.Kind != domain.SSOKindOIDC && p.Kind != domain.SSOKindGitHub) ||
-		err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || p.ClientId == "" {
+	if !slugPattern.MatchString(p.Slug) || p.Name == "" {
+		return ErrInvalidSSOProvider
+	}
+	var err error
+	switch p.Kind {
+	case domain.SSOKindLDAP:
+		if err := checkDirectory(p, in.LDAP); err != nil {
+			return err
+		}
+	case domain.SSOKindOIDC, domain.SSOKindGitHub:
+		u, err := url.Parse(p.Issuer)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || p.ClientId == "" {
+			return ErrInvalidSSOProvider
+		}
+	default:
 		return ErrInvalidSSOProvider
 	}
 	if in.ClientSecret != nil {
@@ -789,7 +816,7 @@ func (c *SSOApp) CreateProvider(auth *fiberoapi.AuthContext, in ProviderInput) (
 	if c.Config.Server.PublicURL == "" {
 		return nil, ErrSSONeedsPublicURL
 	}
-	p := &domain.SSOProvider{AutoCreate: true, Enabled: true, GroupMappings: "[]", CreatedAt: c.now(), UpdatedAt: c.now()}
+	p := &domain.SSOProvider{AutoCreate: true, Enabled: true, GroupMappings: "[]", LDAPConfig: "{}", CreatedAt: c.now(), UpdatedAt: c.now()}
 	if err := c.apply(p, in); err != nil {
 		return nil, err
 	}
@@ -799,7 +826,7 @@ func (c *SSOApp) CreateProvider(auth *fiberoapi.AuthContext, in ProviderInput) (
 	if _, err := c.Pers.Provider(p.Slug); err == nil {
 		return nil, ErrSSOProviderExists
 	}
-	if p.ClientSecret == "" {
+	if p.ClientSecret == "" && p.Kind != domain.SSOKindLDAP { // directories may search anonymously
 		return nil, ErrInvalidSSOProvider
 	}
 	if err := c.Pers.CreateProvider(p); err != nil {
@@ -828,7 +855,7 @@ func (c *SSOApp) UpdateProvider(auth *fiberoapi.AuthContext, slug string, in Pro
 	err = c.Pers.UpdateProvider(p.Id, map[string]any{"name": p.Name, "kind": p.Kind, "issuer": p.Issuer, "client_id": p.ClientId,
 		"client_secret": p.ClientSecret, "scopes": p.Scopes, "allowed_domains": p.AllowedDomains, "allowed_orgs": p.AllowedOrgs,
 		"auto_create": p.AutoCreate, "require_two_factor": p.RequireTwoFactor, "enabled": p.Enabled, "groups_claim": p.GroupsClaim,
-		"admin_group": p.AdminGroup, "group_mappings": p.GroupMappings, "updated_at": p.UpdatedAt})
+		"admin_group": p.AdminGroup, "group_mappings": p.GroupMappings, "ldap_config": p.LDAPConfig, "updated_at": p.UpdatedAt})
 	if err != nil {
 		return nil, err
 	}
@@ -869,7 +896,7 @@ func (c *SSOApp) LoadConfig(cfgs []config.SSOProviderConfig) error {
 			ms[i] = domain.SSOGroupMapping{Group: m.Group, Target: m.Target, Role: domain.GroupRole(m.Role)}
 		}
 		in := ProviderInput{Slug: &pc.Slug, Name: &pc.Name, Kind: &pc.Kind, Issuer: &pc.Issuer, ClientId: &pc.ClientId, Scopes: &pc.Scopes,
-			AllowedDomains: &pc.AllowedDomains, AllowedOrgs: &pc.AllowedOrgs, GroupsClaim: &pc.GroupsClaim, AdminGroup: &pc.AdminGroup, GroupMappings: &ms}
+			AllowedDomains: &pc.AllowedDomains, AllowedOrgs: &pc.AllowedOrgs, GroupsClaim: &pc.GroupsClaim, AdminGroup: &pc.AdminGroup, GroupMappings: &ms, LDAP: pc.LDAP}
 		if err := c.apply(&p, in); err != nil {
 			return fmt.Errorf("sso.providers %q: %w", pc.Slug, err)
 		}

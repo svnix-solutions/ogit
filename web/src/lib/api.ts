@@ -161,6 +161,8 @@ export type Instance = {
   passkeys?: boolean;
   // sign in only through providers (lib/sso.ts); passwords for break-glass accounts
   sso_only?: boolean;
+  // the sign-in form also takes LDAP user names
+  directory_sign_in?: boolean;
 };
 
 export type Token = { id: string; name: string; description: string; scopes: string[]; expires_at?: string; created_at: string };
