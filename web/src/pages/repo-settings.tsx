@@ -6,6 +6,7 @@ import { ActionsSettings, RepoCaches } from "@/components/actions-settings";
 import { useRepo } from "@/components/repo-layout";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { MirrorSettings } from "@/components/mirror-settings";
+import { PushMirrors } from "@/components/push-mirrors";
 import { ErrorText, Section } from "@/components/section";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ export function RepoSettingsPage() {
       <DeployKeys repo={r.data} />
       <RepoTokens repo={r.data} />
       <Webhooks owner={`/repository/${r.data.id}`} />
+      <PushMirrors repo={r.data} />
       <ActionsSettings
         scope="this repository's"
         paths={{ runners: `/repository/${r.data.id}/actions/runners`, secrets: `/repository/${r.data.id}/actions/secrets`, variables: `/repository/${r.data.id}/actions/variables` }}

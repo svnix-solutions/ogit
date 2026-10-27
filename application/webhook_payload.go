@@ -249,6 +249,7 @@ func (c *WebhookApp) Pushed(repo *domain.Repository, pusher Pusher, objects stor
 	if c == nil || len(updates) == 0 {
 		return
 	}
+	c.PushMirrors.Pushed(repo)
 	c.Actions.Pushed(repo, pusher, objects, updates)
 	hooks, err := c.hooksFor(repo)
 	if err != nil {

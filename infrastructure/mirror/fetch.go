@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -25,6 +26,8 @@ type Remote struct {
 	Endpoint  *transport.Endpoint
 	Auth      transport.AuthMethod // nil: anonymous
 	Transport transport.Transport
+	// HTTPClient is the guarded client of http(s) remotes (nil over SSH).
+	HTTPClient *http.Client
 }
 
 // Result is what a fetch changed.

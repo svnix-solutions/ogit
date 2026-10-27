@@ -59,3 +59,40 @@ export function useMirrorActions(fullPath: string) {
     stop: useMutation({ mutationFn: () => api("DELETE", base), onSuccess: refresh }),
   };
 }
+
+// Push mirrors (see application/push_mirror_app.go).
+
+export type PushMirror = Omit<Mirror, "mirror"> & {
+  id: string;
+  mode: "mirror" | "branches";
+  created_at: string;
+};
+
+export type PushMirrorFields = MirrorFields & { mode?: PushMirror["mode"] };
+
+const pushMirrorsKey = (fullPath: string) => ["push-mirrors", fullPath];
+
+const busy = (m: { status: string }) => m.status === "pending" || m.status === "syncing";
+
+// usePushMirrors: a repository's push mirrors (maintainers), refreshed while
+// one is pushing.
+export function usePushMirrors(fullPath: string) {
+  return useQuery({
+    queryKey: pushMirrorsKey(fullPath),
+    queryFn: () => api<{ push_mirrors: PushMirror[] }>("GET", `/repository/${repoId(fullPath)}/push-mirrors`).then((r) => r.push_mirrors),
+    retry: false,
+    refetchInterval: (q) => (q.state.data?.some(busy) ? 3000 : false),
+  });
+}
+
+export function usePushMirrorActions(fullPath: string) {
+  const qc = useQueryClient();
+  const base = `/repository/${repoId(fullPath)}/push-mirrors`;
+  const refresh = () => qc.invalidateQueries({ queryKey: pushMirrorsKey(fullPath) });
+  return {
+    create: useMutation({ mutationFn: (f: PushMirrorFields) => api<PushMirror>("POST", base, f), onSuccess: refresh }),
+    update: useMutation({ mutationFn: ({ id, ...f }: PushMirrorFields & { id: string }) => api<PushMirror>("PATCH", `${base}/${id}`, f), onSuccess: refresh }),
+    sync: useMutation({ mutationFn: (id: string) => api<PushMirror>("POST", `${base}/${id}/sync`), onSuccess: refresh }),
+    remove: useMutation({ mutationFn: (id: string) => api("DELETE", `${base}/${id}`), onSuccess: refresh }),
+  };
+}
