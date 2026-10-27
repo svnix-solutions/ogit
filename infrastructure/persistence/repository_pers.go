@@ -68,6 +68,9 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.Mirror{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("repository_id = ?", id).Delete(&domain.PushMirror{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.BranchProtection{}).Error; err != nil {
 			return err
 		}

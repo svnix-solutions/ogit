@@ -46,5 +46,6 @@ type Deps struct {
 	ActionsApp      *application.ActionsApp
 	PackagesApp     *application.PackagesApp
 	MirrorApp       *application.MirrorApp
+	PushMirrorApp   *application.PushMirrorApp
 	GoProxyApp      *application.GoProxyApp
 }

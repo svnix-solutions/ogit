@@ -332,6 +332,13 @@ Create a repository from any git remote: on the "New repository" page choose "Im
 - **Safety:** like webhooks, mirrors can't reach private, loopback or link-local addresses unless listed in `mirrors.allowed_hosts`.
 - **API:** `GET|PATCH|DELETE /api/v1/repository/<repo>/mirror` (`DELETE` stops mirroring, owners only), `POST .../mirror/sync`.
 
+**Push mirrors** go the other way: the repository settings' "Push mirrors" section (or `POST /api/v1/repository/<repo>/push-mirrors` with `url`, `username`, `password`, `mode`, `lfs`, `interval_seconds`) adds up to 10 remotes per repository, managed by maintainers and owners.
+
+- **When:** within seconds of every push (git pushes, merges, release tags, fork syncs, and pull mirror syncs, so a repository can relay another), and every 8 hours by default. Pushing never waits for them, and failures retry with backoff.
+- **Mode:** `mirror` (the default) force-pushes and deletes the remote's branches and tags that this repository doesn't have; `branches` never forces or deletes, pushes what it can and reports the diverged branches and moved tags in the last error. Other refs on the remote are never touched, and a repository without branches pushes nothing.
+- **Remotes and credentials** work like pull mirrors' (an SSH key needs write access on the remote, e.g. a deploy key allowed to push), and so does the address check (`mirrors.allowed_hosts`). With `lfs`, the LFS objects the pushed branches and tags point to are uploaded to the remote's LFS server first.
+- **API:** `GET|POST /api/v1/repository/<repo>/push-mirrors`, `PATCH|DELETE .../push-mirrors/<id>`, `POST .../push-mirrors/<id>/sync`.
+
 ### Forks
 
 ```bash

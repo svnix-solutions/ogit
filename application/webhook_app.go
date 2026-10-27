@@ -56,6 +56,9 @@ type WebhookApp struct {
 	Sender     *webhook.Sender
 	// Actions queues the workflow runs of pushes (nil: none).
 	Actions *ActionsApp
+	// PushMirrors pushes the repository on to its push mirrors (nil:
+	// none).
+	PushMirrors *PushMirrorApp
 	// Groups: group hooks (nil: none).
 	Groups *GroupApp
 	now    func() time.Time

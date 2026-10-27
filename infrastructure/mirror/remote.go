@@ -107,7 +107,8 @@ func (d Dialer) Remote(ctx context.Context, raw string, cred Credentials) (Remot
 	}
 	ep, _ := transport.NewEndpoint(strings.TrimSpace(raw))
 	if ep.Protocol != "ssh" {
-		r := Remote{Endpoint: ep, Transport: githttp.NewClient(d.HTTPClient())}
+		client := d.HTTPClient()
+		r := Remote{Endpoint: ep, Transport: githttp.NewClient(client), HTTPClient: client}
 		if cred.Username != "" || cred.Password != "" {
 			user := cred.Username
 			if user == "" {

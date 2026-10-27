@@ -39,7 +39,7 @@ import (
 //   - with LFS, the objects the fetched branch and tag tips point to are
 //     fetched from the remote's LFS server too;
 //   - syncs send no webhooks and start no Actions runs (a mirror is a
-//     copy).
+//     copy), but what they fetch goes on to the push mirrors.
 
 var (
 	ErrMirrorNotFound   = errors.New("this repository is not a mirror")
@@ -62,7 +62,10 @@ type MirrorApp struct {
 	LFS          *LFSApp
 	Box          *secretbox.Box // nil without security.encryption_key
 	Dialer       mirror.Dialer
-	Now          func() time.Time
+	// PushMirrors pushes what a sync fetched on to the repository's push
+	// mirrors (nil: none).
+	PushMirrors *PushMirrorApp
+	Now         func() time.Time
 }
 
 func (c *MirrorApp) now() time.Time {
@@ -77,13 +80,6 @@ func (c *MirrorApp) defaultInterval() time.Duration {
 		return c.Config.Mirrors.DefaultInterval
 	}
 	return 8 * time.Hour
-}
-
-func (c *MirrorApp) minInterval() time.Duration {
-	if c.Config.Mirrors.MinInterval > 0 {
-		return c.Config.Mirrors.MinInterval
-	}
-	return 10 * time.Minute
 }
 
 // MirrorInput describes an import or a mirror's change.
@@ -104,25 +100,15 @@ type ImportInput struct {
 	MirrorInput
 }
 
-func (c *MirrorApp) seal(plain string) (string, error) {
-	if plain == "" {
-		return "", nil
-	}
-	if c.Box == nil {
-		return "", ErrMirrorNeedsKey
-	}
-	return c.Box.Seal(plain)
-}
-
 // Import creates a repository from a remote; the first sync starts at
 // once (in the background).
 func (c *MirrorApp) Import(actorId string, in ImportInput) (*domain.Repository, *domain.Mirror, error) {
 	if in.URL == nil || mirror.ValidateURL(*in.URL) != nil {
 		return nil, nil, ErrInvalidMirror
 	}
-	m := &domain.Mirror{URL: strings.TrimSpace(*in.URL), Mirror: in.Mirror, Auth: domain.MirrorAuthNone,
+	m := &domain.Mirror{MirrorRemote: domain.MirrorRemote{Auth: domain.MirrorAuthNone}, Mirror: in.Mirror,
 		IntervalSeconds: int(c.defaultInterval().Seconds()), Status: domain.MirrorPending, NextSyncAt: c.now(), CreatedAt: c.now(), UpdatedAt: c.now()}
-	if err := c.apply(m, in.MirrorInput, true); err != nil {
+	if err := c.apply(m, in.MirrorInput); err != nil {
 		return nil, nil, err
 	}
 	tmpl := &domain.Repository{Name: in.Name, Description: in.Description, IsPrivate: in.Private, DefaultBranch: "main", HasIssues: true, IsMirror: in.Mirror}
@@ -140,61 +126,120 @@ func (c *MirrorApp) Import(actorId string, in ImportInput) (*domain.Repository, 
 	return repo, m, nil
 }
 
-// apply copies in into m (fresh: a new mirror).
-func (c *MirrorApp) apply(m *domain.Mirror, in MirrorInput, fresh bool) error {
+// apply copies in into m.
+func (c *MirrorApp) apply(m *domain.Mirror, in MirrorInput) error {
+	if err := applyRemote(c.Box, &m.MirrorRemote, in); err != nil {
+		return err
+	}
+	if in.LFS != nil {
+		m.LFS = *in.LFS
+	}
+	if in.Interval != nil {
+		secs, err := mirrorInterval(c.Config, *in.Interval)
+		if err != nil {
+			return err
+		}
+		m.IntervalSeconds = secs
+	}
+	return nil
+}
+
+// applyRemote sets a remote's URL and credentials from in (pull and push
+// mirrors): SSH remotes get a generated key pair, passwords are sealed.
+func applyRemote(box *secretbox.Box, r *domain.MirrorRemote, in MirrorInput) error {
 	if in.URL != nil {
 		u := strings.TrimSpace(*in.URL)
 		if mirror.ValidateURL(u) != nil {
 			return ErrInvalidMirror
 		}
-		if u != m.URL {
-			m.SSHHostKey = "" // another host: pin its key anew
+		if u != r.URL {
+			r.SSHHostKey = "" // another host: pin its key anew
 		}
-		m.URL = u
+		r.URL = u
 	}
-	if mirror.IsSSH(m.URL) {
-		if m.Auth != domain.MirrorAuthSSH || in.SSH {
-			if c.Box == nil {
+	if mirror.IsSSH(r.URL) {
+		if r.Auth != domain.MirrorAuthSSH || in.SSH {
+			if box == nil {
 				return ErrMirrorNeedsKey
 			}
 			priv, pub, err := mirror.GenerateSSHKey("ogit-mirror")
 			if err != nil {
 				return err
 			}
-			if m.Secret, err = c.seal(string(priv)); err != nil {
+			if r.Secret, err = box.Seal(string(priv)); err != nil {
 				return err
 			}
-			m.Auth, m.SSHPublicKey, m.Username = domain.MirrorAuthSSH, pub, ""
+			r.Auth, r.SSHPublicKey, r.Username = domain.MirrorAuthSSH, pub, ""
 		}
-	} else {
-		if m.Auth == domain.MirrorAuthSSH {
-			m.Auth, m.Secret, m.SSHPublicKey, m.SSHHostKey = domain.MirrorAuthNone, "", "", ""
-		}
-		if in.Username != nil {
-			m.Username = strings.TrimSpace(*in.Username)
-		}
-		if in.Password != nil {
-			sealed, err := c.seal(*in.Password)
+		return nil
+	}
+	if r.Auth == domain.MirrorAuthSSH {
+		r.Auth, r.Secret, r.SSHPublicKey, r.SSHHostKey = domain.MirrorAuthNone, "", "", ""
+	}
+	if in.Username != nil {
+		r.Username = strings.TrimSpace(*in.Username)
+	}
+	if in.Password != nil {
+		r.Secret = ""
+		if *in.Password != "" {
+			if box == nil {
+				return ErrMirrorNeedsKey
+			}
+			sealed, err := box.Seal(*in.Password)
 			if err != nil {
 				return err
 			}
-			m.Secret = sealed
-		}
-		m.Auth = domain.MirrorAuthNone
-		if m.Secret != "" || m.Username != "" {
-			m.Auth = domain.MirrorAuthPassword
+			r.Secret = sealed
 		}
 	}
-	if in.LFS != nil {
-		m.LFS = *in.LFS
-	}
-	if in.Interval != nil {
-		if *in.Interval < c.minInterval() || *in.Interval > 30*24*time.Hour {
-			return ErrInvalidMirror
-		}
-		m.IntervalSeconds = int(in.Interval.Seconds())
+	r.Auth = domain.MirrorAuthNone
+	if r.Secret != "" || r.Username != "" {
+		r.Auth = domain.MirrorAuthPassword
 	}
 	return nil
+}
+
+// mirrorInterval checks a sync interval: mirrors.min_interval to 30 days.
+func mirrorInterval(cfg config.Config, d time.Duration) (int, error) {
+	floor := cfg.Mirrors.MinInterval
+	if floor <= 0 {
+		floor = 10 * time.Minute
+	}
+	if d < floor || d > 30*24*time.Hour {
+		return 0, ErrInvalidMirror
+	}
+	return int(d.Seconds()), nil
+}
+
+// mirrorRetry is the wait after a failure: 5 minutes doubling, up to the
+// interval.
+func mirrorRetry(failures, intervalSeconds int) time.Duration {
+	wait := mirrorBackoff << min(failures-1, 10)
+	if interval := time.Duration(intervalSeconds) * time.Second; wait > interval {
+		wait = interval
+	}
+	return wait
+}
+
+// remoteCredentials opens a remote's secrets; hostKey is the pinned SSH
+// host key, set on first contact.
+func remoteCredentials(box *secretbox.Box, r *domain.MirrorRemote, hostKey *string) (mirror.Credentials, error) {
+	cred := mirror.Credentials{Username: r.Username, SSHHostKey: *hostKey, OnHostKey: func(k string) { *hostKey = k }}
+	if r.Secret != "" {
+		if box == nil {
+			return cred, ErrMirrorNeedsKey
+		}
+		plain, err := box.Open(r.Secret)
+		if err != nil {
+			return cred, err
+		}
+		if r.Auth == domain.MirrorAuthSSH {
+			cred.SSHPrivateKey = []byte(plain)
+		} else {
+			cred.Password = plain
+		}
+	}
+	return cred, nil
 }
 
 // managed returns a repository's mirror if actorId maintains it.
@@ -235,7 +280,7 @@ func (c *MirrorApp) Update(id, path *string, actorId string, in MirrorInput) (*d
 	if err != nil {
 		return nil, err
 	}
-	if err := c.apply(m, in, false); err != nil {
+	if err := c.apply(m, in); err != nil {
 		return nil, err
 	}
 	fields := map[string]any{"url": m.URL, "auth": m.Auth, "username": m.Username, "secret": m.Secret, "ssh_public_key": m.SSHPublicKey,
@@ -322,15 +367,14 @@ func (c *MirrorApp) sync(ctx context.Context, m *domain.Mirror) {
 		return
 	}
 	hostKey := m.SSHHostKey
-	err = c.fetch(ctx, repo, m, &hostKey)
+	changed, err := c.fetch(ctx, repo, m, &hostKey)
+	if changed {
+		c.PushMirrors.Pushed(repo)
+	}
 	fields := map[string]any{"locked_until": nil, "last_sync_at": now, "updated_at": now, "ssh_host_key": hostKey}
 	if err != nil {
 		m.Failures++
-		wait := mirrorBackoff << min(m.Failures-1, 10)
-		if interval := time.Duration(m.IntervalSeconds) * time.Second; wait > interval {
-			wait = interval
-		}
-		fields["status"], fields["failures"], fields["last_error"], fields["next_sync_at"] = domain.MirrorFailed, m.Failures, mirror.Describe(err), now.Add(wait)
+		fields["status"], fields["failures"], fields["last_error"], fields["next_sync_at"] = domain.MirrorFailed, m.Failures, mirror.Describe(err), now.Add(mirrorRetry(m.Failures, m.IntervalSeconds))
 		c.Logger.Warn().Err(err).Str("component", "application.mirror").Str("repository", repo.FullPath()).Msg("mirror sync failed")
 		_ = c.Pers.Update(m.Id, fields)
 		return
@@ -345,37 +389,19 @@ func (c *MirrorApp) sync(ctx context.Context, m *domain.Mirror) {
 	_ = c.Pers.Update(m.Id, fields)
 }
 
-func (c *MirrorApp) credentials(m *domain.Mirror, hostKey *string) (mirror.Credentials, error) {
-	cred := mirror.Credentials{Username: m.Username, SSHHostKey: *hostKey, OnHostKey: func(k string) { *hostKey = k }}
-	if m.Secret != "" {
-		if c.Box == nil {
-			return cred, ErrMirrorNeedsKey
-		}
-		plain, err := c.Box.Open(m.Secret)
-		if err != nil {
-			return cred, err
-		}
-		if m.Auth == domain.MirrorAuthSSH {
-			cred.SSHPrivateKey = []byte(plain)
-		} else {
-			cred.Password = plain
-		}
-	}
-	return cred, nil
-}
-
-func (c *MirrorApp) fetch(ctx context.Context, repo *domain.Repository, m *domain.Mirror, hostKey *string) error {
-	cred, err := c.credentials(m, hostKey)
+// fetch syncs the repository; changed: refs moved (even if LFS failed).
+func (c *MirrorApp) fetch(ctx context.Context, repo *domain.Repository, m *domain.Mirror, hostKey *string) (changed bool, err error) {
+	cred, err := remoteCredentials(c.Box, &m.MirrorRemote, hostKey)
 	if err != nil {
-		return err
+		return false, err
 	}
 	remote, err := c.Dialer.Remote(ctx, m.URL, cred)
 	if err != nil {
-		return err
+		return false, err
 	}
 	st, err := c.Storage.GetStorer(repo.StorageKey)
 	if err != nil {
-		return err
+		return false, err
 	}
 	fetch := mirror.Fetch
 	if m.Mirror {
@@ -383,17 +409,18 @@ func (c *MirrorApp) fetch(ctx context.Context, repo *domain.Repository, m *domai
 	}
 	res, err := fetch(ctx, st, remote)
 	if err != nil {
-		return err
+		return false, err
 	}
+	changed = len(res.Updated)+len(res.Deleted) > 0
 	if res.DefaultBranch != "" && res.DefaultBranch != repo.DefaultBranch {
 		if err := c.Repositories.RepoPres.Update(repo.Id, map[string]any{"default_branch": res.DefaultBranch}); err != nil {
-			return err
+			return changed, err
 		}
 	}
 	if m.LFS && len(res.Updated) > 0 {
-		return c.fetchLFS(ctx, repo, m, st, res, cred)
+		return changed, c.fetchLFS(ctx, repo, m, st, res, cred)
 	}
-	return nil
+	return changed, nil
 }
 
 // fetchLFS fetches the LFS objects the updated refs' tips point to that
@@ -418,7 +445,7 @@ func (c *MirrorApp) fetchLFS(ctx context.Context, repo *domain.Repository, m *do
 	if len(missing) == 0 {
 		return nil
 	}
-	server, err := c.Dialer.LFSServer(ctx, m.URL, cred)
+	server, err := c.Dialer.LFSServer(ctx, m.URL, cred, "download")
 	if err != nil {
 		return err
 	}

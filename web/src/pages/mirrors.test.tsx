@@ -74,4 +74,60 @@ describe("mirrors", () => {
     await userEvent.click(within(document.getElementById("mirror")!).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(sent(fetch, "PATCH", "/repository/bob%2Fcopy/mirror")).toEqual([{ url: "ssh://git@example.com/a.git", lfs: false, interval_seconds: 28800 }]));
   });
+
+  it("adds a push mirror", async () => {
+    const created = { id: "pm1", url: "https://example.com/b.git", mode: "branches", auth: "password", username: "me", has_password: true, lfs: true,
+      interval_seconds: 28800, status: "pending", last_sync_at: null, last_success_at: null, next_sync_at: "2026-01-01T00:00:00Z", created_at: "2026-01-01T00:00:00Z" };
+    let list: object[] = [];
+    const fetch = fakeAPI({
+      "/instance": instance, "/user/profile": me, "/repository/bob%2Fcopy": repo(),
+      "/repository/bob%2Fcopy/push-mirrors": () => ({ push_mirrors: list }),
+      "POST /repository/bob%2Fcopy/push-mirrors": () => ((list = [created]), created),
+    });
+    renderRoutes(routes, "/bob/copy/settings");
+    await userEvent.click(await screen.findByRole("button", { name: "Add a push mirror" }));
+    const section = document.getElementById("push-mirrors")!;
+    await userEvent.type(within(section).getByLabelText("Remote URL"), "https://example.com/b.git");
+    await userEvent.type(within(section).getByLabelText("Username"), "me");
+    await userEvent.type(within(section).getByLabelText("Password or token"), "tok");
+    await userEvent.selectOptions(within(section).getByLabelText("Mode"), "branches");
+    await userEvent.click(within(section).getByLabelText("Push Git LFS objects too"));
+    await userEvent.click(within(section).getByRole("button", { name: "Add push mirror" }));
+    await waitFor(() =>
+      expect(sent(fetch, "POST", "/repository/bob%2Fcopy/push-mirrors")).toEqual([
+        { url: "https://example.com/b.git", mode: "branches", lfs: true, interval_seconds: 28800, username: "me", password: "tok" },
+      ]),
+    );
+    expect(await within(section).findByText("https://example.com/b.git")).toBeInTheDocument();
+  });
+
+  it("shows, pushes, edits and removes push mirrors", async () => {
+    vi.stubGlobal("confirm", () => true);
+    const pm = { id: "pm1", url: "ssh://git@example.com/b.git", mode: "mirror", auth: "ssh", has_password: false, ssh_public_key: "ssh-ed25519 AAAApush ogit-mirror",
+      lfs: false, interval_seconds: 3600, status: "failed", last_error: "not pushed: main: diverged from the remote (not a fast-forward)",
+      last_sync_at: null, last_success_at: null, next_sync_at: "2026-01-01T00:00:00Z", created_at: "2026-01-01T00:00:00Z" };
+    const fetch = fakeAPI({
+      "/instance": instance, "/user/profile": me, "/repository/bob%2Fcopy": repo(),
+      "/repository/bob%2Fcopy/push-mirrors": { push_mirrors: [pm] },
+      "POST /repository/bob%2Fcopy/push-mirrors/pm1/sync": { ...pm, status: "pending" },
+      "PATCH /repository/bob%2Fcopy/push-mirrors/pm1": pm,
+      "DELETE /repository/bob%2Fcopy/push-mirrors/pm1": { message: "push mirror removed" },
+    });
+    renderRoutes(routes, "/bob/copy/settings");
+    expect(await screen.findByLabelText("Push mirror SSH public key")).toHaveValue("ssh-ed25519 AAAApush ogit-mirror");
+    const row = screen.getByTestId("push-mirror");
+    expect(within(row).getByText(/main: diverged/)).toBeInTheDocument();
+    await userEvent.click(within(row).getByRole("button", { name: "Push now" }));
+    await waitFor(() => expect(sent(fetch, "POST", "/repository/bob%2Fcopy/push-mirrors/pm1/sync")).toHaveLength(1));
+    await userEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    expect(within(row).queryByLabelText("Password or token")).not.toBeInTheDocument();
+    await userEvent.clear(within(row).getByLabelText("Also push every"));
+    await userEvent.type(within(row).getByLabelText("Also push every"), "2");
+    await userEvent.click(within(row).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(sent(fetch, "PATCH", "/repository/bob%2Fcopy/push-mirrors/pm1")).toEqual([{ url: "ssh://git@example.com/b.git", mode: "mirror", lfs: false, interval_seconds: 7200 }]),
+    );
+    await userEvent.click(within(row).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(sent(fetch, "DELETE", "/repository/bob%2Fcopy/push-mirrors/pm1")).toHaveLength(1));
+  });
 });
