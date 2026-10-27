@@ -464,6 +464,7 @@ not ending in `.git`; a few words such as `admin`, `api`, `explore`,
   - **Moving:** a group's owner renames a sub-group or moves a group under another one they maintain (`POST /api/v1/group/org%2Fteam/move` with `name` and/or `parent`; `"parent": ""` makes it top-level). Everything below moves along, and every former path (groups, repositories, git URLs) redirects until something takes it. Top-level groups can't be renamed (they share names with users), but can move under a group.
   - **Inherited settings:** a group that requires two-factor authentication requires it of every sub-group; group Actions runners serve the sub-groups' repositories; group secrets and variables reach them too (the nearest group wins, the repository's own win over all).
   - **Group webhooks** (`/api/v1/group/<group>/hooks`, the same API as a repository's, for maintainers and owners) fire for every repository in the group and below.
+  - **Web UI:** sub-groups have pages like any group (`/org/team`, with breadcrumbs and their sub-groups), repositories inside them at `/org/team/app`, and the group's management page (`/groups/org/team`) lists and creates sub-groups, shows inherited members, moves or renames the group and manages its webhooks. Pages under a former path redirect after a move.
   - **Packages:** sub-groups own packages: images `org/team/app` (the deepest existing group is the owner), generic files under `/api/packages/org/team/generic/...`, and npm packages in their top-level group's scope, named after their path: `org/web/ui` publishes `@org/web-ui-<name>`. Names stay when a group moves.
 
 Repositories created before namespaces existed moved under their first owner
@@ -708,7 +709,6 @@ HTTPS or with `X-Forwarded-Proto: https`).
 
 ## Not implemented yet
 
-- Web UI pages for sub-groups (coming next)
 
 ## Development
 

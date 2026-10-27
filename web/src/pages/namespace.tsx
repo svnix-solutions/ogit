@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { BookMarked, Package, Plus, Settings, User, Users } from "lucide-react";
-import { useParams, useSearchParams } from "react-router";
+import { BookMarked, Folder, FolderPlus, Package, Plus, Settings, User, Users } from "lucide-react";
+import { Link, useParams, useSearchParams } from "react-router";
 import { pageParam, Pager } from "@/components/pager";
+import { NamespacePath } from "@/components/namespace-path";
 import { PackageList } from "@/components/package-list";
 import { RepoList } from "@/components/repo-list";
 import { Alert } from "@/components/ui/alert";
@@ -15,12 +16,15 @@ import { useMyGroups } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { NotFoundPage } from "./not-found";
 
-export function NamespacePage() {
-  const { owner = "" } = useParams();
+// NamespacePage: a user's or group's page; path is given for sub-groups
+// (their routes are the repository routes', see RepoLayout).
+export function NamespacePage({ path, notFound }: { path?: string; notFound?: React.ReactNode } = {}) {
+  const params = useParams();
+  const owner = path ?? params.owner ?? params.p0 ?? "";
   const { data: profile } = useProfile();
-  const [params, setParams] = useSearchParams();
-  const page = pageParam(params);
-  const tab = params.get("tab");
+  const [search, setParams] = useSearchParams();
+  const page = pageParam(search);
+  const tab = search.get("tab");
   const perPage = 30;
   const ns = useQuery({
     queryKey: ["namespace", owner, page],
@@ -30,7 +34,7 @@ export function NamespacePage() {
   const groups = useMyGroups(!!profile && ns.data?.type === "group");
   const membership = groups.data?.find((g) => g.name === owner);
 
-  if (ns.error instanceof ApiError && ns.error.status === 404) return <NotFoundPage />;
+  if (ns.error instanceof ApiError && ns.error.status === 404) return notFound ?? <NotFoundPage />;
   if (ns.isError) return <Alert variant="destructive">{ns.error.message}</Alert>;
   if (!ns.data) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
@@ -42,13 +46,18 @@ export function NamespacePage() {
           <Icon className="h-7 w-7 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold">{ns.data.name}</h1>
+          <h1 className="text-2xl font-semibold">{ns.data.name.includes("/") ? <NamespacePath path={ns.data.name} /> : ns.data.name}</h1>
           <p className="text-sm text-muted-foreground">{ns.data.description || (ns.data.type === "group" ? "Group" : "User")}</p>
         </div>
         <div className="flex gap-2">
           {membership && (
-            <ButtonLink variant="outline" size="sm" to={`/groups/${owner}`}>
+            <ButtonLink variant="outline" size="sm" to={`/groups/${ns.data.name}`}>
               <Settings className="h-4 w-4" /> Manage group
+            </ButtonLink>
+          )}
+          {ns.data.can_create && ns.data.type === "group" && (
+            <ButtonLink variant="outline" size="sm" to={`/groups/${ns.data.name}#subgroups`}>
+              <FolderPlus className="h-4 w-4" /> New sub-group
             </ButtonLink>
           )}
           {ns.data.can_create && (
@@ -67,9 +76,24 @@ export function NamespacePage() {
         </button>
       </nav>
       {tab === "packages" ? (
-        <NamespacePackages namespace={owner} type={params.get("type") ?? ""} onType={(t) => setParams(t ? { tab: "packages", type: t } : { tab: "packages" })} />
+        <NamespacePackages namespace={owner} type={search.get("type") ?? ""} onType={(t) => setParams(t ? { tab: "packages", type: t } : { tab: "packages" })} />
       ) : (
         <>
+          {!!ns.data.subgroups?.length && (
+            <Card className="divide-y" aria-label="Sub-groups">
+              {ns.data.subgroups.map((g) => (
+                <div key={g.name} className="flex items-start gap-3 px-4 py-3">
+                  <Folder className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <Link to={`/${g.name}`} className="font-medium text-primary hover:underline">
+                      {g.name.slice(g.name.lastIndexOf("/") + 1)}
+                    </Link>
+                    {g.description && <p className="text-sm text-muted-foreground">{g.description}</p>}
+                  </div>
+                </div>
+              ))}
+            </Card>
+          )}
           <RepoList repos={ns.data.repositories} showNamespace={false} empty="No repositories you can see here." />
           <Pager page={page} perPage={perPage} count={ns.data.repositories.length} total={ns.data.total} onPage={(p) => setParams({ page: String(p + 1) })} />
         </>

@@ -2,6 +2,7 @@ import { FileArchive, Globe, Lock, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ConfirmDelete } from "@/components/confirm-delete";
+import { NamespacePath } from "@/components/namespace-path";
 import { PackageList, PackageTypeIcon, typeLabels } from "@/components/package-list";
 import { CopyField } from "@/components/copy-field";
 import { useRepo } from "@/components/repo-layout";
@@ -119,9 +120,21 @@ function Dependencies({ title, deps }: { title: string; deps: [string, string][]
   );
 }
 
-// PackagePage: /packages/:owner/:type/<name>.
+const packageTypes = ["container", "npm", "generic", "go"];
+
+// splitPackagePath reads <owner>/<type>/<name>, where the owner may be a
+// sub-group's path and image names have slashes: the first type word after
+// the owner's first segment splits it.
+export function splitPackagePath(path: string) {
+  const parts = path.split("/");
+  const i = parts.findIndex((p, i) => i > 0 && packageTypes.includes(p));
+  if (i < 0) return { owner: "", type: "", name: "" };
+  return { owner: parts.slice(0, i).join("/"), type: parts[i], name: parts.slice(i + 1).join("/") };
+}
+
+// PackagePage: /packages/<owner>/<type>/<name>.
 export function PackagePage() {
-  const { owner = "", type = "", "*": name = "" } = useParams();
+  const { owner, type, name } = splitPackagePath(useParams()["*"] ?? "");
   const q = usePackage(owner, type, name);
   if (q.error instanceof ApiError && q.error.status === 404) return <NotFoundPage />;
   if (q.isError) return <Alert variant="destructive">{q.error.message}</Alert>;
@@ -133,9 +146,7 @@ export function PackagePage() {
       <div className="flex flex-wrap items-center gap-3">
         <PackageTypeIcon type={p.type} className="h-6 w-6 text-muted-foreground" />
         <h1 className="text-xl">
-          <Link to={`/${p.namespace}`} className="text-primary hover:underline">
-            {p.namespace}
-          </Link>
+          <NamespacePath path={p.namespace} />
           <span className="text-muted-foreground"> / </span>
           <span className="font-semibold">{p.name}</span>
         </h1>

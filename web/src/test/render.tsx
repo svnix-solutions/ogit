@@ -1,3 +1,4 @@
+import { nestedRoutes } from "@/app";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, type RouteObject } from "react-router";
@@ -21,7 +22,7 @@ export function fakeAPI(table: Record<string, unknown>) {
 }
 
 export function renderRoutes(routes: RouteObject[], url: string) {
-  const router = createMemoryRouter(routes, { initialEntries: [url] });
+  const router = createMemoryRouter(routes, { initialEntries: [url], patchRoutesOnNavigation: nestedRoutes() });
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <RouterProvider router={router} />
