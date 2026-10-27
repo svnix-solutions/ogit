@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api, type Repository } from "@/lib/api";
+import { api } from "@/lib/api";
 
 // Webhooks of a repository (maintainers and owners): add, edit, ping,
 // delete, and each hook's delivery log with redelivery.
@@ -53,12 +53,15 @@ export function eventsSummary(events: string[]): string {
   return events.join(", ");
 }
 
-const hooksKey = (repoId: string) => ["webhooks", repoId];
+const hooksKey = (owner: string) => ["webhooks", owner];
 
-export function Webhooks({ repo }: { repo: Repository }) {
+// Webhooks manages the hooks of owner: a repository's or a group's API
+// path (/repository/<id>, /group/<path>); a group's fire for every
+// repository below it.
+export function Webhooks({ owner, group }: { owner: string; group?: boolean }) {
   const hooks = useQuery({
-    queryKey: hooksKey(repo.id),
-    queryFn: async () => (await api<{ webhooks: Webhook[] | null }>("GET", `/repository/${repo.id}/hooks`)).webhooks ?? [],
+    queryKey: hooksKey(owner),
+    queryFn: async () => (await api<{ webhooks: Webhook[] | null }>("GET", `${owner}/hooks`)).webhooks ?? [],
   });
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -66,7 +69,10 @@ export function Webhooks({ repo }: { repo: Repository }) {
   return (
     <Section
       title="Webhooks"
-      description="Send events to other services as GitHub-compatible JSON, signed with your secret in X-Hub-Signature-256. Failed deliveries are retried for about 40 minutes."
+      description={
+        (group ? "Events of every repository in this group and its sub-groups, sent " : "Send events to other services ") +
+        "as GitHub-compatible JSON, signed with your secret in X-Hub-Signature-256. Failed deliveries are retried for about 40 minutes."
+      }
     >
       <ErrorText error={hooks.error} />
       {hooks.data && hooks.data.length > 0 && (
@@ -83,13 +89,13 @@ export function Webhooks({ repo }: { repo: Repository }) {
                 <span className="hidden text-xs text-muted-foreground sm:inline">{eventsSummary(h.events)}</span>
                 {!h.active && <Badge>inactive</Badge>}
               </button>
-              {open === h.id && <WebhookDetails repo={repo} hook={h} onDeleted={() => setOpen(null)} />}
+              {open === h.id && <WebhookDetails owner={owner} hook={h} onDeleted={() => setOpen(null)} />}
             </li>
           ))}
         </ul>
       )}
       {adding ? (
-        <WebhookForm repo={repo} onDone={() => setAdding(false)} />
+        <WebhookForm owner={owner} onDone={() => setAdding(false)} />
       ) : (
         <Button variant="outline" onClick={() => setAdding(true)}>
           Add webhook
@@ -100,7 +106,7 @@ export function Webhooks({ repo }: { repo: Repository }) {
 }
 
 // WebhookForm adds a hook, or edits one (then an empty secret keeps it).
-function WebhookForm({ repo, hook, onDone }: { repo: Repository; hook?: Webhook; onDone: () => void }) {
+function WebhookForm({ owner, hook, onDone }: { owner: string; hook?: Webhook; onDone: () => void }) {
   const qc = useQueryClient();
   const [url, setURL] = useState(hook?.url ?? "");
   const [secret, setSecret] = useState("");
@@ -118,10 +124,10 @@ function WebhookForm({ repo, hook, onDone }: { repo: Repository; hook?: Webhook;
       if (!hook) body.secret = secret;
       else if (removeSecret) body.secret = "";
       else if (secret) body.secret = secret;
-      return hook ? api("PATCH", `/repository/${repo.id}/hooks/${hook.id}`, body) : api("POST", `/repository/${repo.id}/hooks`, body);
+      return hook ? api("PATCH", `${owner}/hooks/${hook.id}`, body) : api("POST", `${owner}/hooks`, body);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: hooksKey(repo.id) });
+      qc.invalidateQueries({ queryKey: hooksKey(owner) });
       qc.invalidateQueries({ queryKey: ["deliveries"] });
       onDone();
     },
@@ -197,10 +203,10 @@ function WebhookForm({ repo, hook, onDone }: { repo: Repository; hook?: Webhook;
   );
 }
 
-function WebhookDetails({ repo, hook, onDeleted }: { repo: Repository; hook: Webhook; onDeleted: () => void }) {
+function WebhookDetails({ owner, hook, onDeleted }: { owner: string; hook: Webhook; onDeleted: () => void }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
-  const base = `/repository/${repo.id}/hooks/${hook.id}`;
+  const base = `${owner}/hooks/${hook.id}`;
   const deliveriesKey = ["deliveries", hook.id];
   const deliveries = useQuery({
     queryKey: deliveriesKey,
@@ -215,7 +221,7 @@ function WebhookDetails({ repo, hook, onDeleted }: { repo: Repository; hook: Web
   const remove = useMutation({
     mutationFn: () => api("DELETE", base),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: hooksKey(repo.id) });
+      qc.invalidateQueries({ queryKey: hooksKey(owner) });
       onDeleted();
     },
   });
@@ -223,7 +229,7 @@ function WebhookDetails({ repo, hook, onDeleted }: { repo: Repository; hook: Web
   return (
     <div className="space-y-4 border-t bg-muted/20 px-3 py-3">
       {editing ? (
-        <WebhookForm repo={repo} hook={hook} onDone={() => setEditing(false)} />
+        <WebhookForm owner={owner} hook={hook} onDone={() => setEditing(false)} />
       ) : (
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>

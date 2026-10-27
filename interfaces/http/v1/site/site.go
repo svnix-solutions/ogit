@@ -70,6 +70,18 @@ type NamespaceResponse struct {
 	Subgroups []Subgroup `json:"subgroups"`
 }
 
+type ResolveRequest struct {
+	Path string `query:"path" json:"-" validate:"required"`
+}
+
+type ResolveResponse struct {
+	Type string `json:"type"` // repository or group
+	Path string `json:"path"`
+	// From: the former path the request used (a moved group's); the UI
+	// redirects it to path.
+	From string `json:"from,omitempty"`
+}
+
 type Subgroup struct {
 	Name        string `json:"name"` // its full path
 	Description string `json:"description,omitempty"`
@@ -84,6 +96,10 @@ func Setup(c Controller, grp *fiberoapi.OApiGroup) {
 	fiberoapi.Get(grp, "/explore", c.Explore, fiberoapi.OpenAPIOptions{
 		Summary: "Public repositories", OperationID: "site.explore", Tags: tags, Security: "disabled",
 		Description: "Public repositories whose name or description contains ?q=, with ?limit= and ?offset=. No session needed.",
+	})
+	fiberoapi.Get(grp, "/resolve", c.Resolve, fiberoapi.OpenAPIOptions{
+		Summary: "What a page path below a sub-group is", OperationID: "site.resolve", Tags: tags, Security: "disabled",
+		Description: "For the web UI: ?path=org/team/app/tree/main is the repository org/team/app, ?path=org/team/b the group org/team/b. Only what the caller may read; 404 otherwise.",
 	})
 	fiberoapi.Get(grp, "/namespace/:name", c.Namespace, fiberoapi.OpenAPIOptions{
 		Summary: "A user's or group's repositories", OperationID: "site.namespace", Tags: tags, Security: "disabled",
@@ -156,4 +172,12 @@ func summaries(repos []domain.Repository) []Repository {
 			Description: r.Description, IsPrivate: r.IsPrivate, IsArchived: r.IsArchived})
 	}
 	return out
+}
+
+func (c Controller) Resolve(ctx *fiber.Ctx, req ResolveRequest) (*ResolveResponse, *fiberoapi.ErrorResponse) {
+	r, err := c.RepositoryApp.ResolvePath(req.Path, c.userId(ctx))
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return &ResolveResponse{Type: r.Type, Path: r.Path, From: r.From}, nil
 }

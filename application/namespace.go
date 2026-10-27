@@ -321,3 +321,76 @@ func (c *RepositoryApp) ViewNamespace(path, userId string) (*NamespaceView, erro
 	}
 	return view, nil
 }
+
+// ResolvedPath is what a web UI path is under a sub-group: a repository or
+// the group itself.
+type ResolvedPath struct {
+	Type string // "repository" or "group"
+	Path string
+	// From: the former path of a moved group the request used (its new
+	// path starts Path), for the UI to redirect.
+	From string
+}
+
+// ResolvePath tells what a path of the web UI below a sub-group is
+// (org/team/app/tree/main is the repository org/team/app): the deepest
+// group among its leading segments, then the repository after it if
+// userId may read it, else the group if they may see it (and the path is
+// just the group). Anything else is ErrNamespaceNotFound, so nothing
+// private is disclosed.
+func (c *RepositoryApp) ResolvePath(path, userId string) (*ResolvedPath, error) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	var prefixes []string
+	for i := 2; i <= len(parts) && i <= domain.MaxGroupDepth; i++ {
+		prefixes = append(prefixes, strings.Join(parts[:i], "/"))
+	}
+	groups, err := c.GroupPers.GetByNames(prefixes)
+	if err != nil {
+		return nil, err
+	}
+	former, err := c.GroupPers.RedirectPaths(prefixes)
+	if err != nil {
+		return nil, err
+	}
+	// The deepest group, by its current path or a former one.
+	var deepest *domain.Group
+	matched, from := "", ""
+	for i := range groups {
+		if len(groups[i].Name) > len(matched) {
+			deepest, matched, from = &groups[i], groups[i].Name, ""
+		}
+	}
+	for _, p := range former {
+		if len(p) > len(matched) {
+			g, err := c.GroupPers.ResolveRedirect(p)
+			if err != nil {
+				continue
+			}
+			deepest, matched, from = g, p, p
+		}
+	}
+	if deepest == nil {
+		return nil, ErrNamespaceNotFound
+	}
+	depth := strings.Count(matched, "/") + 1
+	if depth < len(parts) {
+		repoPath := deepest.Name + "/" + parts[depth]
+		if repo, err := c.GetRepositoryForUser(nil, &repoPath, userId); err == nil {
+			return &ResolvedPath{Type: "repository", Path: repo.FullPath(), From: fromPath(from, parts[depth])}, nil
+		}
+		return nil, ErrNamespaceNotFound
+	}
+	if ok, err := c.groupVisible(deepest, userId, false); err != nil || !ok {
+		return nil, errOr(err, ErrNamespaceNotFound)
+	}
+	return &ResolvedPath{Type: "group", Path: deepest.Name, From: from}, nil
+}
+
+// fromPath is a repository's former path under a moved group ("" if the
+// group didn't move).
+func fromPath(group, slug string) string {
+	if group == "" {
+		return ""
+	}
+	return group + "/" + slug
+}

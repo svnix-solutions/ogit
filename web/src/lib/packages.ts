@@ -38,12 +38,16 @@ export const packagePath = (p: { namespace: string; type: string; name: string }
 const apiPath = (namespace: string, type: string, name: string) =>
   `/packages/${encodeURIComponent(namespace)}/${encodeURIComponent(type)}/${encodeURIComponent(name)}`;
 
+// npmScope is a package's npm scope: the top of its namespace (sub-groups
+// publish in their top-level group's scope).
+export const npmScope = (p: { namespace: string }) => p.namespace.split("/")[0];
+
 // fileURL downloads a generic file or an npm tarball (the session cookie
 // authenticates it).
 export const fileURL = (p: Package, version: string, file: string) =>
   p.type === "npm"
-    ? `/api/packages/npm/@${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}/-/${encodeURIComponent(file)}`
-    : `/api/packages/${encodeURIComponent(p.namespace)}/generic/${encodeURIComponent(p.name)}/${encodeURIComponent(version)}/${encodeURIComponent(file)}`;
+    ? `/api/packages/npm/@${encodeURIComponent(npmScope(p))}/${encodeURIComponent(p.name)}/-/${encodeURIComponent(file)}`
+    : `/api/packages/${p.namespace.split("/").map(encodeURIComponent).join("/")}/generic/${encodeURIComponent(p.name)}/${encodeURIComponent(version)}/${encodeURIComponent(file)}`;
 
 export function useNamespacePackages(namespace: string) {
   return useQuery({
@@ -100,11 +104,11 @@ export const latestVersion = (versions: PackageVersion[]) => versions.find((v) =
 export const npmManifest = (v?: PackageVersion) => (v?.metadata.manifest ?? {}) as Record<string, unknown>;
 
 // npmrc maps the package's scope to this registry.
-export const npmrc = (p: Package, origin: string) => [`@${p.namespace}:registry=${origin}/api/packages/npm/`, `${origin.replace(/^https?:/, "")}/api/packages/npm/:_authToken=<token>`];
+export const npmrc = (p: Package, origin: string) => [`@${npmScope(p)}:registry=${origin}/api/packages/npm/`, `${origin.replace(/^https?:/, "")}/api/packages/npm/:_authToken=<token>`];
 
 // Install commands for a package, as shown on its page.
 export function installCommand(p: Package, host: string, version?: PackageVersion): string {
-  if (p.type === "npm") return `npm install @${p.namespace}/${p.name}${version ? "@" + version.version : ""}`;
+  if (p.type === "npm") return `npm install @${npmScope(p)}/${p.name}${version ? "@" + version.version : ""}`;
   if (p.type === "container") {
     const ref = version?.tags[0] ? `:${version.tags[0]}` : version ? `@${version.version}` : "";
     return `docker pull ${host}/${p.namespace}/${p.name}${ref}`;

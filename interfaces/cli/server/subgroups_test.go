@@ -223,6 +223,29 @@ func testSubgroups(t *testing.T, opts ...func(*config.Config)) {
 		assert.NotEmpty(t, data)
 	})
 
+	t.Run("resolve", func(t *testing.T) {
+		resolve := func(as string, path string) (int, map[string]any) {
+			return srv.get(t, "/api/v1/resolve?path="+url.QueryEscape(path), as)
+		}
+		status, body := resolve(carol.session, "org/team/app/tree/main")
+		require.Equal(t, http.StatusOK, status, "%v", body)
+		assert.Equal(t, map[string]any{"type": "repository", "path": "org/team/app"}, body)
+		status, body = resolve(carol.session, "org/team/b")
+		require.Equal(t, http.StatusOK, status, "%v", body)
+		assert.Equal(t, map[string]any{"type": "group", "path": "org/team/b"}, body)
+		status, _ = resolve("", "org/team/app")
+		assert.Equal(t, http.StatusNotFound, status, "private repository")
+		frank := srv.newUser(t, "frank")
+		status, _ = resolve(frank.session, "org/team/app/tree/main")
+		assert.Equal(t, http.StatusNotFound, status, "an outsider")
+		status, body = resolve("", "org/team/b")
+		assert.Equal(t, http.StatusOK, status, "a public repository below: %v", body)
+		status, _ = resolve("", "org/team/nothing/x")
+		assert.Equal(t, http.StatusNotFound, status)
+		status, _ = resolve(alice.session, "alice/plain/tree/main")
+		assert.Equal(t, http.StatusNotFound, status, "user namespaces take the usual routes")
+	})
+
 	t.Run("delete", func(t *testing.T) {
 		status, body := srv.request(t, http.MethodDelete, groupAPI("org/team/b/c/d"), alice.session, nil)
 		assert.Equal(t, http.StatusOK, status, "an inherited owner deletes: %v", body)
@@ -282,6 +305,12 @@ func TestMoveGroups(t *testing.T) {
 		status, body = srv.get(t, "/api/v1/namespace/"+url.PathEscape("org/team"), alice.session)
 		require.Equal(t, http.StatusOK, status, "%v", body)
 		assert.Equal(t, "org/squad", body["name"], "and the namespace page")
+		status, body = srv.get(t, "/api/v1/resolve?path="+url.QueryEscape("org/team/app/tree/main"), alice.session)
+		require.Equal(t, http.StatusOK, status, "%v", body)
+		assert.Equal(t, map[string]any{"type": "repository", "path": "org/squad/app", "from": "org/team/app"}, body, "the UI redirects")
+		status, body = srv.get(t, "/api/v1/resolve?path="+url.QueryEscape("org/team/ops"), alice.session)
+		require.Equal(t, http.StatusOK, status, "%v", body)
+		assert.Equal(t, map[string]any{"type": "group", "path": "org/squad/ops", "from": "org/team/ops"}, body)
 		status, _, data := fetch(t, srv.url+"/org/team/app/raw/main/a.txt", basicAuth(alice.git.Username, alice.git.Password))
 		assert.Equal(t, http.StatusOK, status)
 		assert.Equal(t, "a\n", string(data))

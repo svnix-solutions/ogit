@@ -17,7 +17,7 @@ const delivery = (over: Partial<Delivery>): Delivery => ({
 function show() {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <Webhooks repo={repo} />
+      <Webhooks owner={`/repository/${repo.id}`} />
     </QueryClientProvider>,
   );
 }

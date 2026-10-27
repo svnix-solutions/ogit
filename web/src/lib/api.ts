@@ -112,8 +112,20 @@ export type Repository = RepositorySummary & { owner_type: "user" | "group"; rol
 
 export type Member = { id: string; type: "user" | "group"; username?: string; group?: string; role: Role };
 
-export type Group = { id: string; name: string; description: string; role?: "owner" | "maintainer" | "member"; require_two_factor?: boolean };
-export type GroupMember = { username: string; role: "owner" | "maintainer" | "member"; two_factor_enabled?: boolean };
+// Group: name is the full path (org/team for a sub-group).
+export type Group = {
+  id: string;
+  name: string;
+  parent?: string;
+  description: string;
+  role?: "owner" | "maintainer" | "member";
+  require_two_factor?: boolean;
+  require_two_factor_inherited?: boolean;
+};
+export type GroupMember = { username: string; role: "owner" | "maintainer" | "member"; two_factor_enabled?: boolean; inherited_from?: string };
+
+// groupAPI is a group's API path (its slashes encoded).
+export const groupAPI = (path: string) => `/group/${encodeURIComponent(path)}`;
 
 export type NamespaceView = {
   name: string;
@@ -122,6 +134,7 @@ export type NamespaceView = {
   can_create: boolean;
   repositories: RepositorySummary[];
   total: number;
+  subgroups?: { name: string; description?: string }[];
 };
 
 export type Instance = { version: string; registration_enabled: boolean; ssh_enabled: boolean; ssh_port?: number; max_asset_size?: number; passkeys?: boolean };

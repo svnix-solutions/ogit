@@ -1,7 +1,7 @@
 import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Package, PlayCircle, Settings, Tag } from "lucide-react";
 import { ForkButton, ForkedFrom, SyncButton, WatchSelect } from "@/components/forks";
 import { useState } from "react";
-import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
+import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from "react-router";
 import { ApiError, atLeast, type Repository } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
 import { encodePath, useRefs } from "@/lib/browse";
@@ -11,8 +11,10 @@ import { useGoModule, useRepoPackages } from "@/lib/packages";
 import { useReleaseCount } from "@/lib/releases";
 import { cn } from "@/lib/utils";
 import { useRepository } from "@/pages/repo";
+import { NamespacePage } from "@/pages/namespace";
 import { NotFoundPage } from "@/pages/not-found";
 import { CopyField } from "./copy-field";
+import { NamespacePath } from "./namespace-path";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -32,13 +34,18 @@ export function cloneURLs(fullPath: string, location: { origin: string; hostname
   return urls;
 }
 
-export function RepoLayout() {
-  const { owner = "", repo: name = "" } = useParams();
-  const r = useRepository(owner, name);
+// RepoLayout is a repository's page: /:owner/:repo, or path for a
+// sub-group's repository (see nestedRoutes in app.tsx).
+export function RepoLayout({ path: nested }: { path?: string } = {}) {
+  const params = useParams();
+  const loc = useLocation();
+  const path = nested ?? `${params.owner}/${params.repo}`;
+  const r = useRepository(path);
   const { data: profile } = useProfile();
 
   if (r.error instanceof ApiError && r.error.status === 404) {
-    return profile ? (
+    // No repository here: maybe a sub-group (org/team).
+    const notFound = profile ? (
       <NotFoundPage />
     ) : (
       <div className="pt-16 text-center">
@@ -52,6 +59,7 @@ export function RepoLayout() {
         </p>
       </div>
     );
+    return loc.pathname.split("/").filter(Boolean).length === path.split("/").length ? <NamespacePage path={path} notFound={notFound} /> : notFound;
   }
   if (r.isError) return <Alert variant="destructive">{r.error.message}</Alert>;
   if (!r.data) return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -64,9 +72,7 @@ export function RepoLayout() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl">
-          <Link to={`/${repo.namespace}`} className="text-primary hover:underline">
-            {repo.namespace}
-          </Link>
+          <NamespacePath path={repo.namespace} />
           <span className="text-muted-foreground"> / </span>
           <Link to={base} className="font-semibold hover:underline">
             {repo.name}
@@ -255,3 +261,4 @@ export function Breadcrumbs({ gitRef, path }: { gitRef: string; path: string }) 
     </nav>
   );
 }
+

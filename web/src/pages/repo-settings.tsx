@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate } from "react-router";
 import { ActionsSettings, RepoCaches } from "@/components/actions-settings";
+import { useRepo } from "@/components/repo-layout";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { ErrorText, Section } from "@/components/section";
 import { Alert } from "@/components/ui/alert";
@@ -24,8 +25,7 @@ import { Webhooks } from "./repo-webhooks";
 import { useRepository } from "./repo";
 
 export function RepoSettingsPage() {
-  const { owner = "", repo = "" } = useParams();
-  const r = useRepository(owner, repo);
+  const r = useRepository(useRepo().full_path);
 
   if (r.error instanceof ApiError && r.error.status === 404) return <NotFoundPage />;
   if (r.isError) return <Alert variant="destructive">{r.error.message}</Alert>;
@@ -42,7 +42,7 @@ export function RepoSettingsPage() {
       <Members repo={r.data} isOwner={isOwner} />
       <DeployKeys repo={r.data} />
       <RepoTokens repo={r.data} />
-      <Webhooks repo={r.data} />
+      <Webhooks owner={`/repository/${r.data.id}`} />
       <ActionsSettings
         scope="this repository's"
         paths={{ runners: `/repository/${r.data.id}/actions/runners`, secrets: `/repository/${r.data.id}/actions/secrets`, variables: `/repository/${r.data.id}/actions/variables` }}
