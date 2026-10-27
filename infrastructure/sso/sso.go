@@ -36,6 +36,9 @@ type Endpoint struct {
 	RedirectURL  string
 	Scopes       []string // extra
 	AllowedOrgs  []string // GitHub
+	// GroupsClaim (OIDC): where the groups are ("groups" when empty; a
+	// dotted path reaches nested claims, e.g. realm_access.roles).
+	GroupsClaim string
 }
 
 // Client is a configured provider.
@@ -69,10 +72,11 @@ func New(ctx context.Context, e Endpoint, hc *http.Client) (Client, error) {
 func GenerateVerifier() string { return oauth2.GenerateVerifier() }
 
 type oidcClient struct {
-	hc       *http.Client
-	provider *oidc.Provider
-	config   oauth2.Config
-	verifier *oidc.IDTokenVerifier
+	hc          *http.Client
+	provider    *oidc.Provider
+	config      oauth2.Config
+	verifier    *oidc.IDTokenVerifier
+	groupsClaim string
 }
 
 func newOIDC(ctx context.Context, e Endpoint, hc *http.Client) (*oidcClient, error) {
@@ -81,7 +85,11 @@ func newOIDC(ctx context.Context, e Endpoint, hc *http.Client) (*oidcClient, err
 		return nil, fmt.Errorf("reading the provider's OpenID configuration: %w", err)
 	}
 	scopes := append([]string{oidc.ScopeOpenID, "profile", "email"}, e.Scopes...)
-	return &oidcClient{hc: hc, provider: provider,
+	groups := e.GroupsClaim
+	if groups == "" {
+		groups = "groups"
+	}
+	return &oidcClient{hc: hc, provider: provider, groupsClaim: groups,
 		config:   oauth2.Config{ClientID: e.ClientId, ClientSecret: e.ClientSecret, Endpoint: provider.Endpoint(), RedirectURL: e.RedirectURL, Scopes: dedupe(scopes)},
 		verifier: provider.Verifier(&oidc.Config{ClientID: e.ClientId})}, nil
 }
@@ -98,7 +106,31 @@ type oidcClaims struct {
 	PreferredUsername string `json:"preferred_username"`
 	Nickname          string `json:"nickname"`
 	Name              string `json:"name"`
-	Groups            any    `json:"groups"`
+}
+
+// GroupsAt reads the groups at a dotted path of raw claims: a list of
+// strings, or one string.
+func GroupsAt(raw map[string]any, path string) []string {
+	var v any = raw
+	for _, part := range strings.Split(path, ".") {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		v = m[part]
+	}
+	var out []string
+	switch g := v.(type) {
+	case []any:
+		for _, x := range g {
+			if s, ok := x.(string); ok {
+				out = append(out, s)
+			}
+		}
+	case string:
+		out = []string{g}
+	}
+	return out
 }
 
 func (o oidcClaims) claims() Claims {
@@ -111,16 +143,6 @@ func (o oidcClaims) claims() Claims {
 		c.EmailVerified = v
 	case string:
 		c.EmailVerified, _ = strconv.ParseBool(v)
-	}
-	switch g := o.Groups.(type) {
-	case []any:
-		for _, x := range g {
-			if s, ok := x.(string); ok {
-				c.Groups = append(c.Groups, s)
-			}
-		}
-	case string:
-		c.Groups = []string{g}
 	}
 	return c
 }
@@ -146,12 +168,19 @@ func (c *oidcClient) Exchange(ctx context.Context, code, verifier, nonce string)
 	if err := idt.Claims(&oc); err != nil {
 		return nil, err
 	}
+	var all map[string]any
+	if err := idt.Claims(&all); err != nil {
+		return nil, err
+	}
 	claims := oc.claims()
+	claims.Groups = GroupsAt(all, c.groupsClaim)
 	if claims.Email == "" || claims.Username == "" { // some providers keep them for userinfo
 		if info, err := c.provider.UserInfo(ctx, oauth2.StaticTokenSource(tok)); err == nil && info.Subject == claims.Subject {
 			var more oidcClaims
-			if info.Claims(&more) == nil {
+			var moreRaw map[string]any
+			if info.Claims(&more) == nil && info.Claims(&moreRaw) == nil {
 				extra := more.claims()
+				extra.Groups = GroupsAt(moreRaw, c.groupsClaim)
 				if claims.Email == "" {
 					claims.Email, claims.EmailVerified = extra.Email, extra.EmailVerified
 				}

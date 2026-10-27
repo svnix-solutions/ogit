@@ -13,6 +13,9 @@ type User struct {
 	Active      bool
 
 	Role Role `gorm:"type:role;default:'user'"`
+	// RoleSynced: the role was set by a sign-in provider's admin group
+	// (which may take it back).
+	RoleSynced bool `gorm:"column:role_synced"`
 
 	// EmailVerifiedAt is nil while the email address is unverified.
 	EmailVerifiedAt *time.Time
@@ -35,7 +38,10 @@ type UserPers interface {
 	// empty), ordered by username, with the total number of matches.
 	List(query string, limit, offset int) ([]User, int64, error)
 	SetActive(userId string, active bool) error
+	// SetRole sets a role by hand (no longer synced).
 	SetRole(userId string, role Role) error
+	// SetSyncedRole sets a role from a provider's admin group.
+	SetSyncedRole(userId string, role Role) error
 	SetPassword(userId, hash string) error
 	CountActiveAdmins() (int64, error)
 	// Purge deletes the user and every row that references them (sessions,

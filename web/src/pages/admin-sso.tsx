@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { useAdminProviderActions, useAdminProviders, type AdminProvider, type ProviderFields } from "@/lib/sso";
+import { useAdminProviderActions, useAdminProviders, type AdminProvider, type GroupMapping, type ProviderFields } from "@/lib/sso";
 
 // SignInProvidersAdmin: the site's sign-in providers. Those from the
 // configuration file are read-only here.
@@ -99,6 +99,10 @@ function ProviderForm(props: {
   const [autoCreate, setAutoCreate] = useState(p?.auto_create ?? true);
   const [require2FA, setRequire2FA] = useState(p?.require_two_factor ?? false);
   const [enabled, setEnabled] = useState(p?.enabled ?? true);
+  const [groupsClaim, setGroupsClaim] = useState(p?.groups_claim ?? "");
+  const [adminGroup, setAdminGroup] = useState(p?.admin_group ?? "");
+  const [mappings, setMappings] = useState<GroupMapping[]>(p?.group_mappings ?? []);
+  const setMapping = (i: number, m: Partial<GroupMapping>) => setMappings(mappings.map((x, j) => (j === i ? { ...x, ...m } : x)));
   const field = (label: string, key: string, value: string, set: (v: string) => void, extra: Record<string, unknown> = {}) => (
     <div className="space-y-1.5">
       <Label htmlFor={`sso-${key}-${id}`}>{label}</Label>
@@ -114,6 +118,7 @@ function ProviderForm(props: {
           ...(p ? {} : { slug }),
           name, kind, issuer, client_id: clientId, scopes, allowed_domains: domains, allowed_orgs: kind === "github" ? orgs : "",
           auto_create: autoCreate, require_two_factor: require2FA, enabled,
+          groups_claim: groupsClaim, admin_group: adminGroup, group_mappings: mappings,
           ...(secret ? { client_secret: secret } : {}),
         });
       }}
@@ -143,6 +148,34 @@ function ProviderForm(props: {
         {field("Allowed email domains (optional)", "domains", domains, setDomains, { placeholder: "example.com, example.org" })}
         {kind === "github" && field("Allowed organizations (optional)", "orgs", orgs, setOrgs, { placeholder: "my-org" })}
       </div>
+      <fieldset className="space-y-2 rounded-md border p-3">
+        <legend className="px-1 text-sm font-medium">Group sync</legend>
+        <p className="text-xs text-muted-foreground">
+          At each sign-in. Sync only removes the memberships (and admin role) it added; ones set by hand stay.
+          {kind === "github" && " GitHub's groups are the user's organizations (listed only with allowed organizations)."}
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {kind === "oidc" && field("Groups claim", "groups-claim", groupsClaim, setGroupsClaim, { placeholder: "groups (or realm_access.roles)" })}
+          {field("Admin group", "admin-group", adminGroup, setAdminGroup, { placeholder: "Members are site admins" })}
+        </div>
+        {mappings.map((m, i) => (
+          <div key={i} className="flex flex-wrap items-end gap-2" data-testid="group-mapping">
+            <Input aria-label="Provider group" className="w-40" placeholder="Provider group" value={m.group} onChange={(e) => setMapping(i, { group: e.target.value })} required />
+            <span className="pb-2 text-sm">→</span>
+            <Input aria-label="oGit group" className="w-40" placeholder="oGit group" value={m.target} onChange={(e) => setMapping(i, { target: e.target.value })} required />
+            <Select aria-label="Role" value={m.role} onChange={(e) => setMapping(i, { role: e.target.value as GroupMapping["role"] })}>
+              <option value="member">member</option>
+              <option value="maintainer">maintainer</option>
+            </Select>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setMappings(mappings.filter((_, j) => j !== i))}>
+              Remove
+            </Button>
+          </div>
+        ))}
+        <Button type="button" variant="outline" size="sm" onClick={() => setMappings([...mappings, { group: "", target: "", role: "member" }])}>
+          Map a group
+        </Button>
+      </fieldset>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={autoCreate} onChange={(e) => setAutoCreate(e.target.checked)} /> Create accounts for new users
       </label>

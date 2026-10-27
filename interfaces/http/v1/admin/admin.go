@@ -19,6 +19,7 @@ type Controller struct {
 	FiberOapi *fiberoapi.OApiGroup
 	AdminApp  *application.AdminApp
 	TwoFactor *application.TwoFactorApp
+	SSO       *application.SSOApp // sso_only
 }
 
 func userResponse(u *domain.User, twoFactor bool) dtos.UserResponse {
@@ -87,8 +88,17 @@ func (ctrl *Controller) UpdateUser(ctx *fiber.Ctx, req dtos.UpdateUserRequest) (
 	return &resp, nil
 }
 
-func settingsResponse(s *application.SiteSettings) *dtos.SettingsResponse {
-	return &dtos.SettingsResponse{RequireTwoFactor: s.RequireTwoFactor, RequireTwoFactorForced: s.RequireTwoFactorForced}
+func (ctrl *Controller) settingsResponse(s *application.SiteSettings) (*dtos.SettingsResponse, error) {
+	out := &dtos.SettingsResponse{RequireTwoFactor: s.RequireTwoFactor, RequireTwoFactorForced: s.RequireTwoFactorForced, SSOOnlyExempt: []string{}}
+	if ctrl.SSO != nil {
+		on, forced, err := ctrl.SSO.SSOOnly()
+		if err != nil {
+			return nil, err
+		}
+		out.SSOOnly, out.SSOOnlyForced = on, forced
+		out.SSOOnlyExempt = append(out.SSOOnlyExempt, ctrl.SSO.Config.Security.SSOOnlyExempt...)
+	}
+	return out, nil
 }
 
 func (ctrl *Controller) GetSettings(ctx *fiber.Ctx, _ struct{}) (*dtos.SettingsResponse, *fiberoapi.ErrorResponse) {
@@ -100,7 +110,11 @@ func (ctrl *Controller) GetSettings(ctx *fiber.Ctx, _ struct{}) (*dtos.SettingsR
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	return settingsResponse(s), nil
+	out, err := ctrl.settingsResponse(s)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return out, nil
 }
 
 func (ctrl *Controller) UpdateSettings(ctx *fiber.Ctx, req dtos.UpdateSettingsRequest) (*dtos.SettingsResponse, *fiberoapi.ErrorResponse) {
@@ -112,10 +126,17 @@ func (ctrl *Controller) UpdateSettings(ctx *fiber.Ctx, req dtos.UpdateSettingsRe
 	if err == nil && req.RequireTwoFactor != nil {
 		s, err = ctrl.AdminApp.SetRequireTwoFactor(auth.UserID, *req.RequireTwoFactor)
 	}
+	if err == nil && req.SSOOnly != nil && ctrl.SSO != nil {
+		err = ctrl.SSO.SetSSOOnly(auth, *req.SSOOnly)
+	}
+	var out *dtos.SettingsResponse
+	if err == nil {
+		out, err = ctrl.settingsResponse(s)
+	}
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
-	return settingsResponse(s), nil
+	return out, nil
 }
 
 func (ctrl *Controller) ResetTwoFactor(ctx *fiber.Ctx, req dtos.UserRequest) (*dtos.MessageResponse, *fiberoapi.ErrorResponse) {

@@ -56,6 +56,7 @@ func (ctrl *Controller) GetProfile(ctx *fiber.Ctx, input struct{}) (*dtos.Profil
 		TwoFactorRequired:  must,
 		HasPassword:        user.Password != "",
 		TwoFactorSatisfied: satisfied,
+		PasswordLogin:      user.Password != "" && (ctrl.SSO == nil || !ctrl.SSO.PasswordBlocked(user)),
 	}, nil
 }
 

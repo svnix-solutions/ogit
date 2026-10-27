@@ -48,11 +48,22 @@ function Settings() {
   const qc = useQueryClient();
   const settings = useQuery({
     queryKey: ["admin-settings"],
-    queryFn: () => api<{ require_two_factor: boolean; require_two_factor_forced: boolean }>("GET", "/admin/settings"),
+    queryFn: () =>
+      api<{ require_two_factor: boolean; require_two_factor_forced: boolean; sso_only: boolean; sso_only_forced: boolean; sso_only_exempt: string[] }>(
+        "GET",
+        "/admin/settings",
+      ),
   });
   const set = useMutation({
     mutationFn: (on: boolean) => api("PATCH", "/admin/settings", { require_two_factor: on }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-settings"] }),
+  });
+  const ssoOnly = useMutation({
+    mutationFn: (on: boolean) => api("PATCH", "/admin/settings", { sso_only: on }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-settings"] });
+      qc.invalidateQueries({ queryKey: ["instance"] });
+    },
   });
   const s = settings.data;
   return (
@@ -75,6 +86,32 @@ function Settings() {
           Require two-factor authentication for everyone
           {s.require_two_factor_forced && <span className="text-xs text-muted-foreground">(set by security.require_2fa in the configuration)</span>}
         </label>
+      )}
+      {s && (
+        <div className="space-y-1 border-t pt-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={s.sso_only}
+              disabled={s.sso_only_forced || ssoOnly.isPending}
+              onChange={(e) =>
+                (!e.target.checked ||
+                  window.confirm("Allow signing in only through sign-in providers? Passwords and passkeys stop working for everyone but the break-glass accounts.")) &&
+                ssoOnly.mutate(e.target.checked)
+              }
+            />
+            Sign in only through sign-in providers
+            {s.sso_only_forced && <span className="text-xs text-muted-foreground">(set by security.sso_only in the configuration)</span>}
+          </label>
+          <p className="text-xs text-muted-foreground">
+            No password or passkey sign-in, and no registration.{" "}
+            {(s.sso_only_exempt ?? []).length > 0
+              ? `Break-glass accounts that keep their password: ${s.sso_only_exempt.join(", ")} (security.sso_only_exempt).`
+              : "No break-glass account is set (security.sso_only_exempt in the configuration)."}{" "}
+            Access tokens and SSH keys keep working.
+          </p>
+          <ErrorText error={ssoOnly.error} />
+        </div>
       )}
     </Section>
   );

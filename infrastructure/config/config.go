@@ -43,6 +43,10 @@ type Config struct {
 		// RequireTwoFactor forces two-factor authentication for every user
 		// (otherwise the admin page decides).
 		RequireTwoFactor bool
+		// SSOOnly forces sign-in through providers (otherwise the admin
+		// page decides); SSOOnlyExempt keep their passwords.
+		SSOOnly       bool
+		SSOOnlyExempt []string
 	}
 
 	// Git: a push (its pack, over HTTP or SSH) is at most MaxPushSize

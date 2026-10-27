@@ -83,6 +83,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		FiberOapi: adminGrp,
 		AdminApp:  deps.AdminApp,
 		TwoFactor: deps.TwoFactorApp,
+		SSO:       deps.SSOApp,
 	})
 
 	sshkey.Setup(sshkey.Controller{Logger: deps.Logger, SSHKeyApp: deps.SSHKeyApp, TwoFactor: deps.TwoFactorApp}, userGrp, repoGrp, adminGrp)
@@ -109,5 +110,5 @@ func SetupRouterV1(deps infrastructure.Deps) {
 
 	actions.Setup(actions.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Actions: deps.ActionsApp}, grp, repoGrp, deps.Http.Fiber)
 
-	site.Setup(site.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, RepositoryApp: deps.RepoApp}, grp)
+	site.Setup(site.Controller{Config: deps.Config, Logger: deps.Logger, SessionApp: deps.SessionApp, RepositoryApp: deps.RepoApp, SSO: deps.SSOApp}, grp)
 }

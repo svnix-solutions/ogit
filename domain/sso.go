@@ -9,6 +9,9 @@ const (
 )
 
 // SSO flow purposes.
+// SettingSSOOnly ("true"/"false"): sign in only through providers.
+const SettingSSOOnly = "sso_only"
+
 const (
 	SSOPurposeLogin = "login"
 	SSOPurposeLink  = "link" // add a sign-in method to the signed-in user
@@ -38,13 +41,27 @@ type SSOProvider struct {
 	// RequireTwoFactor: users with oGit 2FA are asked for it after the
 	// provider (otherwise the provider's own MFA is trusted).
 	RequireTwoFactor bool
-	Enabled          bool
-	FromConfig       bool `gorm:"-"`
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// GroupsClaim: the claim listing the user's groups ("groups" when
+	// empty; a dotted path reaches nested claims).
+	GroupsClaim string
+	// AdminGroup: members of this group are site admins.
+	AdminGroup string
+	// GroupMappings: JSON list of SSOGroupMapping.
+	GroupMappings string
+	Enabled       bool
+	FromConfig    bool `gorm:"-"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func (SSOProvider) TableName() string { return "sso_provider" }
+
+// SSOGroupMapping makes members of an IdP group members of an oGit group.
+type SSOGroupMapping struct {
+	Group  string    `json:"group" yaml:"group"`   // at the provider
+	Target string    `json:"target" yaml:"target"` // oGit group path
+	Role   GroupRole `json:"role" yaml:"role"`     // member or maintainer
+}
 
 // UserIdentity links a user to an account at a provider.
 type UserIdentity struct {
@@ -86,6 +103,7 @@ type SSOPendingLink struct {
 	Subject   string
 	Email     string
 	Username  string
+	Groups    string // JSON: the provider's groups, synced once linked
 	Redirect  string
 	ExpiresAt time.Time
 	CreatedAt time.Time

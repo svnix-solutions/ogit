@@ -65,6 +65,11 @@ type AuthApp struct {
 	ForkEdits func(fork *domain.Repository, userId string) []string
 	// Actions resolves job tokens (GITHUB_TOKEN) for git; nil: none.
 	Actions *ActionsApp
+	// PasswordBlocked: password and passkey sign-in are off for user
+	// (only sign-in providers, application/sso_sync.go); nil: never.
+	PasswordBlocked func(user *domain.User) bool
+	// SSOOnly: sign-in only through providers (no registration).
+	SSOOnly func() bool
 }
 
 func NewAuthApp(config config.Config, logger zerolog.Logger, userApp UserApp, sessionApp SessionApp, tokenApp TokenApp, repositoryApp RepositoryApp, mailer mail.Sender, verificationPers domain.EmailVerificationPers) *AuthApp {
@@ -108,6 +113,9 @@ func (c *AuthApp) Authenticate(email, password string, ctx *fiber.Ctx) (*dtos.Lo
 	}
 	if c.Config.Registration.RequireEmailVerification && user.EmailVerifiedAt == nil {
 		return nil, ErrEmailNotVerified
+	}
+	if c.PasswordBlocked != nil && c.PasswordBlocked(user) {
+		return nil, ErrPasswordLoginDisabled
 	}
 
 	if c.TwoFactor != nil {
@@ -154,6 +162,9 @@ func (c *AuthApp) PasskeySignIn(key *KeyAssertion, userAgent, ip string) (*dtos.
 	}
 	if c.Config.Registration.RequireEmailVerification && user.EmailVerifiedAt == nil {
 		return nil, ErrEmailNotVerified
+	}
+	if c.PasswordBlocked != nil && c.PasswordBlocked(user) {
+		return nil, ErrPasswordLoginDisabled
 	}
 	return c.newSession(user.Id, userAgent, ip)
 }
@@ -402,6 +413,9 @@ func (c *AuthApp) Logout(sessionId string) error {
 func (c *AuthApp) Register(username, email, password string) error {
 	logger := c.Logger.With().Str("component", "application.auth.register").Logger()
 
+	if c.SSOOnly != nil && c.SSOOnly() {
+		return ErrRegistrationDisabled
+	}
 	if err := checkRegistrationPolicy(c.Config, email, password); err != nil {
 		return err
 	}

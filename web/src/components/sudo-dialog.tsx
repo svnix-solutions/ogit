@@ -50,7 +50,7 @@ export function SudoDialog() {
   const hasKeys = (status.data?.keys?.length ?? 0) > 0 && webauthnSupported();
   // Accounts without a password (and without 2FA) confirm through a
   // provider they sign in with; they come back here and try again.
-  const viaProvider = open && profile?.has_password === false && !twoFactor;
+  const viaProvider = open && (profile?.password_login === false || profile?.has_password === false) && !twoFactor;
   const identities = useIdentities(viaProvider);
 
   async function useKey() {

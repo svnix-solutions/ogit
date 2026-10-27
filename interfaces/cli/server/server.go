@@ -308,7 +308,8 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Box: deps.TwoFactorApp.Box, Dialer: mirror.Dialer{Guard: mirrorGuard}}
 	deps.MirrorApp.Imports = deps.ImportApp
 	deps.SSOApp = &application.SSOApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewSSOPers(deps.Database.Db),
-		Auth: deps.AuthApp, Users: userPers, Repos: deps.RepoApp, TwoFactor: deps.TwoFactorApp, Admin: deps.AdminApp, Box: deps.TwoFactorApp.Box}
+		Auth: deps.AuthApp, Users: userPers, Repos: deps.RepoApp, TwoFactor: deps.TwoFactorApp, Admin: deps.AdminApp, Box: deps.TwoFactorApp.Box,
+		Groups: groupPers, Settings: deps.TwoFactorApp.Settings}
 	ssoProviders, err := config.LoadSSOProviders(deps.Config.ConfigFile)
 	if err == nil {
 		err = deps.SSOApp.LoadConfig(ssoProviders)
@@ -321,6 +322,9 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		logger.Warn().Str("event", "http.runserver.config.sso").Msg("sso.providers need http.public_url: sign-in providers are off")
 	}
 	deps.TwoFactorApp.IdPTrusted = deps.SSOApp.Trusted
+	deps.TwoFactorApp.PasswordBlocked = deps.SSOApp.PasswordBlocked
+	deps.AuthApp.PasswordBlocked = deps.SSOApp.PasswordBlocked
+	deps.AuthApp.SSOOnly = func() bool { on, _, _ := deps.SSOApp.SSOOnly(); return on }
 	deps.WebhookApp.PushMirrors = deps.PushMirrorApp
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)

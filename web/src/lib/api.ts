@@ -95,6 +95,8 @@ export type Profile = {
   has_password?: boolean;
   // oGit 2FA, or signing in only through providers whose MFA is trusted
   two_factor_satisfied?: boolean;
+  // the password signs in and confirms sudo
+  password_login?: boolean;
 };
 export type RepositorySummary = {
   id: string;
@@ -150,7 +152,16 @@ export type NamespaceView = {
   subgroups?: { name: string; description?: string }[];
 };
 
-export type Instance = { version: string; registration_enabled: boolean; ssh_enabled: boolean; ssh_port?: number; max_asset_size?: number; passkeys?: boolean };
+export type Instance = {
+  version: string;
+  registration_enabled: boolean;
+  ssh_enabled: boolean;
+  ssh_port?: number;
+  max_asset_size?: number;
+  passkeys?: boolean;
+  // sign in only through providers (lib/sso.ts); passwords for break-glass accounts
+  sso_only?: boolean;
+};
 
 export type Token = { id: string; name: string; description: string; scopes: string[]; expires_at?: string; created_at: string };
 

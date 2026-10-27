@@ -17,4 +17,7 @@ type ProfileResponse struct {
 	// TwoFactorSatisfied: oGit 2FA, or signing in only through providers
 	// whose MFA is trusted (what admin pages and 2FA requirements check).
 	TwoFactorSatisfied bool `json:"two_factor_satisfied"`
+	// PasswordLogin: the password signs in and confirms sudo (false without
+	// one, or when only sign-in providers are allowed).
+	PasswordLogin bool `json:"password_login"`
 }

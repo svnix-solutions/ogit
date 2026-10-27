@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -85,6 +86,8 @@ type SSOApp struct {
 	Repos     *RepositoryApp
 	TwoFactor *TwoFactorApp
 	Admin     *AdminApp
+	Groups    domain.GroupPers       // group sync
+	Settings  domain.SiteSettingPers // sso_only from the admin page
 	Box       *secretbox.Box
 	// FromConfig: providers declared in the configuration file.
 	FromConfig []domain.SSOProvider
@@ -191,7 +194,7 @@ func (c *SSOApp) client(ctx context.Context, p *domain.SSOProvider) (sso.Client,
 		hc = &http.Client{Timeout: 15 * time.Second}
 	}
 	client, err := sso.New(ctx, sso.Endpoint{Kind: p.Kind, Issuer: p.Issuer, ClientId: p.ClientId, ClientSecret: secret,
-		RedirectURL: c.callbackURL(p.Slug), Scopes: strings.Fields(p.Scopes), AllowedOrgs: splitList(p.AllowedOrgs)}, hc)
+		RedirectURL: c.callbackURL(p.Slug), Scopes: strings.Fields(p.Scopes), AllowedOrgs: splitList(p.AllowedOrgs), GroupsClaim: p.GroupsClaim}, hc)
 	if err != nil {
 		return nil, err
 	}
@@ -359,8 +362,9 @@ func (c *SSOApp) Callback(ctx context.Context, slug, state, code, providerError,
 					return nil, ErrSSOEmailTaken
 				}
 				token := randomToken("")
+				groups, _ := json.Marshal(claims.Groups)
 				err := c.Pers.CreatePendingLink(&domain.SSOPendingLink{Id: hashToken(token), UserId: existing.Id, Provider: slug, Subject: claims.Subject,
-					Email: claims.Email, Username: claims.Username, Redirect: flow.Redirect, ExpiresAt: c.now().Add(ssoLinkTTL), CreatedAt: c.now()})
+					Email: claims.Email, Username: claims.Username, Groups: string(groups), Redirect: flow.Redirect, ExpiresAt: c.now().Add(ssoLinkTTL), CreatedAt: c.now()})
 				if err != nil {
 					return nil, err
 				}
@@ -386,6 +390,7 @@ func (c *SSOApp) Callback(ctx context.Context, slug, state, code, providerError,
 		return nil, ErrAccountDisabled
 	}
 	_ = c.Pers.TouchIdentity(identity.Id, c.now())
+	c.syncGroups(p, &user, claims.Groups)
 	return c.signIn(out, p, &user, userAgent, ip)
 }
 
@@ -568,6 +573,9 @@ func (c *SSOApp) CompleteLink(token, password, code, userAgent, ip string) (*dto
 		return nil, "", err
 	}
 	c.audit(user.Id, "sso.link").Str("provider", l.Provider).Msg("sign-in provider linked by email")
+	var groups []string
+	_ = json.Unmarshal([]byte(l.Groups), &groups)
+	c.syncGroups(p, &user, groups)
 	var trusted *string
 	if !p.RequireTwoFactor {
 		trusted = &p.Slug
@@ -620,7 +628,7 @@ func (c *SSOApp) Unlink(auth *fiberoapi.AuthContext, id string) error {
 	if !found {
 		return ErrIdentityNotFound
 	}
-	if user.Password == "" && len(ids) == 1 {
+	if !c.passwordUsable(&user) && len(ids) == 1 {
 		return ErrLastSignInMethod
 	}
 	if err := c.Pers.DeleteIdentity(user.Id, id); err != nil {
@@ -638,7 +646,7 @@ func (c *SSOApp) Trusted(userId string) (bool, error) {
 		return false, nil
 	}
 	user, err := c.Users.GetById(userId)
-	if err != nil || user.Password != "" {
+	if err != nil || c.passwordUsable(&user) {
 		return false, nil
 	}
 	ids, err := c.Pers.Identities(userId)
@@ -667,6 +675,9 @@ func (c *SSOApp) SetFirstPassword(auth *fiberoapi.AuthContext, next string) erro
 	if user.Password != "" {
 		return ErrInvalidCredentials
 	}
+	if c.PasswordBlocked(&user) {
+		return ErrPasswordLoginDisabled
+	}
 	if err := checkPasswordPolicy(c.Config, next); err != nil {
 		return err
 	}
@@ -691,6 +702,8 @@ type ProviderInput struct {
 	ClientSecret                          *string // write-only
 	Scopes, AllowedDomains, AllowedOrgs   *string
 	AutoCreate, RequireTwoFactor, Enabled *bool
+	GroupsClaim, AdminGroup               *string
+	GroupMappings                         *[]domain.SSOGroupMapping
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -709,6 +722,15 @@ func (c *SSOApp) apply(p *domain.SSOProvider, in ProviderInput) error {
 	set(&p.Scopes, in.Scopes)
 	set(&p.AllowedDomains, in.AllowedDomains)
 	set(&p.AllowedOrgs, in.AllowedOrgs)
+	set(&p.GroupsClaim, in.GroupsClaim)
+	set(&p.AdminGroup, in.AdminGroup)
+	if in.GroupMappings != nil {
+		encoded, err := encodeMappings(*in.GroupMappings)
+		if err != nil {
+			return err
+		}
+		p.GroupMappings = encoded
+	}
 	for dst, v := range map[*bool]*bool{&p.AutoCreate: in.AutoCreate, &p.RequireTwoFactor: in.RequireTwoFactor, &p.Enabled: in.Enabled} {
 		if v != nil {
 			*dst = *v
@@ -767,7 +789,7 @@ func (c *SSOApp) CreateProvider(auth *fiberoapi.AuthContext, in ProviderInput) (
 	if c.Config.Server.PublicURL == "" {
 		return nil, ErrSSONeedsPublicURL
 	}
-	p := &domain.SSOProvider{AutoCreate: true, Enabled: true, CreatedAt: c.now(), UpdatedAt: c.now()}
+	p := &domain.SSOProvider{AutoCreate: true, Enabled: true, GroupMappings: "[]", CreatedAt: c.now(), UpdatedAt: c.now()}
 	if err := c.apply(p, in); err != nil {
 		return nil, err
 	}
@@ -805,7 +827,8 @@ func (c *SSOApp) UpdateProvider(auth *fiberoapi.AuthContext, slug string, in Pro
 	p.UpdatedAt = c.now()
 	err = c.Pers.UpdateProvider(p.Id, map[string]any{"name": p.Name, "kind": p.Kind, "issuer": p.Issuer, "client_id": p.ClientId,
 		"client_secret": p.ClientSecret, "scopes": p.Scopes, "allowed_domains": p.AllowedDomains, "allowed_orgs": p.AllowedOrgs,
-		"auto_create": p.AutoCreate, "require_two_factor": p.RequireTwoFactor, "enabled": p.Enabled, "updated_at": p.UpdatedAt})
+		"auto_create": p.AutoCreate, "require_two_factor": p.RequireTwoFactor, "enabled": p.Enabled, "groups_claim": p.GroupsClaim,
+		"admin_group": p.AdminGroup, "group_mappings": p.GroupMappings, "updated_at": p.UpdatedAt})
 	if err != nil {
 		return nil, err
 	}
@@ -841,8 +864,12 @@ func (c *SSOApp) LoadConfig(cfgs []config.SSOProviderConfig) error {
 		if pc.Enabled != nil {
 			p.Enabled = *pc.Enabled
 		}
+		ms := make([]domain.SSOGroupMapping, len(pc.GroupMappings))
+		for i, m := range pc.GroupMappings {
+			ms[i] = domain.SSOGroupMapping{Group: m.Group, Target: m.Target, Role: domain.GroupRole(m.Role)}
+		}
 		in := ProviderInput{Slug: &pc.Slug, Name: &pc.Name, Kind: &pc.Kind, Issuer: &pc.Issuer, ClientId: &pc.ClientId, Scopes: &pc.Scopes,
-			AllowedDomains: &pc.AllowedDomains, AllowedOrgs: &pc.AllowedOrgs}
+			AllowedDomains: &pc.AllowedDomains, AllowedOrgs: &pc.AllowedOrgs, GroupsClaim: &pc.GroupsClaim, AdminGroup: &pc.AdminGroup, GroupMappings: &ms}
 		if err := c.apply(&p, in); err != nil {
 			return fmt.Errorf("sso.providers %q: %w", pc.Slug, err)
 		}

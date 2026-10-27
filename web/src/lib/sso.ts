@@ -28,7 +28,13 @@ export type AdminProvider = SSOProvider & {
   enabled: boolean;
   from_config: boolean;
   callback_url: string;
+  groups_claim: string;
+  admin_group: string;
+  group_mappings: GroupMapping[];
 };
+
+// GroupMapping: members of a provider's group get an oGit group's role.
+export type GroupMapping = { group: string; target: string; role: "member" | "maintainer" };
 
 export type ProviderFields = Partial<Omit<AdminProvider, "has_secret" | "from_config" | "callback_url">> & { client_secret?: string };
 

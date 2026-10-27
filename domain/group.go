@@ -99,6 +99,9 @@ type GroupMember struct {
 	UserId  string
 	User    User `gorm:"foreignKey:UserId;references:Id"`
 	Role    GroupRole
+	// SyncedFrom: the sign-in provider whose group sync added it (sync
+	// only changes and removes those); nil when added by hand.
+	SyncedFrom *string `gorm:"column:synced_from"`
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

@@ -103,8 +103,15 @@ type TransferRepositoryRequest struct {
 type SettingsResponse struct {
 	RequireTwoFactor       bool `json:"require_two_factor"`
 	RequireTwoFactorForced bool `json:"require_two_factor_forced"` // by the configuration
+	// SSOOnly: sign-in only through providers (forced by security.sso_only);
+	// SSOOnlyExempt keep their passwords (security.sso_only_exempt).
+	SSOOnly       bool     `json:"sso_only"`
+	SSOOnlyForced bool     `json:"sso_only_forced"`
+	SSOOnlyExempt []string `json:"sso_only_exempt"`
 }
 
 type UpdateSettingsRequest struct {
 	RequireTwoFactor *bool `json:"require_two_factor"`
+	// SSOOnly needs an enabled provider, and a way in for the caller.
+	SSOOnly *bool `json:"sso_only"`
 }

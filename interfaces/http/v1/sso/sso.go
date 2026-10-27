@@ -293,12 +293,18 @@ type AdminProvider struct {
 	Enabled          bool   `json:"enabled"`
 	FromConfig       bool   `json:"from_config"`
 	CallbackURL      string `json:"callback_url"`
+	// Group sync: groups_claim (OIDC, default "groups"), admin_group,
+	// group_mappings.
+	GroupsClaim   string                   `json:"groups_claim"`
+	AdminGroup    string                   `json:"admin_group"`
+	GroupMappings []domain.SSOGroupMapping `json:"group_mappings"`
 }
 
 func (c Controller) toAdmin(p *domain.SSOProvider) AdminProvider {
 	return AdminProvider{Slug: p.Slug, Name: p.Name, Kind: p.Kind, Issuer: p.Issuer, ClientId: p.ClientId, HasSecret: p.ClientSecret != "",
 		Scopes: p.Scopes, AllowedDomains: p.AllowedDomains, AllowedOrgs: p.AllowedOrgs, AutoCreate: p.AutoCreate, RequireTwoFactor: p.RequireTwoFactor,
-		Enabled: p.Enabled, FromConfig: p.FromConfig, CallbackURL: c.SSO.CallbackURL(p.Slug)}
+		Enabled: p.Enabled, FromConfig: p.FromConfig, CallbackURL: c.SSO.CallbackURL(p.Slug), GroupsClaim: p.GroupsClaim, AdminGroup: p.AdminGroup,
+		GroupMappings: application.Mappings(p)}
 }
 
 type AdminProvidersResponse struct {
@@ -333,12 +339,17 @@ type ProviderFields struct {
 	AutoCreate       *bool   `json:"auto_create"`
 	RequireTwoFactor *bool   `json:"require_two_factor"`
 	Enabled          *bool   `json:"enabled"`
+	GroupsClaim      *string `json:"groups_claim"`
+	AdminGroup       *string `json:"admin_group"`
+	// GroupMappings: [{group: <provider's>, target: <oGit group path>,
+	// role: member|maintainer}]; replaces them all.
+	GroupMappings *[]domain.SSOGroupMapping `json:"group_mappings"`
 }
 
 func (f ProviderFields) input() application.ProviderInput {
 	return application.ProviderInput{Name: f.Name, Kind: f.Kind, Issuer: f.Issuer, ClientId: f.ClientId, ClientSecret: f.ClientSecret,
 		Scopes: f.Scopes, AllowedDomains: f.AllowedDomains, AllowedOrgs: f.AllowedOrgs, AutoCreate: f.AutoCreate,
-		RequireTwoFactor: f.RequireTwoFactor, Enabled: f.Enabled}
+		RequireTwoFactor: f.RequireTwoFactor, Enabled: f.Enabled, GroupsClaim: f.GroupsClaim, AdminGroup: f.AdminGroup, GroupMappings: f.GroupMappings}
 }
 
 type CreateProviderRequest struct {

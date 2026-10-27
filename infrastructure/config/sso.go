@@ -24,6 +24,13 @@ type SSOProviderConfig struct {
 	AutoCreate       *bool  `yaml:"auto_create"` // default true
 	RequireTwoFactor bool   `yaml:"require_two_factor"`
 	Enabled          *bool  `yaml:"enabled"` // default true
+	GroupsClaim      string `yaml:"groups_claim"`
+	AdminGroup       string `yaml:"admin_group"`
+	GroupMappings    []struct {
+		Group  string `yaml:"group"`
+		Target string `yaml:"target"`
+		Role   string `yaml:"role"`
+	} `yaml:"group_mappings"`
 }
 
 // LoadSSOProviders reads sso.providers from the configuration file (none

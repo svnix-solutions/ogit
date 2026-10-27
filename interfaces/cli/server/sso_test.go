@@ -29,6 +29,7 @@ type idpUser struct {
 	sub, email, username string
 	verified             bool
 	orgs                 []string // GitHub
+	groups               []string // OIDC: in "groups" and "realm_access.roles"
 }
 
 type issued struct {
@@ -139,7 +140,8 @@ func (f *fakeIdP) serve(w http.ResponseWriter, r *http.Request) {
 				nonce = "other"
 			}
 			claims := map[string]any{"iss": f.srv.URL, "aud": f.clientId, "sub": is.user.sub, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
-				"nonce": nonce, "email": is.user.email, "email_verified": is.user.verified, "preferred_username": is.user.username}
+				"nonce": nonce, "email": is.user.email, "email_verified": is.user.verified, "preferred_username": is.user.username,
+				"groups": is.user.groups, "realm_access": map[string]any{"roles": is.user.groups}}
 			raw, err := jwt.Signed(f.signer).Claims(claims).Serialize()
 			require.NoError(f.t, err)
 			out["id_token"] = raw
