@@ -108,6 +108,8 @@ func (u *userPers) Purge(userId string) error {
 			{&domain.RecoveryCode{}, "user_id = ?"},
 			{&domain.LoginChallenge{}, "user_id = ?"},
 			{&domain.WebAuthnCredential{}, "user_id = ?"},
+			{&domain.UserIdentity{}, "user_id = ?"},
+			{&domain.SSOPendingLink{}, "user_id = ?"},
 			{&domain.WebAuthnCeremony{}, "user_id = ?"},
 			{&domain.Notification{}, "user_id = ?"},
 			{&domain.RepositoryWatch{}, "user_id = ?"},

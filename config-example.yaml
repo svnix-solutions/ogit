@@ -74,6 +74,25 @@ mirrors:
   min_interval: 10m    # shortest sync interval of a mirror
   default_interval: 8h # interval of new mirrors
 
+sso:
+  # Sign-in providers declared here are read-only in the admin page (which
+  # can add more). They need http.public_url: register
+  # {http.public_url}/api/v1/auth/sso/<slug>/callback at the provider.
+  # client_secret may name environment variables.
+  providers: []
+  # - slug: keycloak            # in URLs (a-z, 0-9, -)
+  #   name: Company SSO         # on the sign-in button
+  #   kind: oidc                # oidc or github
+  #   issuer: https://sso.example.com/realms/main   # github: omit (or an Enterprise server's URL)
+  #   client_id: ogit
+  #   client_secret: ${OGIT_OIDC_SECRET}
+  #   scopes: ""                # extra scopes, space separated
+  #   allowed_domains: ""       # e.g. "example.com, example.org": only these verified emails
+  #   allowed_orgs: ""          # github: one of these organizations
+  #   auto_create: true         # new users get an account
+  #   require_two_factor: false # ask oGit's 2FA too (else the provider's MFA is trusted)
+  #   enabled: true
+
 releases:
   max_asset_size: 104857600   # bytes (100 MB) per uploaded asset
 

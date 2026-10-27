@@ -632,6 +632,16 @@ work).
   - site admins always need 2FA for admin actions (`ADMIN_TWO_FACTOR_REQUIRED`). `ogit admin` on the server is not affected.
 - Lost device and recovery codes: an admin resets it (`POST /api/v1/admin/users/<username>/reset-2fa`, or `ogit admin reset-2fa`).
 
+### Single sign-on
+
+Users can sign in with OpenID Connect providers (Keycloak, Authentik, Entra ID, Okta, Google, GitLab…) and GitHub (OAuth2, optionally limited to organizations). Site admins add them on the admin page (`POST /api/v1/admin/sso/providers`, with sudo; client secrets need `security.encryption_key`), or declare them under `sso.providers` in the configuration (read-only in the UI; see `config-example.yaml`). Providers need `http.public_url`: register `{http.public_url}/api/v1/auth/sso/<slug>/callback` as the redirect URI.
+
+- **Signing in:** the sign-in page shows a button per enabled provider (`GET /api/v1/auth/providers`; the browser goes to `/api/v1/auth/sso/<slug>/start?redirect=/path`). The flow uses PKCE (and a nonce with OIDC), is used once within 10 minutes, and must be finished by the browser that started it.
+- **New users** get an account the first time (`auto_create`, on by default) when the provider verified their email (and it is in `allowed_domains`, if set): their user name comes from the provider, made unique, and they have no password. A user whose verified email is already registered here confirms with their password (and 2FA code) once to link the provider.
+- **Two-factor authentication:** the provider's own MFA is trusted: no oGit 2FA prompt, and such sessions count as two-factor for `security.require_2fa`. Users without a password, signing in only through such providers, count as having 2FA everywhere (tokens, groups, admin). With `require_two_factor` on a provider, users who have oGit 2FA are asked for it after the provider.
+- **Settings:** users link more providers and unlink them (with sudo; never their last way to sign in), and users without a password can set one. Without a password, "confirm it's you" goes through a linked provider.
+- Logins, links and provider changes are audit-logged (`"component":"audit"`).
+
 ### Email verification
 
 With `registration.require_email_verification: true`, new users receive a link

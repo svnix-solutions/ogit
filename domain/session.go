@@ -13,6 +13,9 @@ type Session struct {
 	// SudoUntil: sensitive actions need no new confirmation before then
 	// (set at login and by POST /auth/sudo).
 	SudoUntil *time.Time
+	// SSOProvider: the provider the session was opened through when its
+	// MFA is trusted (it counts as two-factor authentication).
+	SSOProvider *string `gorm:"column:sso_provider"`
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

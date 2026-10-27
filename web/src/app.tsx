@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { ExplorePage } from "@/pages/explore";
 import { HomePage } from "@/pages/home";
 import { LoginPage } from "@/pages/login";
+import { LoginLinkPage } from "@/pages/login-link";
 import { NamespacePage } from "@/pages/namespace";
 import { NotFoundPage } from "@/pages/not-found";
 import { RegisterPage } from "@/pages/register";
@@ -112,6 +113,7 @@ export const routes: RouteObject[] = [
     element: <Layout />,
     children: [
       { path: "/login", element: <LoginPage /> },
+      { path: "/login/link", element: <LoginLinkPage /> },
       { path: "/register", element: <RegisterPage /> },
       { path: "/explore", element: <ExplorePage /> },
       { path: "/packages/*", lazy: page(packages, "PackagePage") },

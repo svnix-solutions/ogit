@@ -44,6 +44,7 @@ var public = map[string]bool{
 	"/api/v1/auth/register":           true,
 	"/api/v1/auth/verify":             true,
 	"/api/v1/auth/verify/resend":      true,
+	"/api/v1/auth/sso/link":           true,
 }
 
 func isPublic(c *fiber.Ctx) bool {

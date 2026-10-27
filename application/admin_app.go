@@ -107,7 +107,7 @@ func (c *AdminApp) RequireAdmin(actorId string) error {
 		return ErrForbidden
 	}
 	if c.TwoFactor != nil {
-		if on, err := c.TwoFactor.Enabled(actorId); err != nil {
+		if on, err := c.TwoFactor.Satisfied(actorId); err != nil {
 			return err
 		} else if !on {
 			return ErrAdminNeedsTwoFactor

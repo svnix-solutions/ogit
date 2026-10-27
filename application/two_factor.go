@@ -61,13 +61,16 @@ const (
 )
 
 type TwoFactorApp struct {
-	Config   config.Config
-	Logger   zerolog.Logger
-	Users    domain.UserPers
-	Sessions domain.SessionPers
-	Pers     domain.TwoFactorPers
-	Box      *secretbox.Box // nil without security.encryption_key
-	Mailer   mail.Sender
+	// IdPTrusted reports users who sign in only through providers whose
+	// MFA is trusted (they count as having 2FA); nil: none.
+	IdPTrusted func(userId string) (bool, error)
+	Config     config.Config
+	Logger     zerolog.Logger
+	Users      domain.UserPers
+	Sessions   domain.SessionPers
+	Pers       domain.TwoFactorPers
+	Box        *secretbox.Box // nil without security.encryption_key
+	Mailer     mail.Sender
 	// WebAuthn is nil without http.public_url (its host is the relying
 	// party): no security keys then.
 	WebAuthn *webauthn.WebAuthn

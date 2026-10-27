@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Alert } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/lib/api";
 import { useLogin, useLoginCode, usePasskeyLogin } from "@/lib/auth";
 import { useInstance } from "@/lib/queries";
+import { ssoStart, useSSOProviders } from "@/lib/sso";
 import { keyError, loginKey, passkeyAnswer, webauthnSupported } from "@/lib/webauthn";
 
 // Only same-site paths: ?next= must not send the user to another site.
@@ -94,15 +95,20 @@ export function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [resent, setResent] = useState(false);
-  const [challenge, setChallenge] = useState("");
-  const [methods, setMethods] = useState<string[]>([]);
+  const [params] = useSearchParams();
+  // A provider that requires oGit 2FA sends the browser back here with a
+  // challenge (and where to go after).
+  const [challenge, setChallenge] = useState(params.get("challenge") ?? "");
+  const [methods, setMethods] = useState<string[]>(params.get("methods")?.split(",").filter(Boolean) ?? []);
   const instance = useInstance();
+  const providers = useSSOProviders();
   const passkey = usePasskeyLogin();
   const [passkeyFailed, setPasskeyFailed] = useState("");
   const login = useLogin();
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const done = () => navigate(safeNext(params.get("next")), { replace: true });
+  const next = safeNext(params.get("redirect") ?? params.get("next"));
+  const ssoError = params.get("sso_error");
+  const done = () => navigate(next, { replace: true });
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -130,6 +136,11 @@ export function LoginPage() {
     <div className="mx-auto max-w-sm pt-8">
       <h1 className="mb-6 text-center text-2xl font-semibold">Sign in to oGit</h1>
       <Card className="p-6">
+        {ssoError && (
+          <Alert variant="destructive" className="mb-4">
+            {ssoError}
+          </Alert>
+        )}
         <form className="space-y-4" onSubmit={submit}>
           {err && (
             <Alert variant="destructive">
@@ -165,6 +176,15 @@ export function LoginPage() {
             {login.isPending ? "Signing in…" : "Sign in"}
           </Button>
         </form>
+        {(providers.data?.length ?? 0) > 0 && (
+          <div className="mt-4 space-y-2 border-t pt-4">
+            {providers.data!.map((p) => (
+              <ButtonLink key={p.slug} to={ssoStart(p.slug, next)} reloadDocument variant="outline" className="w-full">
+                Sign in with {p.name}
+              </ButtonLink>
+            ))}
+          </div>
+        )}
         {instance.data?.passkeys && webauthnSupported() && (
           <div className="mt-4 space-y-2 border-t pt-4">
             {(passkeyFailed || passkeyErr) && (

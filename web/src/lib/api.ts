@@ -83,7 +83,19 @@ export function isUnauthenticated(err: unknown): boolean {
   );
 }
 
-export type Profile = { id: string; username: string; email: string; avatar: string; role: "admin" | "user"; two_factor_enabled?: boolean; two_factor_required?: boolean };
+export type Profile = {
+  id: string;
+  username: string;
+  email: string;
+  avatar: string;
+  role: "admin" | "user";
+  two_factor_enabled?: boolean;
+  two_factor_required?: boolean;
+  // false for accounts made through a sign-in provider (lib/sso.ts)
+  has_password?: boolean;
+  // oGit 2FA, or signing in only through providers whose MFA is trusted
+  two_factor_satisfied?: boolean;
+};
 export type RepositorySummary = {
   id: string;
   namespace: string;

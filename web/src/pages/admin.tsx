@@ -12,13 +12,14 @@ import { Input } from "@/components/ui/input";
 import { api, repoId, type AdminUser } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
 import { formatDate } from "@/lib/queries";
+import { SignInProvidersAdmin } from "./admin-sso";
 
 type AdminRepo = { id: string; full_path: string; name: string; is_private: boolean; created_at: string };
 
 export function AdminPage() {
   const { data: profile } = useProfile();
   if (profile?.role !== "admin") return <Alert variant="destructive">Site administrators only.</Alert>;
-  if (!profile.two_factor_enabled)
+  if (!profile.two_factor_enabled && !profile.two_factor_satisfied)
     return (
       <Alert>
         Site administration needs two-factor authentication.{" "}
@@ -33,6 +34,7 @@ export function AdminPage() {
       <h1 className="text-xl font-semibold">Administration</h1>
       <p className="text-sm text-muted-foreground">Admins manage accounts and can recover repositories and groups. They don't see private repositories unless they make themselves an owner.</p>
       <Settings />
+      <SignInProvidersAdmin />
       <Users />
       <Repositories />
       <GroupTransfer />

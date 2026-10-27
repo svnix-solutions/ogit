@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, type SSHKey, type Token } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
 import { formatDate } from "@/lib/queries";
+import { SignInProviders } from "./settings-sso";
 import { TwoFactor } from "./settings-2fa";
 
 export function SettingsPage() {
@@ -25,8 +26,9 @@ export function SettingsPage() {
           <dt className="text-muted-foreground">Email</dt>
           <dd>{profile?.email}</dd>
         </dl>
-        <ChangePassword />
+        <ChangePassword hasPassword={profile?.has_password !== false} />
       </Section>
+      <SignInProviders />
       <TwoFactor />
       <NotificationEmails />
       <Tokens />
@@ -68,14 +70,18 @@ function NotificationEmails() {
   );
 }
 
-function ChangePassword() {
+// ChangePassword; accounts made through a sign-in provider have no
+// password and may set one (sudo, through the provider).
+function ChangePassword({ hasPassword }: { hasPassword: boolean }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
+  const qc = useQueryClient();
   const change = useMutation({
-    mutationFn: () => api("POST", "/user/password", { current_password: current, new_password: next }),
+    mutationFn: () => api("POST", "/user/password", { current_password: hasPassword ? current : "", new_password: next }),
     onSuccess: () => {
       setCurrent("");
       setNext("");
+      qc.invalidateQueries({ queryKey: ["profile"] });
     },
   });
   return (
@@ -86,21 +92,24 @@ function ChangePassword() {
         change.mutate();
       }}
     >
-      <h3 className="text-sm font-medium">Change password</h3>
+      <h3 className="text-sm font-medium">{hasPassword ? "Change password" : "Set a password"}</h3>
+      {!hasPassword && <p className="text-sm text-muted-foreground">You sign in through a provider. A password lets you sign in without it too.</p>}
       <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="current-password">Current password</Label>
-          <Input id="current-password" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
-        </div>
+        {hasPassword && (
+          <div className="space-y-1.5">
+            <Label htmlFor="current-password">Current password</Label>
+            <Input id="current-password" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+          </div>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="new-password">New password</Label>
           <Input id="new-password" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required />
         </div>
       </div>
       <ErrorText error={change.error} />
-      {change.isSuccess && <p className="text-sm text-muted-foreground">Password changed. Your other sessions were signed out.</p>}
+      {change.isSuccess && <p className="text-sm text-muted-foreground">{hasPassword ? "Password changed. Your other sessions were signed out." : "Password set."}</p>}
       <Button type="submit" disabled={change.isPending}>
-        Change password
+        {hasPassword ? "Change password" : "Set password"}
       </Button>
     </form>
   );
