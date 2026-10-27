@@ -161,14 +161,21 @@ func (c *AuthApp) PasskeySignIn(key *KeyAssertion, userAgent, ip string) (*dtos.
 // newSession creates a session and its token. A new session starts in
 // sudo mode (the password, and code, were just checked).
 func (c *AuthApp) newSession(userId, userAgent, ip string) (*dtos.LoginResponse, error) {
+	return c.newSessionVia(userId, userAgent, ip, nil)
+}
+
+// newSessionVia is newSession for a sign-in through a provider whose MFA
+// is trusted (ssoProvider: the session counts as two-factor).
+func (c *AuthApp) newSessionVia(userId, userAgent, ip string, ssoProvider *string) (*dtos.LoginResponse, error) {
 	logger := c.Logger.With().Str("component", "application.auth.authenticate").Logger()
 	sudo := time.Now().Add(SudoWindow)
 	session := &domain.Session{
-		UserId:    userId,
-		UserAgent: userAgent,
-		IpAddress: ip,
-		ExpiresAt: time.Now().Add(time.Minute * time.Duration(c.Config.Session.ExpirationMinutes)),
-		SudoUntil: &sudo,
+		UserId:      userId,
+		UserAgent:   userAgent,
+		IpAddress:   ip,
+		ExpiresAt:   time.Now().Add(time.Minute * time.Duration(c.Config.Session.ExpirationMinutes)),
+		SudoUntil:   &sudo,
+		SSOProvider: ssoProvider,
 	}
 
 	err := c.SessionApp.Create(session)

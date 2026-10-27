@@ -16,6 +16,7 @@ type Controller struct {
 	TokenApp  *application.TokenApp
 	AuthApp   *application.AuthApp
 	TwoFactor *application.TwoFactorApp
+	SSO       *application.SSOApp // first passwords
 	Limits    *ratelimit.Guard
 }
 

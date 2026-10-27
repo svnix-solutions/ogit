@@ -105,6 +105,14 @@ func runServer(cfg config.Config) error {
 	go deps.PushMirrorApp.Run(context.Background(), 5*time.Second, 4)
 	// API imports (issues, pull requests, releases), each claimed once.
 	go deps.ImportApp.Run(context.Background(), 5*time.Second)
+	// Sign-ins that were never finished.
+	go func() {
+		for range time.Tick(10 * time.Minute) {
+			if err := deps.SSOApp.Sweep(); err != nil {
+				deps.Logger.Warn().Err(err).Str("component", "application.sso").Msg("failed to delete expired sign-ins")
+			}
+		}
+	}()
 
 	if cfg.SSH.Enabled {
 		if err := startSSH(deps); err != nil {
@@ -246,7 +254,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.MilestoneApp = &application.MilestoneApp{Logger: deps.Logger, Repositories: deps.RepoApp, Milestones: milestones, Webhooks: deps.WebhookApp}
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.TokenApp.MustEnroll = deps.TwoFactorApp.MustEnroll
-	deps.RepoApp.TwoFactorEnabled = deps.TwoFactorApp.Enabled
+	deps.RepoApp.TwoFactorEnabled = deps.TwoFactorApp.Satisfied
 	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
 	packagesPers := persistence.NewPackagesPers(deps.Database.Db)
 	deps.GroupApp.Packages = packagesPers
@@ -299,6 +307,20 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 		Milestones: milestones, Releases: deps.ReleaseApp.Releases, Assets: deps.ReleaseApp.Assets, Storage: deps.Storage,
 		Box: deps.TwoFactorApp.Box, Dialer: mirror.Dialer{Guard: mirrorGuard}}
 	deps.MirrorApp.Imports = deps.ImportApp
+	deps.SSOApp = &application.SSOApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewSSOPers(deps.Database.Db),
+		Auth: deps.AuthApp, Users: userPers, Repos: deps.RepoApp, TwoFactor: deps.TwoFactorApp, Admin: deps.AdminApp, Box: deps.TwoFactorApp.Box}
+	ssoProviders, err := config.LoadSSOProviders(deps.Config.ConfigFile)
+	if err == nil {
+		err = deps.SSOApp.LoadConfig(ssoProviders)
+	}
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.sso").Msg("Invalid sso.providers")
+		return deps, err
+	}
+	if len(ssoProviders) > 0 && deps.Config.Server.PublicURL == "" {
+		logger.Warn().Str("event", "http.runserver.config.sso").Msg("sso.providers need http.public_url: sign-in providers are off")
+	}
+	deps.TwoFactorApp.IdPTrusted = deps.SSOApp.Trusted
 	deps.WebhookApp.PushMirrors = deps.PushMirrorApp
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)

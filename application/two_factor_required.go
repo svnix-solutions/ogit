@@ -58,8 +58,29 @@ func (c *TwoFactorApp) MustEnroll(userId string) (bool, error) {
 	if err != nil || !required {
 		return false, err
 	}
-	on, err := c.Enabled(userId)
+	on, err := c.Satisfied(userId)
 	return !on, err
+}
+
+// Satisfied reports whether userId counts as having two-factor
+// authentication for requirements: oGit's 2FA, or signing in only through
+// providers whose MFA is trusted (IdPTrusted, application/sso_app.go).
+func (c *TwoFactorApp) Satisfied(userId string) (bool, error) {
+	on, err := c.Enabled(userId)
+	if err != nil || on || c.IdPTrusted == nil {
+		return on, err
+	}
+	return c.IdPTrusted(userId)
+}
+
+// SessionTrusted reports whether a session was opened through a provider
+// whose MFA is trusted.
+func (c *TwoFactorApp) SessionTrusted(sessionId string) bool {
+	if sessionId == "" {
+		return false
+	}
+	s, err := c.Sessions.GetById(sessionId)
+	return err == nil && s.SSOProvider != nil && *s.SSOProvider != ""
 }
 
 // SetSiteRequirement stores the admin toggle.

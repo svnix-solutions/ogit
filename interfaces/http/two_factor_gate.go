@@ -39,6 +39,9 @@ func twoFactorGate(sessions *application.SessionApp, twoFactor *application.TwoF
 		if err != nil {
 			return c.Next() // the route answers for invalid sessions
 		}
+		if sid, _ := auth.Claims[application.SessionIDClaim].(string); twoFactor.SessionTrusted(sid) {
+			return c.Next() // opened through a provider whose MFA is trusted
+		}
 		must, err := twoFactor.MustEnroll(auth.UserID)
 		if err != nil {
 			logger.Error().Err(err).Msg("cannot check two-factor authentication")

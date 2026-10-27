@@ -16,6 +16,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/v1/repository"
 	"github.com/labbs/ogit/interfaces/http/v1/site"
 	"github.com/labbs/ogit/interfaces/http/v1/sshkey"
+	ssohttp "github.com/labbs/ogit/interfaces/http/v1/sso"
 	"github.com/labbs/ogit/interfaces/http/v1/statuses"
 	"github.com/labbs/ogit/interfaces/http/v1/user"
 )
@@ -45,9 +46,12 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		TokenApp:  deps.TokenApp,
 		AuthApp:   deps.AuthApp,
 		TwoFactor: deps.TwoFactorApp,
+		SSO:       deps.SSOApp,
 		Limits:    deps.Limits,
 	}
 	user.SetupUserRouter(userCtrl)
+	ssohttp.Setup(ssohttp.Controller{Config: deps.Config, Logger: deps.Logger, SSO: deps.SSOApp, Sessions: deps.SessionApp, Limits: deps.Limits},
+		deps.Http.Fiber, authCtrl.FiberOapi, userGrp, adminGrp)
 
 	repoCtrl := repository.Controller{
 		Config:        deps.Config,

@@ -42,14 +42,20 @@ func (ctrl *Controller) GetProfile(ctx *fiber.Ctx, input struct{}) (*dtos.Profil
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
+	satisfied, err := ctrl.TwoFactor.Satisfied(user.Id)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
 	return &dtos.ProfileResponse{
-		Id:                user.Id,
-		Username:          user.Username,
-		Email:             user.Email,
-		Avatar:            user.AvatarUrl,
-		Role:              string(user.Role),
-		TwoFactorEnabled:  twoFactor,
-		TwoFactorRequired: must,
+		Id:                 user.Id,
+		Username:           user.Username,
+		Email:              user.Email,
+		Avatar:             user.AvatarUrl,
+		Role:               string(user.Role),
+		TwoFactorEnabled:   twoFactor,
+		TwoFactorRequired:  must,
+		HasPassword:        user.Password != "",
+		TwoFactorSatisfied: satisfied,
 	}, nil
 }
 
@@ -107,6 +113,12 @@ func (ctrl *Controller) ChangePassword(ctx *fiber.Ctx, req dtos.ChangePasswordRe
 	ip := ctrl.Limits.ClientIP(ctx)
 	if r, blocked := ctrl.Limits.LoginBlocked(ctx.UserContext(), ip, "user:"+authCtx.UserID); blocked {
 		return nil, ratelimit.Refused(ctx, r)
+	}
+	if req.CurrentPassword == "" && ctrl.SSO != nil {
+		if err := ctrl.SSO.SetFirstPassword(authCtx, req.NewPassword); err != nil {
+			return nil, apierror.From(err, ctrl.Logger)
+		}
+		return &dtos.ChangePasswordResponse{Message: "password set"}, nil
 	}
 	if err := ctrl.AuthApp.ChangePassword(authCtx.UserID, sessionId, req.CurrentPassword, req.NewPassword); err != nil {
 		if errors.Is(err, application.ErrInvalidCredentials) {

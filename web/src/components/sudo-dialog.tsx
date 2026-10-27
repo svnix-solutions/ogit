@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
+import { ssoStart, useIdentities } from "@/lib/sso";
 import { setSudoHandler } from "@/lib/sudo";
 import { keyError, sudoKey, webauthnSupported } from "@/lib/webauthn";
 import { Alert } from "./ui/alert";
@@ -47,6 +48,10 @@ export function SudoDialog() {
     enabled: open && twoFactor,
   });
   const hasKeys = (status.data?.keys?.length ?? 0) > 0 && webauthnSupported();
+  // Accounts without a password (and without 2FA) confirm through a
+  // provider they sign in with; they come back here and try again.
+  const viaProvider = open && profile?.has_password === false && !twoFactor;
+  const identities = useIdentities(viaProvider);
 
   async function useKey() {
     setBusy(true);
@@ -76,6 +81,31 @@ export function SudoDialog() {
   }
 
   if (!open) return null;
+  if (viaProvider) {
+    const here = window.location.pathname + window.location.search;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="sudo-title">
+        <Card className="w-full max-w-sm space-y-4 p-6">
+          <div>
+            <h2 id="sudo-title" className="text-lg font-semibold">
+              Confirm it's you
+            </h2>
+            <p className="text-sm text-muted-foreground">This action is sensitive. Sign in again with your provider; you'll come back here to try again.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {identities.data?.map((i) => (
+              <Button key={i.id} onClick={() => window.location.assign(ssoStart(i.provider, here, "sudo"))}>
+                Confirm with {i.provider_name}
+              </Button>
+            ))}
+            <Button type="button" variant="ghost" onClick={() => finish(false)}>
+              Cancel
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="sudo-title">
       <Card className="w-full max-w-sm space-y-4 p-6">
