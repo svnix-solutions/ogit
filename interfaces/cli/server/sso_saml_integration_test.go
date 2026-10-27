@@ -5,6 +5,7 @@ package server
 import (
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"testing"
 
@@ -12,6 +13,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// insecureJar keeps Secure cookies as plain ones (tests over http).
+type insecureJar struct{ http.CookieJar }
+
+func (j insecureJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	for _, c := range cookies {
+		c.Secure = false
+		if c.SameSite == http.SameSiteNoneMode {
+			c.SameSite = http.SameSiteDefaultMode
+		}
+	}
+	j.CookieJar.SetCookies(u, cookies)
+}
 
 // TestSAMLWithKeycloak signs in through a real Keycloak: our signed
 // AuthnRequest (redirect binding), Keycloak's login form, its signed
@@ -32,8 +46,12 @@ func TestSAMLWithKeycloak(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 	require.Equal(t, http.StatusFound, resp.StatusCode)
-	// Keycloak's login page (its own redirects followed).
-	follow := &http.Client{Jar: b.http.Jar}
+	// Keycloak's login page (its own redirects followed). Its cookies are
+	// Secure, which Go before 1.26 doesn't send to http://localhost: keep
+	// them as plain ones.
+	kcJar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	follow := &http.Client{Jar: insecureJar{kcJar}}
 	resp, err = follow.Get(resp.Header.Get("Location"))
 	require.NoError(t, err)
 	page, _ := io.ReadAll(resp.Body)
