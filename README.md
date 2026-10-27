@@ -461,6 +461,10 @@ not ending in `.git`; a few words such as `admin`, `api`, `explore`,
 - **A group's namespace:** its owner and maintainers create repositories there with `{"namespace": "<group>", "name": ...}`. Group members get their group role on all of the group's repositories: the owner is owner, maintainers are maintainers, members are developers.
 - A user or group that still has repositories in its namespace can't be deleted; move or delete them first.
 - **Sub-groups:** a group's maintainers and owners create sub-groups in it (`{"name": "team", "parent": "org"}`), up to 5 levels deep: `org/team/app.git`, over HTTP and SSH alike (the Go proxy and GitHub's API take nested paths too). Members of a group are members of every sub-group below it with the same role; a sub-group adds its own members or raises an inherited member's role, never lowers it (`409 INHERITED_ROLE`). A group with sub-groups can't be deleted, and a sub-group can't share its path with a repository (`org/team` is one or the other). In the API, a group's path goes URL-encoded where one segment is expected: `/api/v1/group/org%2Fteam`, `/api/v1/namespace/org%2Fteam` (which lists the sub-groups you can see).
+  - **Moving:** a group's owner renames a sub-group or moves a group under another one they maintain (`POST /api/v1/group/org%2Fteam/move` with `name` and/or `parent`; `"parent": ""` makes it top-level). Everything below moves along, and every former path (groups, repositories, git URLs) redirects until something takes it. Top-level groups can't be renamed (they share names with users), but can move under a group.
+  - **Inherited settings:** a group that requires two-factor authentication requires it of every sub-group; group Actions runners serve the sub-groups' repositories; group secrets and variables reach them too (the nearest group wins, the repository's own win over all).
+  - **Group webhooks** (`/api/v1/group/<group>/hooks`, the same API as a repository's, for maintainers and owners) fire for every repository in the group and below.
+  - **Packages:** sub-groups own packages: images `org/team/app` (the deepest existing group is the owner), generic files under `/api/packages/org/team/generic/...`, and npm packages in their top-level group's scope, named after their path: `org/web/ui` publishes `@org/web-ui-<name>`. Names stay when a group moves.
 
 Repositories created before namespaces existed moved under their first owner
 (`/my-project.git` became `/<owner>/my-project.git`); the old URLs no longer
@@ -704,7 +708,7 @@ HTTPS or with `X-Forwarded-Proto: https`).
 
 ## Not implemented yet
 
-- Sub-groups: renaming and moving them, inherited Actions runners, secrets and webhooks, packages owned by sub-groups, and their web UI pages (coming next)
+- Web UI pages for sub-groups (coming next)
 
 ## Development
 

@@ -151,13 +151,20 @@ func (c *ActionsApp) DeleteVariable(actorId string, scope RunnerScope, name stri
 }
 
 // runScopes are the scopes whose secrets a repository's runs get, least
-// specific first.
-func runScopes(repo *domain.Repository) [][2]string {
+// specific first: the site, every group of the repository's namespace from
+// the top (so the nearest group wins a name), the repository.
+func (c *ActionsApp) runScopes(repo *domain.Repository) ([][2]string, error) {
 	scopes := [][2]string{{domain.RunnerScopeSite, ""}}
 	if repo.OwnerType == domain.OwnerGroup {
-		scopes = append(scopes, [2]string{domain.RunnerScopeGroup, repo.OwnerId})
+		groups, err := c.Groups.GetByNames(domain.GroupPathPrefixes(repo.Namespace))
+		if err != nil {
+			return nil, err
+		}
+		for _, g := range groups { // ordered by path: ancestors first
+			scopes = append(scopes, [2]string{domain.RunnerScopeGroup, g.Id})
+		}
 	}
-	return append(scopes, [2]string{domain.RunnerScopeRepository, repo.Id})
+	return append(scopes, [2]string{domain.RunnerScopeRepository, repo.Id}), nil
 }
 
 // runSecrets returns the secrets and variables of a run (none from forks).
@@ -166,7 +173,11 @@ func (c *ActionsApp) runSecrets(repo *domain.Repository, run *domain.ActionRun) 
 	if run.FromFork {
 		return secrets, vars, nil
 	}
-	for _, s := range runScopes(repo) {
+	scopes, err := c.runScopes(repo)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, s := range scopes {
 		vs, err := c.Pers.Variables(s[0], s[1])
 		if err != nil {
 			return nil, nil, err

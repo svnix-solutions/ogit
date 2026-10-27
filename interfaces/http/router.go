@@ -25,11 +25,16 @@ func SetupRoutes(deps infrastructure.Deps) {
 	// repository routes, rewritten (so the body limit below sees them too).
 	deps.Http.Fiber.Use(repopath.Middleware(func(paths []string) ([]string, error) {
 		groups, err := deps.GroupApp.GroupPers.GetByNames(paths)
+		if err != nil {
+			return nil, err
+		}
 		names := make([]string, 0, len(groups))
 		for _, g := range groups {
 			names = append(names, g.Name)
 		}
-		return names, err
+		// Former paths of moved groups too: their repositories redirect.
+		former, err := deps.GroupApp.GroupPers.RedirectPaths(paths)
+		return append(names, former...), err
 	}))
 	// Bodies over the usual limit only reach the upload routes.
 	deps.Http.Fiber.Use(bodyLimit(deps.Http.Fiber.Config().BodyLimit))

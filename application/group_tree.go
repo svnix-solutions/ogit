@@ -17,17 +17,39 @@ import (
 //   - every group-based decision goes through groupRoles: namespace roles
 //     on repositories, groups granted on repositories (their inherited
 //     members count), branch and tag allowlists, managing groups;
-//   - for repository access, a membership counts only if its group allows
-//     it (two-factor requirement, usableGroups);
+//   - two-factor requirements are inherited too: for repository access,
+//     users without 2FA get no role in a group that requires it or whose
+//     ancestor does (a sub-group can add the requirement, not drop it);
 //   - a sub-group's path must not be a repository's path (org/team the
 //     group vs org/team the repository), and vice versa.
 
 // groupRoles answers users' roles in groups, inherited down the tree.
 type groupRoles struct {
 	groups domain.GroupPers
-	// usable filters memberships by the groups' requirements (nil: every
-	// membership counts, for managing groups).
-	usable func(userId string, groupIds []string) ([]string, error)
+	// twoFactor tells whether a user has 2FA, to apply the groups'
+	// requirements (nil: they don't apply, for managing groups).
+	twoFactor func(userId string) (bool, error)
+}
+
+// requires reports whether a group (by path) or one of its ancestors
+// requires 2FA, given the require flags of those groups by path.
+func requires(path string, flags map[string]bool) bool {
+	for _, p := range domain.GroupPathPrefixes(path) {
+		if flags[p] {
+			return true
+		}
+	}
+	return false
+}
+
+// blocked reports whether the requirement applies to userId (they have no
+// 2FA and requirements are checked).
+func (r groupRoles) blocked(userId string) (bool, error) {
+	if r.twoFactor == nil {
+		return false, nil
+	}
+	on, err := r.twoFactor(userId)
+	return !on, err
 }
 
 // role is userId's role in group (none: no membership, direct or
@@ -51,29 +73,21 @@ func (r groupRoles) role(group *domain.Group, userId string) (domain.GroupRole, 
 		byId[chain[i].Id] = &chain[i]
 	}
 	members, err := r.groups.MembershipsIn(userId, ids)
-	if err != nil {
+	if err != nil || len(members) == 0 {
 		return "", nil, err
 	}
-	usable := map[string]bool{}
-	if r.usable != nil {
-		var memberIds []string
-		for _, m := range members {
-			memberIds = append(memberIds, m.GroupId)
-		}
-		ok, err := r.usable(userId, memberIds)
-		if err != nil {
+	flags := map[string]bool{}
+	for _, g := range chain {
+		flags[g.Name] = g.RequireTwoFactor
+	}
+	if requires(group.Name, flags) {
+		if blocked, err := r.blocked(userId); err != nil || blocked {
 			return "", nil, err
-		}
-		for _, id := range ok {
-			usable[id] = true
 		}
 	}
 	var best domain.GroupRole
 	var from *domain.Group
 	for _, m := range members {
-		if r.usable != nil && !usable[m.GroupId] {
-			continue
-		}
 		if m.Role.Level() > best.Level() || (m.Role.Level() == best.Level() && m.GroupId == group.Id) {
 			best, from = m.Role, byId[m.GroupId]
 		}
@@ -96,14 +110,9 @@ func (r groupRoles) effective(userId string) (map[string]domain.GroupRole, error
 	for _, m := range members {
 		ids = append(ids, m.GroupId)
 	}
-	if r.usable != nil {
-		if ids, err = r.usable(userId, ids); err != nil {
-			return nil, err
-		}
-	}
-	counted := map[string]bool{}
-	for _, id := range ids {
-		counted[id] = true
+	blocked, err := r.blocked(userId)
+	if err != nil {
+		return nil, err
 	}
 	groups, err := r.groups.GetByIds(ids)
 	if err != nil {
@@ -113,23 +122,36 @@ func (r groupRoles) effective(userId string) (map[string]domain.GroupRole, error
 	for _, g := range groups {
 		byId[g.Id] = g
 	}
-	raise := func(id string, role domain.GroupRole) {
-		if role.Level() > out[id].Level() {
-			out[id] = role
+	flags := map[string]bool{} // require flags by path, for the groups seen
+	raise := func(g domain.Group, role domain.GroupRole) {
+		if blocked && requires(g.Name, flags) {
+			return
+		}
+		if role.Level() > out[g.Id].Level() {
+			out[g.Id] = role
 		}
 	}
 	for _, m := range members {
 		g, ok := byId[m.GroupId]
-		if !counted[m.GroupId] || !ok {
+		if !ok {
 			continue
 		}
-		raise(g.Id, m.Role)
 		below, err := r.groups.Descendants(g.Name)
 		if err != nil {
 			return nil, err
 		}
+		if blocked {
+			ancestors, err := r.groups.GetByNames(domain.GroupPathPrefixes(g.Name))
+			if err != nil {
+				return nil, err
+			}
+			for _, a := range append(ancestors, below...) {
+				flags[a.Name] = a.RequireTwoFactor
+			}
+		}
+		raise(g, m.Role)
 		for _, d := range below {
-			raise(d.Id, m.Role)
+			raise(d, m.Role)
 		}
 	}
 	return out, nil
@@ -138,7 +160,11 @@ func (r groupRoles) effective(userId string) (map[string]domain.GroupRole, error
 // groupRoles for repository access (memberships filtered by the groups'
 // requirements).
 func (c *RepositoryApp) groupRoles() groupRoles {
-	return groupRoles{groups: c.GroupPers, usable: c.usableGroups}
+	twoFactor := c.TwoFactorEnabled
+	if twoFactor == nil {
+		twoFactor = func(string) (bool, error) { return true, nil } // unknown: no requirement applies
+	}
+	return groupRoles{groups: c.GroupPers, twoFactor: twoFactor}
 }
 
 // effectiveGroupIds lists the groups userId's repository access comes

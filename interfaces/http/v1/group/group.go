@@ -68,6 +68,9 @@ func (ctrl *Controller) Get(ctx *fiber.Ctx, req dtos.GroupRequest) (*dtos.GroupR
 	}
 	out := toGroup(group)
 	out.Role = string(actor.Role)
+	if out.RequireTwoFactorInherited, err = ctrl.GroupApp.InheritedTwoFactor(group); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
 	return &out, nil
 }
 
@@ -85,6 +88,9 @@ func (ctrl *Controller) Update(ctx *fiber.Ctx, req dtos.UpdateGroupRequest) (*dt
 	}
 	out := toGroup(group)
 	out.Role = string(actor.Role)
+	if out.RequireTwoFactorInherited, err = ctrl.GroupApp.InheritedTwoFactor(group); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
 	return &out, nil
 }
 
@@ -200,12 +206,31 @@ func (ctrl *Controller) Subgroups(ctx *fiber.Ctx, req dtos.GroupRequest) (*dtos.
 	return resp, nil
 }
 
+func (ctrl *Controller) Move(ctx *fiber.Ctx, req dtos.MoveGroupRequest) (*dtos.GroupResponse, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	group, err := ctrl.GroupApp.Move(req.Identifier, authCtx.UserID, req.Parent, req.Name)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	out := toGroup(group)
+	out.Role = string(domain.GroupRoleOwner)
+	return &out, nil
+}
+
 func SetupGroupRouter(c Controller) {
 	tags := []string{"Groups"}
 	fiberoapi.Post(c.FiberOapi, "", c.Create, fiberoapi.OpenAPIOptions{
 		Summary: "Create group", OperationID: "group.create", Tags: tags,
 		Description: "Any user can create a group and becomes its owner. Names: lowercase letters, digits, '.', '_', '-'. " +
 			"With parent (a group's path or id), a sub-group <parent>/<name>, for the parent's maintainers and owners (at most 5 levels; members of the parent are members of it, with the same role).",
+	})
+	fiberoapi.Post(c.FiberOapi, "/:identifier/move", c.Move, fiberoapi.OpenAPIOptions{
+		Summary: "Rename or move a group", OperationID: "group.move", Tags: tags,
+		Description: "The group's owner (direct or inherited). name: its new last segment; parent: a group you maintain or own, or \"\" for the top level. " +
+			"Everything below moves with it, and former paths (of the group, its sub-groups and their repositories) redirect. Top-level groups can't be renamed.",
 	})
 	fiberoapi.Get(c.FiberOapi, "/:identifier/subgroups", c.Subgroups, fiberoapi.OpenAPIOptions{
 		Summary: "List a group's sub-groups", OperationID: "group.subgroups", Tags: tags,

@@ -19,6 +19,9 @@ type GroupResponse struct {
 	// RequireTwoFactor: members without 2FA get no access to the group's
 	// repositories through it.
 	RequireTwoFactor bool `json:"require_two_factor"`
+	// RequireTwoFactorInherited: an ancestor group requires it, so it
+	// applies here too (whatever require_two_factor says).
+	RequireTwoFactorInherited bool `json:"require_two_factor_inherited"`
 }
 
 type UpdateGroupRequest struct {
@@ -76,4 +79,14 @@ type MessageResponse struct {
 
 type ListSubgroupsResponse struct {
 	Groups []GroupResponse `json:"groups"`
+}
+
+type MoveGroupRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	// Parent: the group to move into (its path or id); "" for the top
+	// level; omitted to stay under the same parent.
+	Parent *string `json:"parent"`
+	// Name: the group's new name (its last path segment); omitted to keep
+	// it.
+	Name string `json:"name"`
 }

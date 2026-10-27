@@ -59,7 +59,7 @@ func (c *WebhookApp) StatusEvent(repo *domain.Repository, refs storer.ReferenceS
 	if c == nil {
 		return
 	}
-	hooks, err := c.Hooks.List(repo.Id)
+	hooks, err := c.hooksFor(repo)
 	if err != nil || !anyWants(hooks, "status") {
 		return // nothing subscribed: skip listing branches
 	}

@@ -73,6 +73,31 @@ func SplitImage(name string) (namespace, image string, err error) {
 	return strings.ToLower(ns), image, nil
 }
 
+// imageNamespace moves leading image segments into the namespace when
+// they name a sub-group: org/team/app is the image app of org/team if that
+// group exists (the deepest one wins), else team/app of org.
+func (c *PackagesApp) imageNamespace(ns, image string) (string, string) {
+	parts := strings.Split(image, "/")
+	if len(parts) < 2 {
+		return ns, image
+	}
+	var paths []string
+	for i := 1; i < len(parts) && i < domain.MaxGroupDepth; i++ {
+		paths = append(paths, ns+"/"+strings.Join(parts[:i], "/"))
+	}
+	groups, err := c.Repositories.GroupPers.GetByNames(paths)
+	if err != nil || len(groups) == 0 {
+		return ns, image
+	}
+	deepest := groups[0].Name
+	for _, g := range groups {
+		if len(g.Name) > len(deepest) {
+			deepest = g.Name
+		}
+	}
+	return deepest, strings.TrimPrefix(ns+"/"+image, deepest+"/")
+}
+
 func ValidDigest(d string) bool { return digestPattern.MatchString(d) }
 func ValidTag(t string) bool    { return tagPattern.MatchString(t) }
 
@@ -154,6 +179,7 @@ func (c *PackagesApp) Image(name string, caller PackageCaller, write bool) (*dom
 	if err != nil {
 		return nil, err
 	}
+	ns, image = c.imageNamespace(ns, image)
 	if write {
 		return c.ForWrite(ns, domain.PackageContainer, image, caller)
 	}

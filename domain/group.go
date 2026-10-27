@@ -124,6 +124,15 @@ type GroupPers interface {
 	MembershipsOf(userId string) ([]GroupMember, error)
 	// MembershipsIn returns userId's direct memberships in groupIds.
 	MembershipsIn(userId string, groupIds []string) ([]GroupMember, error)
+	// MovePath gives a group (and everything below it) the path newPath
+	// under parentId (nil: the top level), in one transaction: group
+	// names, the namespace of their repositories and packages, and
+	// redirects from every old path (groups and repositories).
+	MovePath(groupId string, parentId *string, oldPath, newPath string) error
+	// ResolveRedirect returns the group a former path now points to.
+	ResolveRedirect(path string) (*Group, error)
+	// RedirectPaths returns which of paths are former group paths.
+	RedirectPaths(paths []string) ([]string, error)
 	// Delete removes the group, its memberships and its repository_member rows.
 	Delete(id string) error
 	// ListForUser returns the groups userId is a member of.
@@ -145,3 +154,13 @@ type GroupPers interface {
 	// owner to maintainer, in one transaction.
 	TransferOwnership(groupId, currentOwnerId, newOwnerId string) error
 }
+
+// GroupRedirect maps a former group path to the group (after a rename or
+// a move).
+type GroupRedirect struct {
+	Path      string `gorm:"primaryKey"`
+	GroupId   string
+	CreatedAt time.Time
+}
+
+func (GroupRedirect) TableName() string { return "group_redirect" }

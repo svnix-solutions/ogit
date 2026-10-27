@@ -90,11 +90,13 @@ type PushPayload struct {
 }
 
 type PingPayload struct {
-	Zen        string         `json:"zen"`
-	HookId     string         `json:"hook_id"`
-	Hook       PingHook       `json:"hook"`
-	Repository HookRepository `json:"repository"`
-	Sender     HookUser       `json:"sender"`
+	Zen        string          `json:"zen"`
+	HookId     string          `json:"hook_id"`
+	Hook       PingHook        `json:"hook"`
+	Repository *HookRepository `json:"repository,omitempty"`
+	// Organization: a group hook's group.
+	Organization *HookOwner `json:"organization,omitempty"`
+	Sender       HookUser   `json:"sender"`
 }
 
 type PingHook struct {
@@ -171,13 +173,21 @@ func (c *WebhookApp) sender(userId, name string) HookUser {
 	return HookUser{Login: name, Type: "Bot"}
 }
 
-func (c *WebhookApp) pingPayload(repo *domain.Repository, h *domain.Webhook, actorId string) PingPayload {
-	return PingPayload{
+func (c *WebhookApp) pingPayload(s WebhookScope, h *domain.Webhook, actorId string) PingPayload {
+	p := PingPayload{
 		Zen: "Keep it logically awesome.", HookId: h.Id,
 		Hook: PingHook{Id: h.Id, Type: "Repository", Name: "web", Active: h.Active, Events: h.Events,
 			Config: PingHookConfig{URL: h.URL, ContentType: "json", InsecureSSL: "0"}},
-		Repository: c.repositoryPayload(repo), Sender: c.sender(actorId, ""),
+		Sender: c.sender(actorId, ""),
 	}
+	if s.Group != nil {
+		p.Hook.Type = "Organization"
+		p.Organization = &HookOwner{Login: s.Group.Name, Id: s.Group.Id, Type: "Organization"}
+	} else {
+		repo := c.repositoryPayload(s.Repo)
+		p.Repository = &repo
+	}
+	return p
 }
 
 // Pusher is who pushed: a user, or a deploy key / repository token (no
@@ -240,7 +250,7 @@ func (c *WebhookApp) Pushed(repo *domain.Repository, pusher Pusher, objects stor
 		return
 	}
 	c.Actions.Pushed(repo, pusher, objects, updates)
-	hooks, err := c.Hooks.List(repo.Id)
+	hooks, err := c.hooksFor(repo)
 	if err != nil {
 		return
 	}

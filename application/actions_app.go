@@ -310,13 +310,24 @@ func (c *ActionsApp) scopeRepositories(r *domain.ActionRunner) ([]string, error)
 	case domain.RunnerScopeRepository:
 		return []string{*r.ScopeId}, nil
 	case domain.RunnerScopeGroup:
-		repos, err := c.Repositories.RepoPres.InNamespace(domain.OwnerGroup, *r.ScopeId)
+		// The group's repositories and its sub-groups'.
+		group, err := c.Groups.GetById(*r.ScopeId)
 		if err != nil {
 			return nil, err
 		}
-		ids := make([]string, 0, len(repos))
-		for _, repo := range repos {
-			ids = append(ids, repo.Id)
+		below, err := c.Groups.Descendants(group.Name)
+		if err != nil {
+			return nil, err
+		}
+		ids := []string{}
+		for _, g := range append([]domain.Group{*group}, below...) {
+			repos, err := c.Repositories.RepoPres.InNamespace(domain.OwnerGroup, g.Id)
+			if err != nil {
+				return nil, err
+			}
+			for _, repo := range repos {
+				ids = append(ids, repo.Id)
+			}
 		}
 		return ids, nil
 	}
