@@ -66,6 +66,14 @@ webhooks:
   allowed_hosts: []    # e.g. [ci.internal, 10.0.5.0/24]
   timeout: 10s         # per delivery attempt
 
+mirrors:
+  # Pull mirrors and imports fetch remote repositories; like webhooks they
+  # may not reach private, loopback, link-local or shared addresses unless
+  # listed here (e.g. an internal git server).
+  allowed_hosts: []    # e.g. [git.internal, 10.0.5.0/24]
+  min_interval: 10m    # shortest sync interval of a mirror
+  default_interval: 8h # interval of new mirrors
+
 releases:
   max_asset_size: 104857600   # bytes (100 MB) per uploaded asset
 

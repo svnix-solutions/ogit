@@ -16,6 +16,8 @@ type GetRepositoryResponse struct {
 	Description string `json:"description"`
 	IsPrivate   bool   `json:"is_private"`
 	IsArchived  bool   `json:"archived"`
+	// IsMirror: a pull mirror (read-only, follows its remote).
+	IsMirror bool `json:"is_mirror"`
 	// RequiredApprovals before pull requests can be merged.
 	RequiredApprovals int  `json:"required_approvals"`
 	HasIssues         bool `json:"has_issues"`

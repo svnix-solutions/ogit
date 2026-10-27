@@ -12,13 +12,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
+	"github.com/labbs/ogit/infrastructure/netguard"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
-	"syscall"
 	"time"
 )
 
@@ -28,94 +26,38 @@ var ErrBlockedAddress = errors.New("webhook target is a private or local address
 
 // Sender delivers webhook requests.
 type Sender struct {
-	client  *http.Client
-	allowed []*net.IPNet
-	hosts   map[string]bool
+	client *http.Client
 }
 
 // NewSender allows private targets listed in allowed (hostnames, IPs or
 // CIDRs).
 func NewSender(allowed []string, timeout time.Duration) (*Sender, error) {
-	s := &Sender{hosts: map[string]bool{}}
-	for _, a := range allowed {
-		a = strings.TrimSpace(a)
-		switch {
-		case a == "":
-		case strings.Contains(a, "/"):
-			_, n, err := net.ParseCIDR(a)
-			if err != nil {
-				return nil, fmt.Errorf("webhooks.allowed_hosts: %q is not a valid CIDR", a)
-			}
-			s.allowed = append(s.allowed, n)
-		case net.ParseIP(a) != nil:
-			ip := net.ParseIP(a)
-			bits := 32
-			if ip.To4() == nil {
-				bits = 128
-			}
-			s.allowed = append(s.allowed, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
-		default:
-			s.hosts[strings.ToLower(a)] = true
-		}
+	guard, err := netguard.New(allowed, "webhooks.allowed_hosts")
+	if err != nil {
+		return nil, err
 	}
-	dialer := &net.Dialer{Timeout: timeout}
+	dial := guard.DialContext(timeout)
 	transport := &http.Transport{
 		Proxy: nil, // a proxy would hide the real target from the check
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, _, _ := net.SplitHostPort(addr)
-			d := *dialer
-			// Check the address actually dialed, after DNS: a name can't
-			// point the hook at an internal address (DNS rebinding included).
-			d.Control = func(_, address string, _ syscall.RawConn) error {
-				ipStr, _, _ := net.SplitHostPort(address)
-				if !s.permitted(host, net.ParseIP(ipStr)) {
-					return ErrBlockedAddress
-				}
-				return nil
+			conn, err := dial(ctx, network, addr)
+			if errors.Is(err, netguard.ErrBlockedAddress) {
+				return nil, ErrBlockedAddress
 			}
-			return d.DialContext(ctx, network, addr)
+			return conn, err
 		},
 		TLSHandshakeTimeout:   timeout,
 		ResponseHeaderTimeout: timeout,
 		MaxIdleConns:          20,
 		IdleConnTimeout:       30 * time.Second,
 	}
-	s.client = &http.Client{
+	return &Sender{client: &http.Client{
 		Transport: transport,
 		Timeout:   timeout,
 		// Like GitHub: a redirect is a failed delivery, not followed (it
 		// could lead to an internal address).
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
-	return s, nil
-}
-
-func (s *Sender) permitted(host string, ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	if s.hosts[strings.ToLower(host)] {
-		return true
-	}
-	for _, n := range s.allowed {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() || isSharedOrReserved(ip))
-}
-
-// isSharedOrReserved covers ranges net.IP's methods don't: carrier-grade
-// NAT (100.64/10), 0/8, 192.0.0/24 and benchmarking (198.18/15).
-func isSharedOrReserved(ip net.IP) bool {
-	for _, cidr := range []string{"100.64.0.0/10", "0.0.0.0/8", "192.0.0.0/24", "198.18.0.0/15"} {
-		_, n, _ := net.ParseCIDR(cidr)
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	}}, nil
 }
 
 // ValidateURL checks a hook URL's form (http or https, a host). Addresses

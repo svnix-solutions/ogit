@@ -401,6 +401,8 @@ func (c *PullRequestApp) mergeBlocked(view *PullRequestView, userId string, bypa
 		return ErrDraft, nil
 	case view.Repository.IsArchived:
 		return ErrGitArchived, nil
+	case view.Repository.IsMirror:
+		return ErrGitMirror, nil
 	case !view.BranchesExist:
 		return ErrBranchNotFound, nil
 	case len(view.Conflicts) > 0:

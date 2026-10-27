@@ -22,6 +22,8 @@ type Repository struct {
 	DefaultBranch string
 
 	IsArchived bool
+	// IsMirror: a pull mirror's repository, which refuses pushes.
+	IsMirror   bool
 	ArchivedAt *time.Time
 
 	// No gorm default here: with one, GORM omits false on insert and the

@@ -82,7 +82,7 @@ func (c *ReleaseApp) open(id, path *string, caller StatusCaller) (*domain.Reposi
 // canWrite: a person with write access, or this repository's token with
 // write:repository.
 func (c *ReleaseApp) canWrite(repo *domain.Repository, caller StatusCaller) bool {
-	if repo.IsArchived {
+	if repo.IsArchived || repo.IsMirror {
 		return false
 	}
 	if domain.IsPerson(caller.UserId) {

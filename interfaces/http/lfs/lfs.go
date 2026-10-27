@@ -64,6 +64,8 @@ func (c Controller) error(ctx *fiber.Ctx, err error) error {
 		return c.fail(ctx, fiber.StatusNotFound, err.Error())
 	case errors.Is(err, application.ErrGitArchived):
 		return c.fail(ctx, fiber.StatusForbidden, "repository is archived (read-only)")
+	case errors.Is(err, application.ErrGitMirror):
+		return c.fail(ctx, fiber.StatusForbidden, err.Error())
 	case errors.Is(err, application.ErrGitForbidden), errors.Is(err, application.ErrLFSLockOwner), errors.Is(err, application.ErrTwoFactorRequired):
 		return c.fail(ctx, fiber.StatusForbidden, err.Error())
 	case errors.Is(err, application.ErrLFSTooLarge):

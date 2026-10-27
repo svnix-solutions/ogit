@@ -93,6 +93,7 @@ export type RepositorySummary = {
   description: string;
   is_private: boolean;
   archived: boolean;
+  is_mirror?: boolean;
 };
 
 // A repository's API identifier: its id, or its path with the slash encoded.

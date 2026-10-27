@@ -60,6 +60,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		WebhookApp:    deps.WebhookApp,
 		ProtectionApp: deps.ProtectionApp,
 		TwoFactor:     deps.TwoFactorApp,
+		MirrorApp:     deps.MirrorApp,
 	}
 	repository.SetupRepositoryRouter(repoCtrl)
 	repository.SetupGroupWebhooks(repoCtrl, grp.Group("/group"))

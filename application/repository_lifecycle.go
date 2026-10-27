@@ -26,6 +26,9 @@ var (
 	ErrRepositoryNameTaken = errors.New("this namespace already has a repository with this name")
 	ErrInvalidName         = errors.New("name must produce a non-empty slug")
 	ErrGitArchived         = errors.New("repository is archived")
+	// ErrGitMirror: a pull mirror follows its remote and refuses pushes
+	// until mirroring stops.
+	ErrGitMirror = errors.New("repository is a mirror (read-only): stop mirroring to push to it")
 )
 
 // RepositoryUpdate holds the changes for Update; nil fields are left alone.

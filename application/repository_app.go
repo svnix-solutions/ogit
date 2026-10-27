@@ -94,6 +94,7 @@ func (c *RepositoryApp) create(namespace, creator string, tmpl *domain.Repositor
 		DefaultBranch: tmpl.DefaultBranch,
 		HasIssues:     tmpl.HasIssues,
 		ForkOfId:      tmpl.ForkOfId,
+		IsMirror:      tmpl.IsMirror,
 	}
 
 	if err := groupAtPath(c.GroupPers, ns.Path, repoSlug); err != nil {

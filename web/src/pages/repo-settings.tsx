@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { ActionsSettings, RepoCaches } from "@/components/actions-settings";
 import { useRepo } from "@/components/repo-layout";
 import { ConfirmDelete } from "@/components/confirm-delete";
+import { MirrorSettings } from "@/components/mirror-settings";
 import { ErrorText, Section } from "@/components/section";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ export function RepoSettingsPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <General repo={r.data} isOwner={isOwner} />
+      <MirrorSettings repo={r.data} isOwner={isOwner} />
       <BranchProtection repo={r.data} isOwner={isOwner} />
       <ProtectedTags repo={r.data} isOwner={isOwner} />
       <Labels repo={r.data} />

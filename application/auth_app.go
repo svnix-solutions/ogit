@@ -251,6 +251,9 @@ func (c *AuthApp) authorizeJobToken(repoPath, operation, token string) (*domain.
 		if repo.IsArchived {
 			return nil, Pusher{}, ErrGitArchived
 		}
+		if repo.IsMirror {
+			return nil, Pusher{}, ErrGitMirror
+		}
 	}
 	return repo, Pusher{Name: "github-actions[bot]", JobToken: true}, nil
 }
@@ -353,6 +356,9 @@ func (c *AuthApp) authorizeGit(repoPath, operation string, creds *GitCredentials
 
 	if gitOperation == "write" && repo.IsArchived {
 		return nil, nil, nil, ErrGitArchived
+	}
+	if gitOperation == "write" && repo.IsMirror {
+		return nil, nil, nil, ErrGitMirror
 	}
 
 	return repo, authToken, only, nil
