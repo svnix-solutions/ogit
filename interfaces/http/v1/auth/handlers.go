@@ -27,6 +27,8 @@ func (ctrl Controller) Login(ctx *fiber.Ctx, req dtos.LoginRequest) (*dtos.Login
 		ctrl.Limits.LoginFailed(ctx.UserContext(), ip, req.Email)
 		// Same answer for an unknown email and a wrong password.
 		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusUnauthorized, Details: err.Error(), Type: "INVALID_CREDENTIALS"}
+	case errors.Is(err, application.ErrPasswordLoginDisabled):
+		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusForbidden, Details: err.Error(), Type: "PASSWORD_LOGIN_DISABLED"}
 	case errors.Is(err, application.ErrAccountDisabled):
 		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusForbidden, Details: err.Error(), Type: "ACCOUNT_DISABLED"}
 	case errors.Is(err, application.ErrEmailNotVerified):

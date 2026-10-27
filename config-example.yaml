@@ -34,6 +34,12 @@ security:
   # Require two-factor authentication from every user. When false, site
   # admins can still turn the requirement on from the admin page.
   require_2fa: false
+  # Sign in only through sign-in providers (sso.providers or the admin
+  # page): no password or passkey sign-in and no registration, except for
+  # the user names in sso_only_exempt (keep a local admin there). When
+  # false, site admins can still turn it on from the admin page.
+  sso_only: false
+  sso_only_exempt: []   # e.g. [root]
 
 registration:
   enabled: true
@@ -75,6 +81,13 @@ mirrors:
   default_interval: 8h # interval of new mirrors
 
 sso:
+  # Group sync (per provider): groups_claim (default "groups"; a dotted path
+  # such as realm_access.roles works), admin_group (members are site
+  # admins; sync also takes back what it granted, never from the last
+  # admin) and group_mappings ([{group: <IdP group>, target: <oGit group>,
+  # role: member|maintainer}]): synced at each sign-in, removing only the
+  # memberships sync added. Sign-in only through providers:
+  # security.sso_only and security.sso_only_exempt.
   # Sign-in providers declared here are read-only in the admin page (which
   # can add more). They need http.public_url: register
   # {http.public_url}/api/v1/auth/sso/<slug>/callback at the provider.
@@ -91,6 +104,10 @@ sso:
   #   allowed_orgs: ""          # github: one of these organizations
   #   auto_create: true         # new users get an account
   #   require_two_factor: false # ask oGit's 2FA too (else the provider's MFA is trusted)
+  #   groups_claim: groups
+  #   admin_group: ogit-admins
+  #   group_mappings:
+  #     - {group: engineering, target: eng, role: member}
   #   enabled: true
 
 releases:

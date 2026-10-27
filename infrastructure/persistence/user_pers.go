@@ -58,7 +58,11 @@ func (u *userPers) SetActive(userId string, active bool) error {
 }
 
 func (u *userPers) SetRole(userId string, role domain.Role) error {
-	return u.db.Model(&domain.User{}).Where("id = ?", userId).Update("role", role).Error
+	return u.db.Model(&domain.User{}).Where("id = ?", userId).Updates(map[string]any{"role": role, "role_synced": false}).Error
+}
+
+func (u *userPers) SetSyncedRole(userId string, role domain.Role) error {
+	return u.db.Model(&domain.User{}).Where("id = ?", userId).Updates(map[string]any{"role": role, "role_synced": role == domain.RoleAdmin}).Error
 }
 
 func (u *userPers) SetPassword(userId, hash string) error {

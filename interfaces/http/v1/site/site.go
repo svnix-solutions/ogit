@@ -20,6 +20,7 @@ type Controller struct {
 	Logger        zerolog.Logger
 	SessionApp    *application.SessionApp
 	RepositoryApp *application.RepositoryApp
+	SSO           *application.SSOApp // sso_only
 }
 
 type InstanceResponse struct {
@@ -29,6 +30,9 @@ type InstanceResponse struct {
 	SSHPort             int    `json:"ssh_port,omitempty"`
 	MaxAssetSize        int64  `json:"max_asset_size"` // bytes per release asset
 	Passkeys            bool   `json:"passkeys"`       // security keys and passkey sign-in (needs http.public_url)
+	// SSOOnly: sign in through providers (/auth/providers); password
+	// sign-in is only for the configuration's break-glass accounts.
+	SSOOnly bool `json:"sso_only"`
 }
 
 type Repository struct {
@@ -119,6 +123,9 @@ func (c Controller) Instance(ctx *fiber.Ctx, _ struct{}) (*InstanceResponse, *fi
 	}
 	if resp.MaxAssetSize <= 0 {
 		resp.MaxAssetSize = application.DefaultMaxAssetSize
+	}
+	if on, _, err := c.SSO.SSOOnly(); err == nil && on {
+		resp.SSOOnly, resp.RegistrationEnabled = true, false
 	}
 	if resp.SSHEnabled {
 		resp.SSHPort = c.Config.SSH.Port

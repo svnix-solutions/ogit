@@ -108,6 +108,9 @@ export function LoginPage() {
   const navigate = useNavigate();
   const next = safeNext(params.get("redirect") ?? params.get("next"));
   const ssoError = params.get("sso_error");
+  // Only providers sign in: the password form is for break-glass accounts.
+  const ssoOnly = !!instance.data?.sso_only;
+  const [local, setLocal] = useState(false);
   const done = () => navigate(next, { replace: true });
 
   function submit(e: FormEvent) {
@@ -141,41 +144,44 @@ export function LoginPage() {
             {ssoError}
           </Alert>
         )}
-        <form className="space-y-4" onSubmit={submit}>
-          {err && (
-            <Alert variant="destructive">
-              {err.type === "INVALID_CREDENTIALS"
-                ? "Incorrect email or password."
-                : err.type === "EMAIL_NOT_VERIFIED"
-                  ? "Verify your email address first: open the link we sent you."
-                  : err.type === "ACCOUNT_DISABLED"
-                    ? "This account is disabled."
-                    : err.message}
-            </Alert>
-          )}
-          {err?.type === "EMAIL_NOT_VERIFIED" && (
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              disabled={resent}
-              onClick={() => api("POST", "/auth/verify/resend", { email }).finally(() => setResent(true))}
-            >
-              {resent ? "If the address is registered, a new link is on its way" : "Send a new link"}
+        {ssoOnly && !local && <p className="mb-4 text-center text-sm text-muted-foreground">Sign in with your organization's account.</p>}
+        {(!ssoOnly || local) && (
+          <form className="space-y-4" onSubmit={submit}>
+            {err && (
+              <Alert variant="destructive">
+                {err.type === "INVALID_CREDENTIALS"
+                  ? "Incorrect email or password."
+                  : err.type === "EMAIL_NOT_VERIFIED"
+                    ? "Verify your email address first: open the link we sent you."
+                    : err.type === "ACCOUNT_DISABLED"
+                      ? "This account is disabled."
+                      : err.message}
+              </Alert>
+            )}
+            {err?.type === "EMAIL_NOT_VERIFIED" && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={resent}
+                onClick={() => api("POST", "/auth/verify/resend", { email }).finally(() => setResent(true))}
+              >
+                {resent ? "If the address is registered, a new link is on its way" : "Send a new link"}
+              </Button>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="password">Password</Label>
+              <Input id="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+            <Button type="submit" className="w-full" disabled={login.isPending}>
+              {login.isPending ? "Signing in…" : "Sign in"}
             </Button>
-          )}
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="password">Password</Label>
-            <Input id="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-          <Button type="submit" className="w-full" disabled={login.isPending}>
-            {login.isPending ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
+          </form>
+        )}
         {(providers.data?.length ?? 0) > 0 && (
           <div className="mt-4 space-y-2 border-t pt-4">
             {providers.data!.map((p) => (
@@ -185,7 +191,12 @@ export function LoginPage() {
             ))}
           </div>
         )}
-        {instance.data?.passkeys && webauthnSupported() && (
+        {ssoOnly && !local && (
+          <Button type="button" variant="ghost" size="sm" className="mt-4 w-full" onClick={() => setLocal(true)}>
+            Sign in with a local account
+          </Button>
+        )}
+        {instance.data?.passkeys && !ssoOnly && webauthnSupported() && (
           <div className="mt-4 space-y-2 border-t pt-4">
             {(passkeyFailed || passkeyErr) && (
               <Alert variant="destructive">{passkeyFailed || (passkeyErr?.type === "INVALID_KEY" ? "That passkey wasn't accepted." : passkeyErr?.message)}</Alert>
@@ -196,9 +207,11 @@ export function LoginPage() {
           </div>
         )}
       </Card>
-      <p className="mt-4 text-center text-sm text-muted-foreground">
-        New here? <Link to="/register" className="text-primary hover:underline">Create an account</Link>
-      </p>
+      {instance.data?.registration_enabled !== false && (
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          New here? <Link to="/register" className="text-primary hover:underline">Create an account</Link>
+        </p>
+      )}
     </div>
   );
 }

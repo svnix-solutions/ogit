@@ -64,13 +64,16 @@ type TwoFactorApp struct {
 	// IdPTrusted reports users who sign in only through providers whose
 	// MFA is trusted (they count as having 2FA); nil: none.
 	IdPTrusted func(userId string) (bool, error)
-	Config     config.Config
-	Logger     zerolog.Logger
-	Users      domain.UserPers
-	Sessions   domain.SessionPers
-	Pers       domain.TwoFactorPers
-	Box        *secretbox.Box // nil without security.encryption_key
-	Mailer     mail.Sender
+	// PasswordBlocked: passwords can't confirm sudo for user (only
+	// sign-in providers); nil: never.
+	PasswordBlocked func(user *domain.User) bool
+	Config          config.Config
+	Logger          zerolog.Logger
+	Users           domain.UserPers
+	Sessions        domain.SessionPers
+	Pers            domain.TwoFactorPers
+	Box             *secretbox.Box // nil without security.encryption_key
+	Mailer          mail.Sender
 	// WebAuthn is nil without http.public_url (its host is the relying
 	// party): no security keys then.
 	WebAuthn *webauthn.WebAuthn
@@ -192,6 +195,9 @@ func (c *TwoFactorApp) Sudo(auth *fiberoapi.AuthContext, code, password string, 
 		user, err := c.Users.GetById(auth.UserID)
 		if err != nil {
 			return time.Time{}, err
+		}
+		if c.PasswordBlocked != nil && c.PasswordBlocked(&user) {
+			return time.Time{}, ErrPasswordLoginDisabled
 		}
 		if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)) != nil {
 			return time.Time{}, ErrInvalidCredentials

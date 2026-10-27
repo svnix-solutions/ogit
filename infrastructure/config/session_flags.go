@@ -27,6 +27,25 @@ func SecurityFlags(cfg *Config) []cli.Flag {
 				altsrcyaml.YAML("security.require_2fa", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
 			),
 		},
+		&cli.BoolFlag{
+			Name:        "security.sso_only",
+			Usage:       "Sign in only through sign-in providers: no password or passkey sign-in, no registration, except for security.sso_only_exempt (when false, site admins can still turn it on from the admin page)",
+			Destination: &cfg.Security.SSOOnly,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("SECURITY_SSO_ONLY"),
+				altsrcyaml.YAML("security.sso_only", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+		&cli.StringSliceFlag{
+			Name:        "security.sso_only_exempt",
+			Usage:       "User names that keep password sign-in when only sign-in providers are allowed (break-glass accounts, e.g. a local admin)",
+			Value:       []string{},
+			Destination: &cfg.Security.SSOOnlyExempt,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("SECURITY_SSO_ONLY_EXEMPT"),
+				altsrcyaml.YAML("security.sso_only_exempt", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
 	}
 }
 

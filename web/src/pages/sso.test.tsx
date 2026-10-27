@@ -108,9 +108,62 @@ describe("single sign-on", () => {
     await waitFor(() =>
       expect(sent(fetch, "POST", "/admin/sso/providers")).toEqual([
         { slug: "kc", name: "Keycloak", kind: "oidc", issuer: "https://sso.example/realms/main", client_id: "ogit", scopes: "", allowed_domains: "", allowed_orgs: "",
-          auto_create: true, require_two_factor: false, enabled: true, client_secret: "s3cret" },
+          auto_create: true, require_two_factor: false, enabled: true, groups_claim: "", admin_group: "", group_mappings: [], client_secret: "s3cret" },
       ]),
     );
     expect(await within(section).findByDisplayValue("https://ogit.example/api/v1/auth/sso/kc/callback")).toBeInTheDocument();
+  });
+
+  it("hides the password form when only providers sign in, but keeps it for break-glass accounts", async () => {
+    fakeAPI({
+      "/instance": { ...instance, registration_enabled: false, sso_only: true }, "/auth/providers": providers,
+      "/user/profile": [401, { code: 401, details: "no", type: "UNAUTHORIZED" }],
+    });
+    renderRoutes(routes, "/login");
+    expect(await screen.findByRole("link", { name: "Sign in with Corp SSO" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    expect(screen.queryByText("Create an account")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with a local account" }));
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+  });
+
+  it("maps provider groups and turns on sign-in only through providers", async () => {
+    let list: object[] = [];
+    const settings = { require_two_factor: false, require_two_factor_forced: false, sso_only: false, sso_only_forced: false, sso_only_exempt: ["root"] };
+    const fetch = fakeAPI({
+      "/instance": instance, "/user/profile": me({ role: "admin", two_factor_enabled: true }),
+      "/admin/settings": settings, "PATCH /admin/settings": { ...settings, sso_only: true },
+      "/admin/users?q=&limit=20&offset=0": { users: [], total: 0 }, "/admin/repositories?q=&limit=20&offset=0": { repositories: [], total: 0 },
+      "/admin/runners": { runners: [] }, "/admin/actions/secrets": { secrets: [] }, "/admin/actions/variables": { variables: [] },
+      "/admin/sso/providers": () => ({ providers: list }),
+      "POST /admin/sso/providers": (init: RequestInit) => {
+        list = [{ ...JSON.parse(init.body as string), has_secret: true, from_config: false, callback_url: "" }];
+        return list[0];
+      },
+    });
+    vi.stubGlobal("confirm", () => true);
+    renderRoutes(routes, "/admin");
+    expect(await screen.findByText(/Break-glass accounts that keep their password: root/)).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("Sign in only through sign-in providers"));
+    await waitFor(() => expect(sent(fetch, "PATCH", "/admin/settings")).toEqual([{ sso_only: true }]));
+
+    await userEvent.click(screen.getByRole("button", { name: "Add a provider" }));
+    const section = document.getElementById("sign-in-providers")!;
+    await userEvent.type(within(section).getByLabelText("Slug (in URLs)"), "kc");
+    await userEvent.type(within(section).getByLabelText("Name (on the sign-in button)"), "Keycloak");
+    await userEvent.type(within(section).getByLabelText("Issuer URL"), "https://sso.example/realms/main");
+    await userEvent.type(within(section).getByLabelText("Client ID"), "ogit");
+    await userEvent.type(within(section).getByLabelText("Client secret"), "s3cret");
+    await userEvent.type(within(section).getByLabelText("Groups claim"), "realm_access.roles");
+    await userEvent.type(within(section).getByLabelText("Admin group"), "ogit-admins");
+    await userEvent.click(within(section).getByRole("button", { name: "Map a group" }));
+    const row = within(section).getByTestId("group-mapping");
+    await userEvent.type(within(row).getByLabelText("Provider group"), "eng");
+    await userEvent.type(within(row).getByLabelText("oGit group"), "engineering");
+    await userEvent.selectOptions(within(row).getByLabelText("Role"), "maintainer");
+    await userEvent.click(within(section).getByRole("button", { name: "Add provider" }));
+    await waitFor(() => expect(sent(fetch, "POST", "/admin/sso/providers")).toHaveLength(1));
+    const body = sent(fetch, "POST", "/admin/sso/providers")[0];
+    expect(body).toMatchObject({ groups_claim: "realm_access.roles", admin_group: "ogit-admins", group_mappings: [{ group: "eng", target: "engineering", role: "maintainer" }] });
   });
 });
