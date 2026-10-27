@@ -3,7 +3,6 @@ package webhook
 import (
 	"context"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,22 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestPermitted(t *testing.T) {
-	s, err := NewSender([]string{"10.1.0.0/16", "192.168.5.5", "ci.internal"}, time.Second)
-	require.NoError(t, err)
-	for ip, want := range map[string]bool{
-		"8.8.8.8": true, "2606:4700::1111": true,
-		"127.0.0.1": false, "::1": false, "10.0.0.1": false, "172.16.3.4": false, "192.168.1.1": false,
-		"169.254.169.254": false, "fe80::1": false, "fc00::1": false, "100.64.1.1": false, "0.0.0.0": false,
-		"::ffff:127.0.0.1": false, "::ffff:10.0.0.1": false,
-		"10.1.2.3": true, "192.168.5.5": true, // allowed
-	} {
-		assert.Equal(t, want, s.permitted("example.com", net.ParseIP(ip)), ip)
-	}
-	assert.True(t, s.permitted("CI.internal", net.ParseIP("10.9.9.9")), "an allowed host name")
-	assert.False(t, s.permitted("example.com", nil))
-}
 
 func TestValidateURL(t *testing.T) {
 	assert.NoError(t, ValidateURL("https://ci.example.com/hook?x=1"))

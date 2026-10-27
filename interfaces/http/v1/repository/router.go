@@ -18,10 +18,12 @@ type Controller struct {
 	WebhookApp    *application.WebhookApp
 	ProtectionApp *application.ProtectionApp
 	TwoFactor     *application.TwoFactorApp // sudo for repository tokens
+	MirrorApp     *application.MirrorApp
 }
 
 func SetupRepositoryRouter(controller Controller) {
 	setupWebhookRoutes(controller)
+	setupMirrorRoutes(controller)
 	setupBranchProtectionRoutes(controller)
 	setupProtectedTagRoutes(controller)
 	setupForkRoutes(controller)

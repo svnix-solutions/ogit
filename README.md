@@ -322,6 +322,16 @@ curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/protected-tags -H 
 - Only maintainers and up, and the users and groups listed, may create a matching tag, by a push or by publishing a release. Deploy keys and repository tokens never may; they can still release an existing protected tag.
 - Nobody may move or delete a protected tag, except owners, and every such bypass is logged (`"component":"audit"`).
 
+### Importing and mirroring
+
+Create a repository from any git remote: on the "New repository" page choose "Import from a URL", or `POST /api/v1/repository/import` with `name`, `url` and optionally `namespace`, `username`, `password` (a password or token), `mirror`, `lfs`, `interval_seconds`.
+
+- **Remotes:** `https://` or `http://` (with an optional username and password or token), or `ssh://` and `git@host:path`: oGit generates a key for the repository and shows its public key, to add on the remote (for instance as a deploy key); the remote's host key is pinned on first contact. Credentials and keys are stored encrypted (they need `security.encryption_key`) and never shown again.
+- **Import or mirror:** an import copies the branches and tags once and is a normal repository afterwards. A mirror keeps following the remote: every 8 hours by default (`interval_seconds`, at least `mirrors.min_interval`), branches and tags deleted upstream are deleted too, and it refuses pushes and merges until an owner stops mirroring. Maintainers see its status and last error, change it and "Sync now"; failed syncs retry with backoff.
+- **Git LFS:** with `lfs`, the LFS objects the fetched branches and tags point to are fetched from the remote's LFS server too (over SSH through `git-lfs-authenticate`).
+- **Safety:** like webhooks, mirrors can't reach private, loopback or link-local addresses unless listed in `mirrors.allowed_hosts`.
+- **API:** `GET|PATCH|DELETE /api/v1/repository/<repo>/mirror` (`DELETE` stops mirroring, owners only), `POST .../mirror/sync`.
+
 ### Forks
 
 ```bash

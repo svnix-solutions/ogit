@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"github.com/labbs/ogit/infrastructure/helpers/secretbox"
+	"github.com/labbs/ogit/infrastructure/mirror"
+	"github.com/labbs/ogit/infrastructure/netguard"
 	"github.com/labbs/ogit/infrastructure/ratelimit"
 	"net"
 	"strconv"
@@ -57,6 +59,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.SSHFlags(cfg)...)
 	list = append(list, config.RateLimitFlags(cfg)...)
 	list = append(list, config.WebhookFlags(cfg)...)
+	list = append(list, config.MirrorFlags(cfg)...)
 	list = append(list, config.ReleaseFlags(cfg)...)
 	list = append(list, config.GitFlags(cfg)...)
 	list = append(list, config.LFSFlags(cfg)...)
@@ -96,6 +99,8 @@ func runServer(cfg config.Config) error {
 	go deps.ActionsApp.Watch(context.Background(), time.Minute)
 	// Unused container blobs and abandoned uploads.
 	go deps.PackagesApp.Run(context.Background(), time.Hour)
+	// Pull mirrors and imports, on every server (each sync is claimed once).
+	go deps.MirrorApp.Run(context.Background(), 5*time.Second)
 
 	if cfg.SSH.Enabled {
 		if err := startSSH(deps); err != nil {
@@ -275,6 +280,13 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.PackagesApp = &application.PackagesApp{Config: deps.Config, Logger: deps.Logger, Pers: packagesPers,
 		Repositories: deps.RepoApp, Storage: deps.Storage, Tokens: deps.TokenApp}
 	deps.GoProxyApp = &application.GoProxyApp{Config: deps.Config}
+	mirrorGuard, err := netguard.New(deps.Config.Mirrors.AllowedHosts, "mirrors.allowed_hosts")
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.mirrors").Msg("Invalid mirrors.allowed_hosts")
+		return deps, err
+	}
+	deps.MirrorApp = &application.MirrorApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewMirrorPers(deps.Database.Db),
+		Repositories: deps.RepoApp, Storage: deps.Storage, LFS: deps.LFSApp, Box: deps.TwoFactorApp.Box, Dialer: mirror.Dialer{Guard: mirrorGuard}}
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
 	if err != nil {

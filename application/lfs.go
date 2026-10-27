@@ -159,6 +159,9 @@ func (c *LFSApp) AuthorizeToken(repoPath, token string, write bool) (*LFSAccess,
 	if write && repo.IsArchived {
 		return nil, ErrGitArchived
 	}
+	if write && repo.IsMirror {
+		return nil, ErrGitMirror
+	}
 	// People's access is checked again (they may have lost it since);
 	// anonymous tokens only read public repositories. Deploy keys' and
 	// repository tokens' last the token's hour.

@@ -45,5 +45,6 @@ type Deps struct {
 	LFSApp          *application.LFSApp
 	ActionsApp      *application.ActionsApp
 	PackagesApp     *application.PackagesApp
+	MirrorApp       *application.MirrorApp
 	GoProxyApp      *application.GoProxyApp
 }

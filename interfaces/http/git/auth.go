@@ -82,6 +82,8 @@ func (ctrl *Controller) Authorize(suffix, service string) fiber.Handler {
 			return ctx.Next()
 		case errors.Is(err, application.ErrGitArchived):
 			return ctx.Status(fiber.StatusForbidden).SendString("repository is archived (read-only)")
+		case errors.Is(err, application.ErrGitMirror):
+			return ctx.Status(fiber.StatusForbidden).SendString(err.Error())
 		case errors.Is(err, application.ErrGitUnauthenticated):
 			ctx.Set(fiber.HeaderWWWAuthenticate, `Basic realm="ogit"`)
 			return ctx.Status(fiber.StatusUnauthorized).SendString(err.Error())

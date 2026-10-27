@@ -64,7 +64,7 @@ func (ctrl *Controller) UpdateRepository(ctx *fiber.Ctx, req dtos.UpdateReposito
 func repositoryResponse(repo *domain.Repository) *dtos.GetRepositoryResponse {
 	return &dtos.GetRepositoryResponse{Id: repo.Id, Namespace: repo.Namespace, OwnerType: string(repo.OwnerType), Slug: repo.Slug,
 		FullPath: repo.FullPath(), Name: repo.Name, Description: repo.Description, IsPrivate: repo.IsPrivate, IsArchived: repo.IsArchived,
-		RequiredApprovals: repo.RequiredApprovals, HasIssues: repo.HasIssues}
+		IsMirror: repo.IsMirror, RequiredApprovals: repo.RequiredApprovals, HasIssues: repo.HasIssues}
 }
 
 func (ctrl *Controller) DeleteRepository(ctx *fiber.Ctx, req dtos.DeleteRepositoryRequest) (*dtos.DeleteRepositoryResponse, *fiberoapi.ErrorResponse) {

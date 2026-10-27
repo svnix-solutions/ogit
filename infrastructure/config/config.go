@@ -29,6 +29,13 @@ type Config struct {
 		Timeout      time.Duration
 	}
 
+	// Mirrors: pull mirrors and imports of remote repositories.
+	Mirrors struct {
+		AllowedHosts    []string
+		MinInterval     time.Duration
+		DefaultInterval time.Duration
+	}
+
 	// Security: EncryptionKey encrypts secrets stored in the database
 	// (helpers/secretbox).
 	Security struct {
