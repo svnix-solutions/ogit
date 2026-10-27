@@ -11,8 +11,11 @@ import (
 // Webhook sends a repository's events to a URL (GitHub-compatible
 // payloads, signed with Secret).
 type Webhook struct {
-	Id           string `gorm:"primaryKey"`
-	RepositoryId string
+	Id string `gorm:"primaryKey"`
+	// RepositoryId or GroupId: what the hook belongs to (a group's hooks
+	// fire for every repository below it).
+	RepositoryId *string
+	GroupId      *string
 	URL          string
 	Secret       string // HMAC key; never returned by the API
 	Events       StringList
@@ -67,6 +70,8 @@ type WebhookPers interface {
 	Create(h *Webhook) error
 	Get(repositoryId, id string) (*Webhook, error)
 	List(repositoryId string) ([]Webhook, error)
+	GetForGroup(groupId, id string) (*Webhook, error)
+	ListForGroups(groupIds []string) ([]Webhook, error)
 	Update(id string, fields map[string]any) error
 	Delete(id string) error
 

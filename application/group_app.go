@@ -143,11 +143,110 @@ func (c *GroupApp) lookup(identifier string) (*domain.Group, error) {
 			identifier = decoded
 		}
 		group, err = c.GroupPers.GetByName(identifier)
+		if isNotFound(err) {
+			group, err = c.GroupPers.ResolveRedirect(identifier) // a former path
+		}
 	}
 	if isNotFound(err) {
 		return nil, ErrGroupNotFound
 	}
 	return group, err
+}
+
+// Move renames a group or moves it (with everything below it) to another
+// parent (parent "" is the top level): the group's owner may, into a group
+// they maintain or own. Former paths of the group, its sub-groups and
+// their repositories redirect. Top-level groups can't be renamed (their
+// names are shared with usernames) but can move under a group, and
+// sub-groups can move to the top level under a free name.
+func (c *GroupApp) Move(identifier, actorId string, parent *string, name string) (*domain.Group, error) {
+	group, actor, err := c.Get(identifier, actorId)
+	if err != nil {
+		return nil, err
+	}
+	if actor.Role != domain.GroupRoleOwner {
+		return nil, ErrForbidden
+	}
+	if name == "" {
+		name = group.Segment()
+	}
+	var newParent *domain.Group
+	switch {
+	case parent == nil: // same parent
+		if group.ParentId != nil {
+			if newParent, err = c.GroupPers.GetById(*group.ParentId); err != nil {
+				return nil, err
+			}
+		}
+	case *parent != "":
+		var role *domain.GroupMember
+		if newParent, role, err = c.Get(*parent, actorId); err != nil {
+			return nil, err
+		}
+		if role.Role.Level() < domain.GroupRoleMaintainer.Level() {
+			return nil, ErrForbidden
+		}
+	}
+	newPath := name
+	var parentId *string
+	if newParent != nil {
+		newPath, parentId = newParent.Name+"/"+name, &newParent.Id
+	}
+	if newPath == group.Name {
+		return group, nil
+	}
+	if strings.Contains(name, "/") || domain.ValidGroupPath(newPath) != nil {
+		return nil, ErrInvalidGroupName
+	}
+	if strings.HasPrefix(newPath+"/", group.Name+"/") {
+		return nil, ErrGroupMoveIntoItself
+	}
+	if group.ParentId == nil && newParent == nil {
+		return nil, ErrTopLevelRename
+	}
+	// Everything below must still fit within the depth limit.
+	below, err := c.GroupPers.Descendants(group.Name)
+	if err != nil {
+		return nil, err
+	}
+	deepest := strings.Count(group.Name, "/")
+	for _, d := range below {
+		deepest = max(deepest, strings.Count(d.Name, "/"))
+	}
+	if strings.Count(newPath, "/")+deepest-strings.Count(group.Name, "/")+1 > domain.MaxGroupDepth {
+		return nil, ErrGroupTooDeep
+	}
+	// The new path must be free: a top-level name is shared with users;
+	// below, with repositories.
+	if newParent == nil {
+		if err := checkNewNamespace(c.UserPers, c.GroupPers, newPath); err != nil {
+			if err == ErrNamespaceTaken {
+				return nil, ErrGroupNameTaken
+			}
+			return nil, err
+		}
+	} else {
+		if _, err := c.GroupPers.GetByName(newPath); err == nil {
+			return nil, ErrGroupNameTaken
+		} else if !isNotFound(err) {
+			return nil, err
+		}
+		if _, err := c.RepoPers.GetByPath(newParent.Name, name); err == nil {
+			return nil, ErrGroupNameTaken
+		} else if !isNotFound(err) {
+			return nil, err
+		}
+	}
+	old := group.Name
+	err = c.GroupPers.MovePath(group.Id, parentId, old, newPath)
+	if helperError.Catch(err) == gorm.ErrDuplicatedKey {
+		return nil, ErrGroupNameTaken
+	} else if err != nil {
+		return nil, err
+	}
+	c.Logger.Info().Str("component", "audit").Str("actor_id", actorId).Str("action", "group.move").Str("from", old).Str("to", newPath).Msg("group moved")
+	group.Name, group.ParentId = newPath, parentId
+	return group, nil
 }
 
 // CreateSubgroup makes a sub-group of parent (its maintainers and owners
@@ -471,4 +570,23 @@ func (c *GroupApp) memberByUsername(groupId, username string) (*domain.GroupMemb
 		return nil, err
 	}
 	return member, nil
+}
+
+// InheritedTwoFactor reports whether an ancestor of the group requires
+// 2FA (the requirement then applies to the group too).
+func (c *GroupApp) InheritedTwoFactor(group *domain.Group) (bool, error) {
+	prefixes := domain.GroupPathPrefixes(group.Name)
+	if len(prefixes) < 2 {
+		return false, nil
+	}
+	ancestors, err := c.GroupPers.GetByNames(prefixes[:len(prefixes)-1])
+	if err != nil {
+		return false, err
+	}
+	for _, a := range ancestors {
+		if a.RequireTwoFactor {
+			return true, nil
+		}
+	}
+	return false, nil
 }

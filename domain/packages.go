@@ -115,6 +115,9 @@ type PackagesPers interface {
 	// SearchPackages finds packages of a type whose name or namespace
 	// contains text, most recently updated first.
 	SearchPackages(typ, text string, limit int) ([]Package, error)
+	// InScope finds a package of a type by name owned by the namespace
+	// scope or any group below it (npm names are unique per scope).
+	InScope(typ, name, scope string) (*Package, error)
 	UpdatePackage(p *Package, fields ...string) error
 	// DeletePackage deletes a package with its versions, files and tags.
 	DeletePackage(id string) error

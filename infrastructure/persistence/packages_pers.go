@@ -59,6 +59,16 @@ func (p *packagesPers) SearchPackages(typ, text string, limit int) ([]domain.Pac
 	return out, err
 }
 
+func (p *packagesPers) InScope(typ, name, scope string) (*domain.Package, error) {
+	var pkg domain.Package
+	prefix := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(scope) + "/%"
+	err := p.db.Where("type = ? AND name = ? AND (namespace = ? OR namespace LIKE ? ESCAPE '\\')", typ, name, scope, prefix).First(&pkg).Error
+	if err != nil {
+		return nil, err
+	}
+	return &pkg, nil
+}
+
 func (p *packagesPers) UpdateVersionMetadata(id, metadata string) error {
 	return p.db.Model(&domain.PackageVersion{}).Where("id = ?", id).Update("metadata", metadata).Error
 }

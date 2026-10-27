@@ -242,6 +242,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	packagesPers := persistence.NewPackagesPers(deps.Database.Db)
 	deps.GroupApp.Packages = packagesPers
 	deps.GroupApp.TwoFactor = deps.TwoFactorApp
+	deps.WebhookApp.Groups = deps.GroupApp
 	deps.AdminApp = &application.AdminApp{
 		Config: deps.Config, Logger: deps.Logger, UserPers: userPers, SessionPers: sessionPers,
 		RepoPers: repoPers, RepositoryMemberPers: repositoryMemberPers, GroupPers: groupPers, Storage: deps.Storage, Packages: packagesPers,

@@ -2,9 +2,11 @@ package persistence
 
 import (
 	"strings"
+	"time"
 
 	"github.com/labbs/ogit/domain"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type groupPers struct {
@@ -17,6 +19,10 @@ func NewGroupPers(db *gorm.DB) *groupPers {
 
 func (g *groupPers) Create(group *domain.Group, owner *domain.GroupMember) error {
 	return g.db.Transaction(func(tx *gorm.DB) error {
+		// A group created at a former path takes it over.
+		if err := tx.Where("path = ?", group.Name).Delete(&domain.GroupRedirect{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Create(group).Error; err != nil {
 			return err
 		}
@@ -94,6 +100,15 @@ func (g *groupPers) Delete(id string) error {
 			return err
 		}
 		if err := tx.Where("group_id = ?", id).Delete(&domain.GroupMember{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("group_id = ?", id).Delete(&domain.GroupRedirect{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM webhook_delivery WHERE webhook_id IN (SELECT id FROM webhook WHERE group_id = ?)", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("group_id = ?", id).Delete(&domain.Webhook{}).Error; err != nil {
 			return err
 		}
 		for _, model := range []any{&domain.ActionRunner{}, &domain.ActionRegistrationToken{}, &domain.ActionSecret{}, &domain.ActionVariable{}} {
@@ -181,4 +196,62 @@ func (g *groupPers) RequiringTwoFactor(groupIds []string) ([]string, error) {
 
 func (g *groupPers) SetRequireTwoFactor(groupId string, on bool) error {
 	return g.db.Model(&domain.Group{}).Where("id = ?", groupId).Update("require_two_factor", on).Error
+}
+
+func (g *groupPers) MovePath(groupId string, parentId *string, oldPath, newPath string) error {
+	moved := func(p string) string { return newPath + strings.TrimPrefix(p, oldPath) }
+	return g.db.Transaction(func(tx *gorm.DB) error {
+		var groups []domain.Group
+		if err := tx.Where(`name = ? OR name LIKE ? ESCAPE '\'`, oldPath, likePrefix(oldPath)).Find(&groups).Error; err != nil {
+			return err
+		}
+		for _, grp := range groups {
+			to := moved(grp.Name)
+			if err := tx.Where("path = ?", to).Delete(&domain.GroupRedirect{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&domain.GroupRedirect{Path: grp.Name, GroupId: grp.Id, CreatedAt: time.Now()}).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&domain.Group{}).Where("id = ?", grp.Id).Update("name", to).Error; err != nil {
+				return err
+			}
+			var repos []domain.Repository
+			if err := tx.Where("owner_type = ? AND owner_id = ?", domain.OwnerGroup, grp.Id).Find(&repos).Error; err != nil {
+				return err
+			}
+			for _, r := range repos {
+				if err := tx.Where("namespace = ? AND slug = ?", to, r.Slug).Delete(&domain.RepositoryRedirect{}).Error; err != nil {
+					return err
+				}
+				if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&domain.RepositoryRedirect{Namespace: grp.Name, Slug: r.Slug, RepositoryId: r.Id}).Error; err != nil {
+					return err
+				}
+			}
+			if err := tx.Model(&domain.Repository{}).Where("owner_type = ? AND owner_id = ?", domain.OwnerGroup, grp.Id).Update("namespace", to).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&domain.Package{}).Where("owner_id = ?", grp.Id).Update("namespace", to).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&domain.Group{}).Where("id = ?", groupId).Update("parent_id", parentId).Error
+	})
+}
+
+func (g *groupPers) ResolveRedirect(path string) (*domain.Group, error) {
+	var redirect domain.GroupRedirect
+	if err := g.db.Where("path = ?", path).First(&redirect).Error; err != nil {
+		return nil, err
+	}
+	return g.GetById(redirect.GroupId)
+}
+
+func (g *groupPers) RedirectPaths(paths []string) ([]string, error) {
+	var out []string
+	if len(paths) == 0 {
+		return out, nil
+	}
+	err := g.db.Model(&domain.GroupRedirect{}).Where("path IN ?", paths).Pluck("path", &out).Error
+	return out, err
 }

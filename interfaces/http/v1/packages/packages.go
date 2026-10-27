@@ -201,7 +201,7 @@ func (c Controller) List(ctx *fiber.Ctx, req ListRequest) (*ListResponse, *fiber
 	if e != nil {
 		return nil, e
 	}
-	views, err := c.Packages.List(req.Namespace, req.Type, caller)
+	views, err := c.Packages.List(name(req.Namespace), req.Type, caller)
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
@@ -226,7 +226,7 @@ func (c Controller) Get(ctx *fiber.Ctx, req PackageRequest) (*DetailResponse, *f
 	if e != nil {
 		return nil, e
 	}
-	p, versions, err := c.Packages.Get(req.Namespace, req.Type, name(req.Name), caller)
+	p, versions, err := c.Packages.Get(name(req.Namespace), req.Type, name(req.Name), caller)
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
@@ -253,7 +253,7 @@ func (c Controller) Update(ctx *fiber.Ctx, req UpdateRequest) (*Package, *fibero
 	if e != nil {
 		return nil, e
 	}
-	v, err := c.Packages.Update(req.Namespace, req.Type, name(req.Name), caller, application.PackageChange{Visibility: req.Visibility, Repository: req.Repository})
+	v, err := c.Packages.Update(name(req.Namespace), req.Type, name(req.Name), caller, application.PackageChange{Visibility: req.Visibility, Repository: req.Repository})
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
@@ -269,7 +269,7 @@ func (c Controller) Delete(ctx *fiber.Ctx, req DeleteRequest) (*MessageResponse,
 	if req.Confirm != name(req.Name) {
 		return nil, apierror.From(application.ErrConfirmMismatch, c.Logger)
 	}
-	if err := c.Packages.Delete(req.Namespace, req.Type, name(req.Name), caller); err != nil {
+	if err := c.Packages.Delete(name(req.Namespace), req.Type, name(req.Name), caller); err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
 	return &MessageResponse{Message: "package deleted"}, nil
@@ -280,7 +280,7 @@ func (c Controller) DeleteVersion(ctx *fiber.Ctx, req VersionRequest) (*MessageR
 	if e != nil {
 		return nil, e
 	}
-	if err := c.Packages.DeleteVersion(req.Namespace, req.Type, name(req.Name), name(req.Version), caller); err != nil {
+	if err := c.Packages.DeleteVersion(name(req.Namespace), req.Type, name(req.Name), name(req.Version), caller); err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
 	return &MessageResponse{Message: "version deleted"}, nil

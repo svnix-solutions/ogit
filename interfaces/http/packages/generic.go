@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/labbs/ogit/application"
@@ -31,15 +32,55 @@ type Controller struct {
 	Limits     *ratelimit.Guard
 }
 
-// GenericRoute is the generic file route (its PUT is streamed).
-const GenericRoute = "/api/packages/:owner/generic/:name/:version/:file"
-
 func Setup(c Controller, app *fiber.App) {
-	app.Put(GenericRoute, c.PutGeneric)
-	app.Get(GenericRoute, c.GetGeneric)
-	app.Head(GenericRoute, c.GetGeneric)
-	app.Delete("/api/packages/:owner/generic/:name/:version", c.DeleteGeneric)
+	// Generic files: /api/packages/<owner>/generic/<name>/<version>/<file>,
+	// where the owner may be a sub-group's path (org/team).
+	app.All("/api/packages/*", c.Generic)
 	app.All("/api/packages/npm/*", c.Npm)
+}
+
+// genericRef is what a generic file route names.
+type genericRef struct{ owner, name, version, file string }
+
+// parseGeneric reads a generic route: "generic" comes 3 segments before
+// the end for files, 2 for a version (DELETE).
+func parseGeneric(ctx *fiber.Ctx) (genericRef, bool) {
+	parts := strings.Split(strings.TrimPrefix(ctx.Path(), "/api/packages/"), "/")
+	tail := 3
+	if ctx.Method() == fiber.MethodDelete {
+		tail = 2
+	}
+	k := len(parts) - tail - 1
+	if k < 1 || parts[k] != "generic" {
+		return genericRef{}, false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return genericRef{}, false
+		}
+	}
+	r := genericRef{owner: strings.Join(parts[:k], "/"), name: parts[k+1], version: parts[k+2]}
+	if tail == 3 {
+		r.file = parts[k+3]
+	}
+	return r, true
+}
+
+// Generic serves generic files, and passes other package routes on.
+func (c Controller) Generic(ctx *fiber.Ctx) error {
+	ref, ok := parseGeneric(ctx)
+	if !ok {
+		return ctx.Next()
+	}
+	switch ctx.Method() {
+	case fiber.MethodPut:
+		return c.PutGeneric(ctx, ref)
+	case fiber.MethodGet, fiber.MethodHead:
+		return c.GetGeneric(ctx, ref)
+	case fiber.MethodDelete:
+		return c.DeleteGeneric(ctx, ref)
+	}
+	return ctx.Next()
 }
 
 // caller: a token (any form optauth accepts), else for downloads the web
@@ -70,7 +111,7 @@ func (c Controller) fail(ctx *fiber.Ctx, err error) error {
 	return ctx.Status(e.Code).JSON(e)
 }
 
-func (c Controller) PutGeneric(ctx *fiber.Ctx) error {
+func (c Controller) PutGeneric(ctx *fiber.Ctx, ref genericRef) error {
 	caller, err := c.caller(ctx)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -79,27 +120,27 @@ func (c Controller) PutGeneric(ctx *fiber.Ctx) error {
 		ctx.Set(fiber.HeaderWWWAuthenticate, `Basic realm="ogit packages"`)
 		return ctx.Status(fiber.StatusUnauthorized).JSON(apierror.Unauthenticated())
 	}
-	p, err := c.Packages.ForWrite(ctx.Params("owner"), domain.PackageGeneric, ctx.Params("name"), caller)
+	p, err := c.Packages.ForWrite(ref.owner, domain.PackageGeneric, ref.name, caller)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	f, err := c.Packages.PutFile(p, ctx.Params("version"), ctx.Params("file"), caller, ctx.Get(fiber.HeaderContentType), body(ctx))
+	f, err := c.Packages.PutFile(p, ref.version, ref.file, caller, ctx.Get(fiber.HeaderContentType), body(ctx))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
 	return ctx.Status(fiber.StatusCreated).JSON(fiber.Map{"name": f.Name, "size": f.Size, "sha256": f.Sha256})
 }
 
-func (c Controller) GetGeneric(ctx *fiber.Ctx) error {
+func (c Controller) GetGeneric(ctx *fiber.Ctx, ref genericRef) error {
 	caller, err := c.caller(ctx)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	p, err := c.Packages.Readable(ctx.Params("owner"), domain.PackageGeneric, ctx.Params("name"), caller)
+	p, err := c.Packages.Readable(ref.owner, domain.PackageGeneric, ref.name, caller)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	f, r, err := c.Packages.OpenFile(p, ctx.Params("version"), ctx.Params("file"))
+	f, r, err := c.Packages.OpenFile(p, ref.version, ref.file)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -118,7 +159,7 @@ func (c Controller) GetGeneric(ctx *fiber.Ctx) error {
 	return ctx.SendStream(r, int(f.Size))
 }
 
-func (c Controller) DeleteGeneric(ctx *fiber.Ctx) error {
+func (c Controller) DeleteGeneric(ctx *fiber.Ctx, ref genericRef) error {
 	caller, err := c.caller(ctx)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -126,7 +167,7 @@ func (c Controller) DeleteGeneric(ctx *fiber.Ctx) error {
 	if caller.UserId == "" {
 		return ctx.Status(fiber.StatusUnauthorized).JSON(apierror.Unauthenticated())
 	}
-	if err := c.Packages.DeleteVersion(ctx.Params("owner"), domain.PackageGeneric, ctx.Params("name"), ctx.Params("version"), caller); err != nil {
+	if err := c.Packages.DeleteVersion(ref.owner, domain.PackageGeneric, ref.name, ref.version, caller); err != nil {
 		return c.fail(ctx, err)
 	}
 	return ctx.SendStatus(fiber.StatusNoContent)

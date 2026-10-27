@@ -34,7 +34,12 @@ import (
 //     the highest remaining version when its version is unpublished;
 //   - deprecating (writers) edits a version's "deprecated" message;
 //     unpublishing versions or the package needs a package admin;
-//   - search lists the npm packages the caller can read.
+//   - search lists the npm packages the caller can read;
+//   - sub-groups own npm packages of their top-level group's scope, named
+//     after their path: org/web/ui's packages are @org/web-ui-<name>. A new
+//     name belongs to the deepest sub-group whose dashed path prefixes it
+//     (else to the scope's group or user); names are unique per scope, and
+//     a package keeps its name when its group moves.
 
 var (
 	ErrNpmName          = errors.New("npm packages must be scoped: @<user or group>/<name>")
@@ -123,7 +128,7 @@ func (c *PackagesApp) NpmPublish(full string, caller PackageCaller, doc *NpmPubl
 	if int64(len(data)) > c.maxFileSize() {
 		return ErrPackageTooLarge
 	}
-	p, err := c.ForWrite(ns, domain.PackageNpm, name, caller)
+	p, err := c.npmForWrite(ns, name, caller)
 	if err != nil {
 		return err
 	}
@@ -214,11 +219,62 @@ func tarballReadme(data []byte) string {
 
 // npmPackage finds a readable npm package.
 func (c *PackagesApp) npmPackage(full string, caller PackageCaller) (*domain.Package, error) {
-	ns, name, err := SplitNpmName(full)
+	scope, name, err := SplitNpmName(full)
 	if err != nil {
 		return nil, ErrPackageNotFound
 	}
-	return c.Readable(ns, domain.PackageNpm, name, caller)
+	p, err := c.Pers.InScope(domain.PackageNpm, name, scope)
+	if isNotFound(err) {
+		return nil, ErrPackageNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if ok, err := c.canRead(p, caller); err != nil || !ok {
+		return nil, errOr(err, ErrPackageNotFound)
+	}
+	return p, nil
+}
+
+// npmForWrite is the package a publish goes to: the existing one of the
+// scope, or a new one in the sub-group the name points to.
+func (c *PackagesApp) npmForWrite(scope, name string, caller PackageCaller) (*domain.Package, error) {
+	if !c.tokenAllows(caller, true) {
+		return nil, ErrPackageScope
+	}
+	if p, err := c.Pers.InScope(domain.PackageNpm, name, scope); err == nil {
+		return c.writable(p, caller)
+	} else if !isNotFound(err) {
+		return nil, err
+	}
+	owner, err := c.npmOwner(scope, name)
+	if err != nil {
+		return nil, err
+	}
+	return c.ForWrite(owner, domain.PackageNpm, name, caller)
+}
+
+// npmOwner is the deepest group below scope whose path (after the scope,
+// dashes for slashes) plus "-" prefixes name, else scope.
+func (c *PackagesApp) npmOwner(scope, name string) (string, error) {
+	below, err := c.Repositories.GroupPers.Descendants(scope)
+	if err != nil {
+		return "", err
+	}
+	owner, best := scope, 0
+	for _, g := range below {
+		dashed := strings.ReplaceAll(strings.TrimPrefix(g.Name, scope+"/"), "/", "-") + "-"
+		if strings.HasPrefix(name, dashed) && len(dashed) > best {
+			owner, best = g.Name, len(dashed)
+		}
+	}
+	return owner, nil
+}
+
+// npmFullName is a package's npm name: its scope is the top of its
+// namespace.
+func npmFullName(p *domain.Package) string {
+	scope, _, _ := strings.Cut(p.Namespace, "/")
+	return "@" + scope + "/" + p.Name
 }
 
 type npmVersion struct {
@@ -458,11 +514,11 @@ func (c *PackagesApp) NpmDeleteDistTag(full, tag string, caller PackageCaller) e
 
 // NpmDeletePackage unpublishes every version (package admins).
 func (c *PackagesApp) NpmDeletePackage(full string, caller PackageCaller) error {
-	ns, name, err := SplitNpmName(full)
+	p, err := c.npmPackage(full, caller)
 	if err != nil {
-		return ErrPackageNotFound
+		return err
 	}
-	return c.Delete(ns, domain.PackageNpm, name, caller)
+	return c.Delete(p.Namespace, domain.PackageNpm, p.Name, caller)
 }
 
 // NpmSearchResult is one package found by NpmSearch.
@@ -491,7 +547,7 @@ func (c *PackagesApp) NpmSearch(text string, from, size int, caller PackageCalle
 		if err != nil || len(versions) == 0 {
 			continue
 		}
-		r := NpmSearchResult{Name: "@" + p.Namespace + "/" + p.Name, Version: tags["latest"], Date: p.UpdatedAt}
+		r := NpmSearchResult{Name: npmFullName(p), Version: tags["latest"], Date: p.UpdatedAt}
 		for _, v := range versions {
 			if v.v.Version == r.Version {
 				r.Description, _ = v.meta.Manifest["description"].(string)

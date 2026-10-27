@@ -16,8 +16,9 @@ import (
 )
 
 // Webhook rules:
-//   - maintainers and owners manage a repository's hooks; secrets are
-//     write-only;
+//   - maintainers and owners manage a repository's hooks, and a group's
+//     maintainers and owners its hooks, which fire for every repository in
+//     the group and its sub-groups; secrets are write-only;
 //   - events are queued in the database as deliveries (one per hook), so
 //     they survive restarts, and sent by a worker on any server: a
 //     delivery is claimed with a lock so only one server sends it;
@@ -55,7 +56,9 @@ type WebhookApp struct {
 	Sender     *webhook.Sender
 	// Actions queues the workflow runs of pushes (nil: none).
 	Actions *ActionsApp
-	now     func() time.Time
+	// Groups: group hooks (nil: none).
+	Groups *GroupApp
+	now    func() time.Time
 }
 
 func (c *WebhookApp) clock() time.Time {
@@ -89,12 +92,53 @@ func validEvents(events []string) bool {
 	return true
 }
 
-func (c *WebhookApp) List(id, path *string, actorId string) ([]domain.Webhook, error) {
+// WebhookScope is what hooks belong to: a repository, or a group (its
+// hooks fire for every repository below it).
+type WebhookScope struct {
+	Repo  *domain.Repository
+	Group *domain.Group
+}
+
+// RepositoryHooks is the scope of a repository's hooks (maintainers and
+// owners).
+func (c *WebhookApp) RepositoryHooks(id, path *string, actorId string) (WebhookScope, error) {
 	repo, err := c.manage(id, path, actorId)
+	return WebhookScope{Repo: repo}, err
+}
+
+// GroupHooks is the scope of a group's hooks (its maintainers and owners,
+// inherited roles included).
+func (c *WebhookApp) GroupHooks(identifier, actorId string) (WebhookScope, error) {
+	group, actor, err := c.Groups.Get(identifier, actorId)
+	if err != nil {
+		return WebhookScope{}, err
+	}
+	if actor.Role.Level() < domain.GroupRoleMaintainer.Level() {
+		return WebhookScope{}, ErrForbidden
+	}
+	return WebhookScope{Group: group}, nil
+}
+
+func (s WebhookScope) owner() (repoId, groupId string) {
+	if s.Group != nil {
+		return "", s.Group.Id
+	}
+	return s.Repo.Id, ""
+}
+
+func (c *WebhookApp) List(id, path *string, actorId string) ([]domain.Webhook, error) {
+	s, err := c.RepositoryHooks(id, path, actorId)
 	if err != nil {
 		return nil, err
 	}
-	return c.Hooks.List(repo.Id)
+	return c.ListIn(s)
+}
+
+func (c *WebhookApp) ListIn(s WebhookScope) ([]domain.Webhook, error) {
+	if s.Group != nil {
+		return c.Hooks.ListForGroups([]string{s.Group.Id})
+	}
+	return c.Hooks.List(s.Repo.Id)
 }
 
 // WebhookChange holds a hook's fields; nil fields are kept on update.
@@ -107,11 +151,20 @@ type WebhookChange struct {
 
 // Create adds a hook and sends it a ping, like GitHub.
 func (c *WebhookApp) Create(id, path *string, actorId string, ch WebhookChange) (*domain.Webhook, error) {
-	repo, err := c.manage(id, path, actorId)
+	s, err := c.RepositoryHooks(id, path, actorId)
 	if err != nil {
 		return nil, err
 	}
-	h := &domain.Webhook{RepositoryId: repo.Id, Events: domain.StringList{"push"}, Active: true}
+	return c.CreateIn(s, actorId, ch)
+}
+
+func (c *WebhookApp) CreateIn(s WebhookScope, actorId string, ch WebhookChange) (*domain.Webhook, error) {
+	h := &domain.Webhook{Events: domain.StringList{"push"}, Active: true}
+	if s.Group != nil {
+		h.GroupId = &s.Group.Id
+	} else {
+		h.RepositoryId = &s.Repo.Id
+	}
 	if ch.URL != nil {
 		h.URL = strings.TrimSpace(*ch.URL)
 	}
@@ -131,23 +184,36 @@ func (c *WebhookApp) Create(id, path *string, actorId string, ch WebhookChange) 
 		return nil, err
 	}
 	if h.Active {
-		if err := c.enqueue([]domain.Webhook{*h}, "ping", "", c.pingPayload(repo, h, actorId)); err != nil {
+		if err := c.enqueue([]domain.Webhook{*h}, "ping", "", c.pingPayload(s, h, actorId)); err != nil {
 			return nil, err
 		}
 	}
 	return h, nil
 }
 
-func (c *WebhookApp) hook(id, path *string, actorId, hookId string) (*domain.Repository, *domain.Webhook, error) {
-	repo, err := c.manage(id, path, actorId)
+func (c *WebhookApp) hook(id, path *string, actorId, hookId string) (WebhookScope, *domain.Webhook, error) {
+	s, err := c.RepositoryHooks(id, path, actorId)
 	if err != nil {
-		return nil, nil, err
+		return s, nil, err
 	}
-	h, err := c.Hooks.Get(repo.Id, hookId)
+	h, err := c.HookIn(s, hookId)
+	return s, h, err
+}
+
+// HookIn returns a hook of the scope.
+func (c *WebhookApp) HookIn(s WebhookScope, hookId string) (*domain.Webhook, error) {
+	repoId, groupId := s.owner()
+	var h *domain.Webhook
+	var err error
+	if groupId != "" {
+		h, err = c.Hooks.GetForGroup(groupId, hookId)
+	} else {
+		h, err = c.Hooks.Get(repoId, hookId)
+	}
 	if isNotFound(err) {
-		return nil, nil, ErrWebhookNotFound
+		return nil, ErrWebhookNotFound
 	}
-	return repo, h, err
+	return h, err
 }
 
 func (c *WebhookApp) Get(id, path *string, actorId, hookId string) (*domain.Webhook, error) {
@@ -160,6 +226,11 @@ func (c *WebhookApp) Update(id, path *string, actorId, hookId string, ch Webhook
 	if err != nil {
 		return nil, err
 	}
+	return c.UpdateHook(h, ch)
+}
+
+// UpdateHook changes a hook found with HookIn.
+func (c *WebhookApp) UpdateHook(h *domain.Webhook, ch WebhookChange) (*domain.Webhook, error) {
 	fields := map[string]any{"updated_at": c.clock()}
 	if ch.URL != nil {
 		h.URL = strings.TrimSpace(*ch.URL)
@@ -193,11 +264,15 @@ func (c *WebhookApp) Delete(id, path *string, actorId, hookId string) error {
 
 // Ping queues a ping for the hook.
 func (c *WebhookApp) Ping(id, path *string, actorId, hookId string) error {
-	repo, h, err := c.hook(id, path, actorId, hookId)
+	s, h, err := c.hook(id, path, actorId, hookId)
 	if err != nil {
 		return err
 	}
-	return c.enqueue([]domain.Webhook{*h}, "ping", "", c.pingPayload(repo, h, actorId))
+	return c.PingHook(s, h, actorId)
+}
+
+func (c *WebhookApp) PingHook(s WebhookScope, h *domain.Webhook, actorId string) error {
+	return c.enqueue([]domain.Webhook{*h}, "ping", "", c.pingPayload(s, h, actorId))
 }
 
 func (c *WebhookApp) Deliveries(id, path *string, actorId, hookId string) ([]domain.WebhookDelivery, error) {
@@ -208,12 +283,21 @@ func (c *WebhookApp) Deliveries(id, path *string, actorId, hookId string) ([]dom
 	return c.Hooks.Deliveries(h.Id, keepDeliveries)
 }
 
+// HookDeliveries is a hook's delivery log.
+func (c *WebhookApp) HookDeliveries(h *domain.Webhook) ([]domain.WebhookDelivery, error) {
+	return c.Hooks.Deliveries(h.Id, keepDeliveries)
+}
+
 // Delivery returns one delivery, with its payload and response.
 func (c *WebhookApp) Delivery(id, path *string, actorId, hookId, deliveryId string) (*domain.WebhookDelivery, error) {
 	_, h, err := c.hook(id, path, actorId, hookId)
 	if err != nil {
 		return nil, err
 	}
+	return c.HookDelivery(h, deliveryId)
+}
+
+func (c *WebhookApp) HookDelivery(h *domain.Webhook, deliveryId string) (*domain.WebhookDelivery, error) {
 	d, err := c.Hooks.Delivery(h.Id, deliveryId)
 	if isNotFound(err) {
 		return nil, ErrDeliveryNotFound
@@ -227,10 +311,12 @@ func (c *WebhookApp) Redeliver(id, path *string, actorId, hookId, deliveryId str
 	if err != nil {
 		return nil, err
 	}
-	d, err := c.Hooks.Delivery(h.Id, deliveryId)
-	if isNotFound(err) {
-		return nil, ErrDeliveryNotFound
-	} else if err != nil {
+	return c.RedeliverHook(h, deliveryId)
+}
+
+func (c *WebhookApp) RedeliverHook(h *domain.Webhook, deliveryId string) (*domain.WebhookDelivery, error) {
+	d, err := c.HookDelivery(h, deliveryId)
+	if err != nil {
 		return nil, err
 	}
 	again := []domain.WebhookDelivery{{WebhookId: h.Id, Event: d.Event, Action: d.Action, Payload: d.Payload, Status: domain.DeliveryPending, NextAttemptAt: c.clock()}}
@@ -247,7 +333,7 @@ func (c *WebhookApp) emit(repo *domain.Repository, event, action string, payload
 		return
 	}
 	c.Actions.Event(repo, event, action, payload)
-	hooks, err := c.Hooks.List(repo.Id)
+	hooks, err := c.hooksFor(repo)
 	if err != nil {
 		c.Logger.Error().Err(err).Str("component", "application.webhook").Msg("failed to list webhooks")
 		return
@@ -366,4 +452,23 @@ func (c *WebhookApp) Run(ctx context.Context, interval time.Duration) {
 			}
 		}
 	}
+}
+
+// hooksFor lists the hooks a repository's events go to: its own, and those
+// of every group of its namespace.
+func (c *WebhookApp) hooksFor(repo *domain.Repository) ([]domain.Webhook, error) {
+	hooks, err := c.Hooks.List(repo.Id)
+	if err != nil || repo.OwnerType != domain.OwnerGroup || c.Groups == nil {
+		return hooks, err
+	}
+	groups, err := c.Groups.GroupPers.GetByNames(domain.GroupPathPrefixes(repo.Namespace))
+	if err != nil || len(groups) == 0 {
+		return hooks, err
+	}
+	ids := make([]string, 0, len(groups))
+	for _, g := range groups {
+		ids = append(ids, g.Id)
+	}
+	groupHooks, err := c.Hooks.ListForGroups(ids)
+	return append(hooks, groupHooks...), err
 }

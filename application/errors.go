@@ -30,7 +30,11 @@ var (
 	ErrGroupHasSubgroups = errors.New("delete or move its sub-groups first")
 	// ErrInheritedRole: a sub-group's membership can only raise the role a
 	// user has through a parent group.
-	ErrInheritedRole     = errors.New("the user already has this role or a higher one through a parent group")
-	ErrLastOwner         = domain.ErrLastOwner
-	ErrOwnerMustTransfer = errors.New("the group owner must transfer ownership first")
+	ErrInheritedRole = errors.New("the user already has this role or a higher one through a parent group")
+	// Moving groups.
+	ErrGroupMoveIntoItself = errors.New("a group can't move into itself or one of its sub-groups")
+	ErrTopLevelRename      = errors.New("top-level groups can't be renamed (their names are shared with usernames); they can move under another group")
+	ErrGroupTooDeep        = errors.New("groups nest at most 5 levels deep")
+	ErrLastOwner           = domain.ErrLastOwner
+	ErrOwnerMustTransfer   = errors.New("the group owner must transfer ownership first")
 )

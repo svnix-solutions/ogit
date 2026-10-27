@@ -66,36 +66,3 @@ func (c *TwoFactorApp) MustEnroll(userId string) (bool, error) {
 func (c *TwoFactorApp) SetSiteRequirement(on bool) error {
 	return c.Settings.Set(domain.SettingRequireTwoFactor, strconv.FormatBool(on))
 }
-
-// usableGroups drops from groupIds the groups that require 2FA when
-// userId has none: membership of those gives no repository access.
-func (c *RepositoryApp) usableGroups(userId string, groupIds []string) ([]string, error) {
-	if c.TwoFactorEnabled == nil || len(groupIds) == 0 {
-		return groupIds, nil
-	}
-	requiring, err := c.GroupPers.RequiringTwoFactor(groupIds)
-	if err != nil || len(requiring) == 0 {
-		return groupIds, err
-	}
-	on, err := c.TwoFactorEnabled(userId)
-	if err != nil || on {
-		return groupIds, err
-	}
-	blocked := map[string]bool{}
-	for _, id := range requiring {
-		blocked[id] = true
-	}
-	out := make([]string, 0, len(groupIds))
-	for _, id := range groupIds {
-		if !blocked[id] {
-			out = append(out, id)
-		}
-	}
-	return out, nil
-}
-
-// groupUsable reports whether userId's membership of groupId counts.
-func (c *RepositoryApp) groupUsable(userId, groupId string) (bool, error) {
-	ids, err := c.usableGroups(userId, []string{groupId})
-	return len(ids) == 1, err
-}

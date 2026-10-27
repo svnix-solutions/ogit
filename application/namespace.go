@@ -76,6 +76,12 @@ func resolveNamespace(users domain.UserPers, groups domain.GroupPers, path strin
 	} else if !isNotFound(err) {
 		return nil, err
 	}
+	// A sub-group renamed or moved: its former path.
+	if group, err := groups.ResolveRedirect(path); err == nil {
+		return &domain.Namespace{Type: domain.OwnerGroup, Id: group.Id, Path: group.Name}, nil
+	} else if !isNotFound(err) {
+		return nil, err
+	}
 	return nil, ErrNamespaceNotFound
 }
 

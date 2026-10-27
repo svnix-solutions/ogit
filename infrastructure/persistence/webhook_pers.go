@@ -37,6 +37,23 @@ func (p *webhookPers) List(repositoryId string) ([]domain.Webhook, error) {
 	return hooks, err
 }
 
+func (p *webhookPers) GetForGroup(groupId, id string) (*domain.Webhook, error) {
+	var h domain.Webhook
+	if err := p.db.Where("id = ? AND group_id = ?", id, groupId).First(&h).Error; err != nil {
+		return nil, err
+	}
+	return &h, nil
+}
+
+func (p *webhookPers) ListForGroups(groupIds []string) ([]domain.Webhook, error) {
+	var hooks []domain.Webhook
+	if len(groupIds) == 0 {
+		return hooks, nil
+	}
+	err := p.db.Where("group_id IN ?", groupIds).Order("created_at, id").Find(&hooks).Error
+	return hooks, err
+}
+
 func (p *webhookPers) Update(id string, fields map[string]any) error {
 	return p.db.Model(&domain.Webhook{}).Where("id = ?", id).Updates(fields).Error
 }
