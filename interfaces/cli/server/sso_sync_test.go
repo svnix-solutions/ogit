@@ -160,21 +160,23 @@ func TestSSOGroupSync(t *testing.T) {
 }
 
 func TestSSOOnly(t *testing.T) {
-	srv := startTestServer(t, withPublicURL)
+	// No withPublicURL: an https public URL makes the sign-in cookie
+	// Secure, which Go before 1.26 doesn't send to http://127.0.0.1
+	// (TestSSOOnlyPasskeys needs it).
+	srv := startTestServer(t)
 	idp := startFakeIdP(t, false)
 	srv.ssoProviders(t, oidcProvider(idp, "corp"))
 	srv.deps.SSOApp.Config.Security.SSOOnlyExempt = []string{"root"}
-	root, boss, alice := srv.newUser(t, "root"), srv.newUser(t, "boss"), srv.newUser(t, "alice")
+	root, boss := srv.newUser(t, "root"), srv.newUser(t, "boss")
+	srv.newUser(t, "alice")
 	srv.promote(t, "root")
 	srv.promote(t, "boss")
-	// alice also signs in through the provider, and has a passkey.
+	// alice also signs in through the provider.
 	idp.signInAs(idpUser{sub: "al-1", email: "alice@example.com", username: "alice", verified: true})
 	b := newBrowser(t, srv)
 	token := strings.TrimPrefix(b.sso("/api/v1/auth/sso/corp/start").Fragment, "token=")
 	status, body, _ := b.do(http.MethodPost, "/api/v1/auth/sso/link", map[string]any{"token": token, "password": testPassword}, false)
 	require.Equal(t, http.StatusOK, status, "%v", body)
-	passkey := newSoftKey(t)
-	srv.addKey(t, alice, passkey, "Phone", true)
 	// carl, without 2FA, confirms sudo with his password today, and signs
 	// in through the provider too.
 	carl := srv.newUser(t, "carl")
@@ -205,11 +207,6 @@ func TestSSOOnly(t *testing.T) {
 	status, _ = srv.post(t, "/api/v1/auth/login", "", map[string]any{"email": "alice@example.com", "password": "wrong-Password-1"})
 	assert.Equal(t, http.StatusUnauthorized, status, "a wrong password still says nothing about the account")
 
-	status, begin := srv.post(t, "/api/v1/auth/passkey", "", nil)
-	require.Equal(t, http.StatusOK, status, "%v", begin)
-	status, body = srv.post(t, "/api/v1/auth/passkey/finish", "", map[string]any{"ceremony": begin["ceremony"], "credential": passkey.assert(t, begin["options"])})
-	assert.Equal(t, http.StatusForbidden, status, "passkeys too: %v", body)
-
 	status, _ = srv.post(t, "/api/v1/auth/register", "", map[string]any{"username": "newbie", "email": "newbie@example.com", "password": testPassword})
 	assert.NotEqual(t, http.StatusOK, status, "no registration")
 	_, instance := srv.get(t, "/api/v1/instance", "")
@@ -234,6 +231,29 @@ func TestSSOOnly(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	status, _ = login("alice@example.com")
 	assert.Equal(t, http.StatusOK, status, "passwords are back")
+}
+
+// TestSSOOnlyPasskeys: passkeys don't sign in either (but the exempt's
+// do).
+func TestSSOOnlyPasskeys(t *testing.T) {
+	srv := startTestServer(t, withPublicURL)
+	alice, root := srv.newUser(t, "alice"), srv.newUser(t, "root")
+	alicesKey, rootsKey := newSoftKey(t), newSoftKey(t)
+	srv.addKey(t, alice, alicesKey, "Phone", true)
+	srv.addKey(t, root, rootsKey, "Phone", true)
+	srv.deps.SSOApp.Config.Security.SSOOnly = true
+	srv.deps.SSOApp.Config.Security.SSOOnlyExempt = []string{"root"}
+	signIn := func(k *softKey) (int, map[string]any) {
+		t.Helper()
+		status, begin := srv.post(t, "/api/v1/auth/passkey", "", nil)
+		require.Equal(t, http.StatusOK, status, "%v", begin)
+		return srv.post(t, "/api/v1/auth/passkey/finish", "", map[string]any{"ceremony": begin["ceremony"], "credential": k.assert(t, begin["options"])})
+	}
+	status, body := signIn(alicesKey)
+	assert.Equal(t, http.StatusForbidden, status, "%v", body)
+	assert.Equal(t, "PASSWORD_LOGIN_DISABLED", body["type"])
+	status, body = signIn(rootsKey)
+	assert.Equal(t, http.StatusOK, status, "the break-glass account: %v", body)
 }
 
 func TestSSOOnlyNeedsAProvider(t *testing.T) {
