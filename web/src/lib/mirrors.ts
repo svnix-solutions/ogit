@@ -96,3 +96,66 @@ export function usePushMirrorActions(fullPath: string) {
     remove: useMutation({ mutationFn: (id: string) => api("DELETE", `${base}/${id}`), onSuccess: refresh }),
   };
 }
+
+// API imports: issues, pull requests, labels, milestones and releases
+// (see application/import_app.go).
+
+export type Forge = "github" | "gitlab" | "gitea";
+
+export const forgeNames: Record<Forge, string> = { github: "GitHub", gitlab: "GitLab", gitea: "Gitea" };
+
+// guessForge names the forge of well-known hosts.
+export function guessForge(url: string): Forge | undefined {
+  if (url.includes("github.com")) return "github";
+  if (url.includes("gitlab.com")) return "gitlab";
+  if (url.includes("codeberg.org") || url.includes("gitea.com")) return "gitea";
+  return undefined;
+}
+
+export type APIImport = {
+  forge: Forge;
+  api_url: string;
+  project: string;
+  status: "waiting" | "pending" | "running" | "done" | "failed";
+  stage: string;
+  issues: number;
+  pulls: number;
+  releases: number;
+  comments: number;
+  last_error?: string;
+  warnings: string[];
+  next_run_at: string;
+  finished_at: string | null;
+};
+
+const importKey = (fullPath: string) => ["api-import", fullPath];
+
+export const importBusy = (i?: APIImport) => !!i && (i.status === "waiting" || i.status === "pending" || i.status === "running");
+
+// useAPIImport: the repository's API import for its maintainers (404:
+// none), refreshed while it runs.
+export function useAPIImport(fullPath: string, enabled = true) {
+  return useQuery({
+    queryKey: importKey(fullPath),
+    queryFn: () => api<APIImport>("GET", `/repository/${repoId(fullPath)}/import`),
+    enabled,
+    retry: false,
+    refetchInterval: (q) => (importBusy(q.state.data) ? 3000 : false),
+  });
+}
+
+export function useAPIImportActions(fullPath: string) {
+  const qc = useQueryClient();
+  const base = `/repository/${repoId(fullPath)}/import`;
+  const refresh = () => qc.invalidateQueries({ queryKey: importKey(fullPath) });
+  return {
+    retry: useMutation({ mutationFn: () => api<APIImport>("POST", `${base}/retry`), onSuccess: refresh }),
+    cancel: useMutation({ mutationFn: () => api("DELETE", base), onSuccess: refresh }),
+  };
+}
+
+// importCounts: "3 issues, 1 pull request and 2 releases".
+export function importCounts(i: APIImport) {
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+  return `${n(i.issues, "issue", "issues")}, ${n(i.pulls, "pull request", "pull requests")} and ${n(i.releases, "release", "releases")}`;
+}

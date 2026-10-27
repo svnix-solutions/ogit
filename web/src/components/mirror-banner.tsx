@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { atLeast, type Repository } from "@/lib/api";
 import { relativeTime } from "@/lib/browse";
-import { useMirror, useMirrorActions } from "@/lib/mirrors";
+import { forgeNames, importBusy, importCounts, useAPIImport, useAPIImportActions, useMirror, useMirrorActions } from "@/lib/mirrors";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -74,5 +74,51 @@ export function MirrorBanner({ repo }: { repo: Repository }) {
         <RefreshCw className="h-4 w-4" />
       </Button>
     </div>
+  );
+}
+
+// APIImportBanner tells maintainers about an import of issues, pull
+// requests and releases while it runs or after it failed.
+export function APIImportBanner({ repo }: { repo: Repository }) {
+  const i = useAPIImport(repo.full_path, atLeast(repo.role, "maintainer"));
+  const { retry } = useAPIImportActions(repo.full_path);
+  const qc = useQueryClient();
+  const wasBusy = useRef(false);
+  const busy = importBusy(i.data);
+  // Once it's done, lists of issues and pull requests changed.
+  useEffect(() => {
+    if (busy) wasBusy.current = true;
+    else if (wasBusy.current && i.data) {
+      wasBusy.current = false;
+      qc.invalidateQueries();
+    }
+  }, [busy, i.data, qc]);
+
+  const d = i.data;
+  if (!d || d.status === "done") return null;
+  const from = forgeNames[d.forge] ?? d.forge;
+  if (d.status === "failed") {
+    return (
+      <Alert variant="destructive">
+        <span>
+          The import of issues, pull requests and releases from {from} failed: {d.last_error}. {importCounts(d)} were imported.
+        </span>{" "}
+        <Button size="sm" variant="outline" onClick={() => retry.mutate()} disabled={retry.isPending}>
+          Resume
+        </Button>
+      </Alert>
+    );
+  }
+  return (
+    <Alert>
+      {d.status === "waiting" ? (
+        <span>Issues, pull requests and releases from {from} are imported once the code is in.</span>
+      ) : (
+        <span>
+          Importing issues, pull requests and releases from {from}… {importCounts(d)} so far.
+          {d.last_error && <span className="block text-xs text-muted-foreground">{d.last_error}</span>}
+        </span>
+      )}
+    </Alert>
   );
 }

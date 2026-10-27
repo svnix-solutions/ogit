@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { routes } from "@/app";
@@ -129,5 +129,41 @@ describe("mirrors", () => {
     );
     await userEvent.click(within(row).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(sent(fetch, "DELETE", "/repository/bob%2Fcopy/push-mirrors/pm1")).toHaveLength(1));
+  });
+
+  it("imports issues and pull requests too, guessing the forge", async () => {
+    const fetch = fakeAPI({ "/instance": instance, "/user/profile": me, "/group": { groups: [] }, "POST /repository/import": { repository: repo(), mirror: mirror({ mirror: false, status: "pending" }) } });
+    renderRoutes(routes, "/new?import=1");
+    await userEvent.type(await screen.findByLabelText("Name"), "Copy");
+    await userEvent.type(screen.getByLabelText("Remote URL"), "https://gitlab.com/group/app.git");
+    await userEvent.click(screen.getByLabelText(/Also import issues/));
+    expect(screen.getByLabelText("From")).toHaveValue("gitlab");
+    await userEvent.type(screen.getByLabelText("API token (optional)"), "glpat");
+    await userEvent.click(screen.getByRole("button", { name: "Import repository" }));
+    await waitFor(() =>
+      expect(sent(fetch, "POST", "/repository/import")).toEqual([
+        { namespace: "bob", name: "Copy", description: "", is_private: true, url: "https://gitlab.com/group/app.git", mirror: false, lfs: false, username: "", password: "",
+          forge: "gitlab", api_token: "glpat" },
+      ]),
+    );
+  });
+
+  it("shows an API import's progress, and resumes a failed one", async () => {
+    const running = { forge: "github", api_url: "https://api.github.com", project: "o/r", status: "running", stage: "issues", issues: 12, pulls: 1, releases: 0,
+      comments: 30, warnings: [], next_run_at: "2026-01-01T00:00:00Z", finished_at: null };
+    let state: object = running;
+    const fetch = fakeAPI({
+      "/instance": instance, "/user/profile": me, "/repository/bob%2Fcopy": repo(), "/repository/bob%2Fcopy/import": () => state,
+      "POST /repository/bob%2Fcopy/import/retry": { ...running, status: "pending" },
+      "/repository/bob%2Fcopy/tree?spec=": { empty: true, ref: "main", path: "", entries: [] },
+    });
+    renderRoutes(routes, "/bob/copy");
+    expect(await screen.findByText(/Importing issues, pull requests and releases from GitHub… 12 issues, 1 pull request and 0 releases so far/)).toBeInTheDocument();
+    cleanup();
+    state = { ...running, status: "failed", last_error: "the forge refused the API token" };
+    renderRoutes(routes, "/bob/copy");
+    expect(await screen.findByText(/failed: the forge refused the API token/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(sent(fetch, "POST", "/repository/bob%2Fcopy/import/retry")).toHaveLength(1));
   });
 });

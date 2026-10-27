@@ -11,7 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api, type Repository } from "@/lib/api";
 import { useProfile } from "@/lib/auth";
-import { isSSHURL } from "@/lib/mirrors";
+import { forgeNames, guessForge, isSSHURL, type Forge } from "@/lib/mirrors";
 import { useMyGroups } from "@/lib/queries";
 
 // slugPreview mirrors gosimple/slug closely enough for a hint; the server's
@@ -41,6 +41,12 @@ export function NewRepoPage() {
   const [mirror, setMirror] = useState(false);
   const [lfs, setLFS] = useState(false);
   const [hours, setHours] = useState(8);
+  // Also importing issues, pull requests and releases from the forge.
+  const [apiImport, setAPIImport] = useState(false);
+  const [forgeChoice, setForge] = useState<Forge>();
+  const forge = forgeChoice ?? guessForge(url) ?? "github";
+  const [apiToken, setAPIToken] = useState("");
+  const [apiURL, setAPIURL] = useState("");
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -56,6 +62,7 @@ export function NewRepoPage() {
         namespace: owner, name, description, is_private: isPrivate, url, mirror, lfs,
         ...(ssh ? {} : { username, password }),
         ...(mirror ? { interval_seconds: Math.round(hours * 3600) } : {}),
+        ...(apiImport ? { forge, ...(apiToken ? { api_token: apiToken } : {}), ...(apiURL ? { api_url: apiURL } : {}) } : {}),
       });
       return r.repository;
     },
@@ -123,6 +130,36 @@ export function NewRepoPage() {
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={lfs} onChange={(e) => setLFS(e.target.checked)} /> Fetch Git LFS objects too
               </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={apiImport} onChange={(e) => setAPIImport(e.target.checked)} />
+                <span>
+                  Also import issues, pull requests, labels, milestones and releases
+                  <span className="block text-xs text-muted-foreground">Once, in the background, after the code. Authors are matched to users here by user name.</span>
+                </span>
+              </label>
+              {apiImport && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="import-forge">From</Label>
+                    <Select id="import-forge" className="w-full" value={forge} onChange={(e) => setForge(e.target.value as Forge)}>
+                      <option value="github">{forgeNames.github}</option>
+                      <option value="gitlab">{forgeNames.gitlab}</option>
+                      <option value="gitea">Gitea or Forgejo</option>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="import-api-token">API token (optional)</Label>
+                    <Input id="import-api-token" type="password" autoComplete="new-password" value={apiToken} onChange={(e) => setAPIToken(e.target.value)} />
+                  </div>
+                  <p className="text-xs text-muted-foreground sm:col-span-2">
+                    The token defaults to the password or token above. Private repositories need one, and it raises the forge's rate limits.
+                  </p>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="import-api-url">API URL (optional)</Label>
+                    <Input id="import-api-url" placeholder="Worked out from the remote URL" value={apiURL} onChange={(e) => setAPIURL(e.target.value.trim())} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <div className="grid grid-cols-[auto_auto_1fr] items-end gap-2">

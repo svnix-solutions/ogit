@@ -44,20 +44,24 @@ var ErrEmptyRemote = errors.New("the remote repository has no branches")
 // mirrored reports whether a ref is copied: branches and tags.
 func mirrored(name plumbing.ReferenceName) bool { return name.IsBranch() || name.IsTag() }
 
-// Fetch fetches the remote's branches and tags into st. With prune (a
-// mirror), local branches and tags the remote doesn't have are deleted;
-// other refs (refs/pull/...) are never touched. HEAD follows the remote's
-// default branch.
-func Fetch(ctx context.Context, st storer.Storer, r Remote) (*Result, error) {
-	return fetch(ctx, st, r, false)
+// FetchOptions say what to fetch besides branches and tags.
+type FetchOptions struct {
+	// Prune (mirrors): delete local branches and tags the remote doesn't
+	// have; other refs (refs/pull/...) are never touched.
+	Prune bool
+	// Extra: other remote refs to copy under the same name (an import's
+	// pull request heads); never pruned.
+	Extra func(ref string) bool
 }
 
-// FetchPrune is Fetch for mirrors.
-func FetchPrune(ctx context.Context, st storer.Storer, r Remote) (*Result, error) {
-	return fetch(ctx, st, r, true)
+// Fetch fetches the remote's branches and tags into st. HEAD follows the
+// remote's default branch.
+func Fetch(ctx context.Context, st storer.Storer, r Remote, o FetchOptions) (*Result, error) {
+	return fetch(ctx, st, r, o)
 }
 
-func fetch(ctx context.Context, st storer.Storer, r Remote, prune bool) (*Result, error) {
+func fetch(ctx context.Context, st storer.Storer, r Remote, o FetchOptions) (*Result, error) {
+	prune := o.Prune
 	sess, err := r.Transport.NewUploadPackSession(r.Endpoint, r.Auth)
 	if err != nil {
 		return nil, err
@@ -74,9 +78,14 @@ func fetch(ctx context.Context, st storer.Storer, r Remote, prune bool) (*Result
 		return nil, err
 	}
 	remote := map[plumbing.ReferenceName]plumbing.Hash{}
+	extra := map[plumbing.ReferenceName]plumbing.Hash{}
 	for name, ref := range all {
-		if mirrored(name) && ref.Type() == plumbing.HashReference {
+		switch {
+		case ref.Type() != plumbing.HashReference:
+		case mirrored(name):
 			remote[name] = ref.Hash()
+		case o.Extra != nil && o.Extra(name.String()):
+			extra[name] = ref.Hash()
 		}
 	}
 	if len(remote) == 0 {
@@ -86,7 +95,7 @@ func fetch(ctx context.Context, st storer.Storer, r Remote, prune bool) (*Result
 	// Wants: what we lack; haves: our branches and tags.
 	var wants, haves []plumbing.Hash
 	seen := map[plumbing.Hash]bool{}
-	for _, h := range remote {
+	for _, h := range mergeMaps(remote, extra) {
 		if !seen[h] && st.HasEncodedObject(h) != nil {
 			seen[h] = true
 			wants = append(wants, h)
@@ -131,6 +140,15 @@ func fetch(ctx context.Context, st storer.Storer, r Remote, prune bool) (*Result
 		}
 		res.Updated = append(res.Updated, name.String())
 	}
+	for name, h := range extra {
+		if cur, err := st.Reference(name); err == nil && cur.Hash() == h {
+			continue
+		}
+		if err := st.SetReference(plumbing.NewHashReference(name, h)); err != nil {
+			return nil, err
+		}
+		res.Updated = append(res.Updated, name.String())
+	}
 	if prune {
 		for name := range local {
 			if _, ok := remote[name]; !ok {
@@ -154,6 +172,17 @@ func fetch(ctx context.Context, st storer.Storer, r Remote, prune bool) (*Result
 		}
 	}
 	return res, nil
+}
+
+func mergeMaps(a, b map[plumbing.ReferenceName]plumbing.Hash) map[plumbing.ReferenceName]plumbing.Hash {
+	out := make(map[plumbing.ReferenceName]plumbing.Hash, len(a)+len(b))
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
 }
 
 // headTarget is the branch the remote's HEAD points to: from the symref

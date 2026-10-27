@@ -332,6 +332,14 @@ Create a repository from any git remote: on the "New repository" page choose "Im
 - **Safety:** like webhooks, mirrors can't reach private, loopback or link-local addresses unless listed in `mirrors.allowed_hosts`.
 - **API:** `GET|PATCH|DELETE /api/v1/repository/<repo>/mirror` (`DELETE` stops mirroring, owners only), `POST .../mirror/sync`.
 
+**Issues, pull requests and releases** can come along from GitHub (and GitHub Enterprise), GitLab or Gitea/Forgejo: tick "Also import issues, pull requests, labels, milestones and releases" on the import page, or add `forge` (`github`, `gitlab` or `gitea`) and optionally `api_token` (default: the password) and `api_url` (default: worked out from the remote URL) to `POST /api/v1/repository/import`.
+
+- **What:** labels, milestones, issues and pull requests with their comments, reviews (inline comments become comments quoting the file and line), assignees and dates, and releases with their assets (up to `releases.max_asset_size`; GitLab's asset links stay links in the notes). It runs once, in the background, after the code (which brings the pull requests' heads along); `GET /api/v1/repository/<repo>/import` shows the progress, warnings and errors.
+- **Numbers** are kept, and issues opened meanwhile come after them. GitLab numbers merge requests apart from issues, so its merge requests come after the issues here (each says which `!n` it was).
+- **People:** authors, assignees and mergers are matched to users here by user name (or public email). Anyone else's issues and comments appear under the importer's name with a line "Originally by @login on GitHub, date", and their reviews become comments (an approval never counts as the importer's).
+- **Open pull requests** stay open: mergeable when their source branch is here, read-only with their recorded diff otherwise (pull requests from forks show `owner:branch`).
+- **Interruptions:** rate limits pause the import until the forge's reset; failures retry with backoff, then wait for "Resume" (`POST .../import/retry`); nothing is imported twice. Owners cancel it with `DELETE .../import`. The token is stored encrypted and forgotten once done. No notifications, webhooks or Actions runs are sent.
+
 **Push mirrors** go the other way: the repository settings' "Push mirrors" section (or `POST /api/v1/repository/<repo>/push-mirrors` with `url`, `username`, `password`, `mode`, `lfs`, `interval_seconds`) adds up to 10 remotes per repository, managed by maintainers and owners.
 
 - **When:** within seconds of every push (git pushes, merges, release tags, fork syncs, and pull mirror syncs, so a repository can relay another), and every 8 hours by default. Pushing never waits for them, and failures retry with backoff.

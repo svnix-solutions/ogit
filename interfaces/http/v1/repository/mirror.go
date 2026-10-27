@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -66,11 +67,43 @@ type ImportRequest struct {
 	IsPrivate   *bool  `json:"is_private"` // default true
 	Mirror      bool   `json:"mirror"`     // keep syncing (read-only)
 	MirrorFields
+	// Forge also imports issues, pull requests, labels, milestones and
+	// releases from the forge's API: github, gitlab or gitea.
+	Forge  string `json:"forge"`
+	APIURL string `json:"api_url"` // default: from the remote URL
+	// APIToken: default the password.
+	APIToken *string `json:"api_token"`
 }
 
 type ImportResponse struct {
 	Repository dtos.GetRepositoryResponse `json:"repository"`
 	Mirror     *Mirror                    `json:"mirror"`
+}
+
+// APIImport is a repository's import from a forge's API.
+type APIImport struct {
+	Forge      string     `json:"forge"`
+	APIURL     string     `json:"api_url"`
+	Project    string     `json:"project"`
+	Status     string     `json:"status"` // waiting (for the git data), pending, running, done, failed
+	Stage      string     `json:"stage"`  // labels, milestones, issues, pulls, releases, done
+	Issues     int        `json:"issues"`
+	Pulls      int        `json:"pulls"`
+	Releases   int        `json:"releases"`
+	Comments   int        `json:"comments"`
+	LastError  string     `json:"last_error,omitempty"`
+	Warnings   []string   `json:"warnings"`
+	NextRunAt  time.Time  `json:"next_run_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+}
+
+func toAPIImport(i *domain.Import) *APIImport {
+	out := &APIImport{Forge: i.Forge, APIURL: i.APIURL, Project: i.Project, Status: i.Status, Stage: i.Stage, Issues: i.Issues, Pulls: i.Pulls,
+		Releases: i.Releases, Comments: i.Comments, LastError: i.LastError, Warnings: []string{}, NextRunAt: i.NextRunAt, FinishedAt: i.FinishedAt}
+	if i.Warnings != "" {
+		out.Warnings = strings.Split(i.Warnings, "\n")
+	}
+	return out
 }
 
 type MirrorRequest struct {
@@ -92,7 +125,20 @@ func setupMirrorRoutes(c Controller) {
 		Summary: "Import a repository", OperationID: "repository.import", Tags: tags,
 		Description: "Creates a repository (where you may create one) from a remote: https://, http://, ssh:// or git@host:path, with an optional username and password or token " +
 			"(SSH remotes get a generated key: add the answer's ssh_public_key on the remote, as a deploy key). mirror: keep syncing (read-only) instead of a one-time import. " +
-			"lfs: fetch Git LFS objects too. The first sync starts in the background: follow GET /:identifier/mirror.",
+			"lfs: fetch Git LFS objects too. forge (github, gitlab or gitea; api_url and api_token optional) also imports issues, pull requests, labels, milestones and releases once the git data is in: follow GET /:identifier/import. " +
+			"The first sync starts in the background: follow GET /:identifier/mirror.",
+	})
+	fiberoapi.Get(c.FiberOapi, "/:identifier/import", c.GetAPIImport, fiberoapi.OpenAPIOptions{
+		Summary: "Get a repository's API import", OperationID: "repository.import.get", Tags: tags,
+		Description: "Maintainers and owners: the import of issues, pull requests, labels, milestones and releases (status, stage, counts, warnings, last error).",
+	})
+	fiberoapi.Post(c.FiberOapi, "/:identifier/import/retry", c.RetryAPIImport, fiberoapi.OpenAPIOptions{
+		Summary: "Retry a failed API import", OperationID: "repository.import.retry", Tags: tags,
+		Description: "Maintainers and owners. It resumes where it stopped (imported items are kept).",
+	})
+	fiberoapi.Delete(c.FiberOapi, "/:identifier/import", c.CancelAPIImport, fiberoapi.OpenAPIOptions{
+		Summary: "Cancel an API import", OperationID: "repository.import.delete", Tags: tags,
+		Description: "Owners. What was imported stays.",
 	})
 	fiberoapi.Get(c.FiberOapi, "/:identifier/mirror", c.GetMirror, fiberoapi.OpenAPIOptions{
 		Summary: "Get a repository's mirror", OperationID: "repository.mirror.get", Tags: tags,
@@ -120,8 +166,12 @@ func (ctrl *Controller) Import(ctx *fiber.Ctx, req ImportRequest) (*ImportRespon
 	if req.IsPrivate != nil {
 		private = *req.IsPrivate
 	}
-	repo, m, err := ctrl.MirrorApp.Import(authCtx.UserID, application.ImportInput{Namespace: req.Namespace, Name: req.Name,
-		Description: req.Description, Private: private, Mirror: req.Mirror, MirrorInput: req.MirrorFields.input()})
+	in := application.ImportInput{Namespace: req.Namespace, Name: req.Name,
+		Description: req.Description, Private: private, Mirror: req.Mirror, MirrorInput: req.MirrorFields.input()}
+	if req.Forge != "" {
+		in.API = &application.APIImportInput{Forge: req.Forge, APIURL: req.APIURL, Token: req.APIToken}
+	}
+	repo, m, err := ctrl.MirrorApp.Import(authCtx.UserID, in)
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
@@ -177,4 +227,42 @@ func (ctrl *Controller) StopMirror(ctx *fiber.Ctx, req MirrorRequest) (*MirrorMe
 		return nil, apierror.From(err, ctrl.Logger)
 	}
 	return &MirrorMessage{Message: "mirroring stopped"}, nil
+}
+
+func (ctrl *Controller) GetAPIImport(ctx *fiber.Ctx, req MirrorRequest) (*APIImport, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, path := repoid.Split(req.Identifier)
+	imp, err := ctrl.ImportApp.Get(id, path, authCtx.UserID)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return toAPIImport(imp), nil
+}
+
+func (ctrl *Controller) RetryAPIImport(ctx *fiber.Ctx, req MirrorRequest) (*APIImport, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, path := repoid.Split(req.Identifier)
+	imp, err := ctrl.ImportApp.Retry(id, path, authCtx.UserID)
+	if err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return toAPIImport(imp), nil
+}
+
+func (ctrl *Controller) CancelAPIImport(ctx *fiber.Ctx, req MirrorRequest) (*MirrorMessage, *fiberoapi.ErrorResponse) {
+	authCtx, err := fiberoapi.GetAuthContext(ctx)
+	if err != nil {
+		return nil, apierror.Unauthenticated()
+	}
+	id, path := repoid.Split(req.Identifier)
+	if err := ctrl.ImportApp.Cancel(id, path, authCtx.UserID); err != nil {
+		return nil, apierror.From(err, ctrl.Logger)
+	}
+	return &MirrorMessage{Message: "import cancelled"}, nil
 }

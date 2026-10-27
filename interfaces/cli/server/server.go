@@ -103,6 +103,8 @@ func runServer(cfg config.Config) error {
 	go deps.MirrorApp.Run(context.Background(), 5*time.Second)
 	// Push mirrors: within seconds of a push (each sync claimed once).
 	go deps.PushMirrorApp.Run(context.Background(), 5*time.Second, 4)
+	// API imports (issues, pull requests, releases), each claimed once.
+	go deps.ImportApp.Run(context.Background(), 5*time.Second)
 
 	if cfg.SSH.Enabled {
 		if err := startSSH(deps); err != nil {
@@ -292,6 +294,11 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.PushMirrorApp = &application.PushMirrorApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewPushMirrorPers(deps.Database.Db),
 		Repositories: deps.RepoApp, Storage: deps.Storage, LFS: deps.LFSApp, Box: deps.TwoFactorApp.Box, Dialer: mirror.Dialer{Guard: mirrorGuard}}
 	deps.MirrorApp.PushMirrors = deps.PushMirrorApp
+	deps.ImportApp = &application.ImportApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewImportPers(deps.Database.Db),
+		Repositories: deps.RepoApp, Users: userPers, Issues: deps.IssueApp.Issues, Pulls: deps.PullApp.Pulls, Labels: deps.PullApp.Labels,
+		Milestones: milestones, Releases: deps.ReleaseApp.Releases, Assets: deps.ReleaseApp.Assets, Storage: deps.Storage,
+		Box: deps.TwoFactorApp.Box, Dialer: mirror.Dialer{Guard: mirrorGuard}}
+	deps.MirrorApp.Imports = deps.ImportApp
 	deps.WebhookApp.PushMirrors = deps.PushMirrorApp
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
