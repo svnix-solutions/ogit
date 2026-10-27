@@ -143,6 +143,8 @@ var mapping = []struct {
 	{application.ErrMirrorInProgress, fiber.StatusConflict, "SYNC_IN_PROGRESS"},
 	{application.ErrPushMirrorNotFound, fiber.StatusNotFound, "PUSH_MIRROR_NOT_FOUND"},
 	{application.ErrTooManyPushMirrors, fiber.StatusConflict, "TOO_MANY_PUSH_MIRRORS"},
+	{application.ErrImportNotFound, fiber.StatusNotFound, "IMPORT_NOT_FOUND"},
+	{application.ErrInvalidImport, fiber.StatusBadRequest, "INVALID_IMPORT"},
 	{gitmerge.ErrMethod, fiber.StatusBadRequest, "INVALID_MERGE_METHOD"},
 	{gitmerge.ErrRebaseMerges, fiber.StatusConflict, "REBASE_MERGE_COMMITS"},
 	{application.ErrNamespaceNotEmpty, fiber.StatusConflict, "NAMESPACE_NOT_EMPTY"},

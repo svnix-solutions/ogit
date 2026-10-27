@@ -65,7 +65,10 @@ type MirrorApp struct {
 	// PushMirrors pushes what a sync fetched on to the repository's push
 	// mirrors (nil: none).
 	PushMirrors *PushMirrorApp
-	Now         func() time.Time
+	// Imports copies issues, pull requests and releases after the git data
+	// (nil: no API imports).
+	Imports *ImportApp
+	Now     func() time.Time
 }
 
 func (c *MirrorApp) now() time.Time {
@@ -98,6 +101,9 @@ type ImportInput struct {
 	Private                      bool
 	Mirror                       bool // keep syncing (read-only)
 	MirrorInput
+	// API also imports issues, pull requests, labels, milestones and
+	// releases (nil: git data only).
+	API *APIImportInput
 }
 
 // Import creates a repository from a remote; the first sync starts at
@@ -111,6 +117,17 @@ func (c *MirrorApp) Import(actorId string, in ImportInput) (*domain.Repository, 
 	if err := c.apply(m, in.MirrorInput); err != nil {
 		return nil, nil, err
 	}
+	var api *domain.Import
+	if in.API != nil {
+		password := ""
+		if in.Password != nil {
+			password = *in.Password
+		}
+		var err error
+		if api, err = c.Imports.prepare(*in.API, m.URL, password, actorId); err != nil {
+			return nil, nil, err
+		}
+	}
 	tmpl := &domain.Repository{Name: in.Name, Description: in.Description, IsPrivate: in.Private, DefaultBranch: "main", HasIssues: true, IsMirror: in.Mirror}
 	repo, err := c.Repositories.create(in.Namespace, actorId, tmpl, func(r *domain.Repository) error {
 		return c.Storage.InitRepository(r.StorageKey)
@@ -119,6 +136,12 @@ func (c *MirrorApp) Import(actorId string, in ImportInput) (*domain.Repository, 
 		return nil, nil, err
 	}
 	m.RepositoryId = repo.Id
+	if api != nil {
+		api.RepositoryId = repo.Id
+		if err := c.Imports.Pers.Create(api); err != nil {
+			return nil, nil, err
+		}
+	}
 	if err := c.Pers.Create(m); err != nil {
 		return nil, nil, err
 	}
@@ -317,6 +340,9 @@ func (c *MirrorApp) Stop(id, path *string, actorId string) error {
 	if err := c.Pers.Delete(m.Id); err != nil {
 		return err
 	}
+	if !m.Mirror {
+		c.Imports.Forget(repo) // the import is cancelled: its API part too
+	}
 	if repo.IsMirror {
 		if err := c.Repositories.RepoPres.Update(repo.Id, map[string]any{"is_mirror": false}); err != nil {
 			return err
@@ -371,6 +397,9 @@ func (c *MirrorApp) sync(ctx context.Context, m *domain.Mirror) {
 	if changed {
 		c.PushMirrors.Pushed(repo)
 	}
+	if err == nil {
+		c.Imports.GitReady(repo)
+	}
 	fields := map[string]any{"locked_until": nil, "last_sync_at": now, "updated_at": now, "ssh_host_key": hostKey}
 	if err != nil {
 		m.Failures++
@@ -403,11 +432,7 @@ func (c *MirrorApp) fetch(ctx context.Context, repo *domain.Repository, m *domai
 	if err != nil {
 		return false, err
 	}
-	fetch := mirror.Fetch
-	if m.Mirror {
-		fetch = mirror.FetchPrune
-	}
-	res, err := fetch(ctx, st, remote)
+	res, err := mirror.Fetch(ctx, st, remote, mirror.FetchOptions{Prune: m.Mirror, Extra: c.Imports.PullRefs(repo)})
 	if err != nil {
 		return false, err
 	}

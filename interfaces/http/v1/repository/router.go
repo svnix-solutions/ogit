@@ -20,6 +20,7 @@ type Controller struct {
 	TwoFactor     *application.TwoFactorApp // sudo for repository tokens
 	MirrorApp     *application.MirrorApp
 	PushMirrorApp *application.PushMirrorApp
+	ImportApp     *application.ImportApp
 }
 
 func SetupRepositoryRouter(controller Controller) {

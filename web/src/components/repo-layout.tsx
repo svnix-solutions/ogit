@@ -14,7 +14,7 @@ import { useRepository } from "@/pages/repo";
 import { NamespacePage } from "@/pages/namespace";
 import { NotFoundPage } from "@/pages/not-found";
 import { CopyField } from "./copy-field";
-import { MirrorBanner } from "./mirror-banner";
+import { APIImportBanner, MirrorBanner } from "./mirror-banner";
 import { NamespacePath } from "./namespace-path";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
@@ -96,6 +96,7 @@ export function RepoLayout({ path: nested }: { path?: string } = {}) {
       </div>
       <ForkedFrom repo={repo} />
       <MirrorBanner repo={repo} />
+      <APIImportBanner repo={repo} />
       {repo.description && <p className="text-muted-foreground">{repo.description}</p>}
       <SyncButton repo={repo} />
       {repo.archived && <Alert>This repository is archived: it can be cloned but not pushed to.</Alert>}

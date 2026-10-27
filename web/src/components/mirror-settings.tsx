@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { relativeTime } from "@/lib/browse";
-import { isSSHURL, useMirror, useMirrorActions, type Mirror } from "@/lib/mirrors";
+import { forgeNames, importCounts, isSSHURL, useAPIImport, useAPIImportActions, useMirror, useMirrorActions, type Mirror } from "@/lib/mirrors";
 import type { Repository } from "@/lib/api";
 import { CopyField } from "./copy-field";
 import { ErrorText, Section } from "./section";
@@ -110,6 +110,47 @@ function MirrorForm({ repo, mirror: m, isOwner }: { repo: Repository; mirror: Mi
             <ErrorText error={stop.error} />
           </div>
         )}
+      </Section>
+    </section>
+  );
+}
+
+// APIImportSettings: an import of issues, pull requests and releases: its
+// outcome, warnings (skipped assets) and, for owners, cancelling it.
+export function APIImportSettings({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
+  const i = useAPIImport(repo.full_path);
+  const { retry, cancel } = useAPIImportActions(repo.full_path);
+  if (!i.data) return null;
+  const d = i.data;
+  const from = forgeNames[d.forge] ?? d.forge;
+  return (
+    <section id="import">
+      <Section title="Import of issues and pull requests" description={`From ${from} (${d.project}).`}>
+        <p className="text-sm">
+          Status: <strong>{d.status}</strong> · {importCounts(d)}
+          {d.finished_at && <> · finished {relativeTime(d.finished_at)}</>}
+        </p>
+        {d.last_error && d.status !== "done" && <p className="text-sm text-destructive">{d.last_error}</p>}
+        {d.warnings.length > 0 && (
+          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+            {d.warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        )}
+        <div className="flex gap-2">
+          {d.status === "failed" && (
+            <Button variant="outline" onClick={() => retry.mutate()} disabled={retry.isPending}>
+              Resume
+            </Button>
+          )}
+          {isOwner && d.status !== "done" && (
+            <Button variant="outline" onClick={() => confirm("Cancel the import? What was imported stays.") && cancel.mutate()} disabled={cancel.isPending}>
+              Cancel the import
+            </Button>
+          )}
+        </div>
+        <ErrorText error={retry.error ?? cancel.error} />
       </Section>
     </section>
   );
