@@ -518,7 +518,7 @@ func TestSSOAdminProviders(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, status, "the slug is taken")
 	for _, bad := range []map[string]any{
 		{"slug": "Bad Slug", "name": "x", "kind": "oidc", "issuer": idp.srv.URL, "client_id": "x", "client_secret": "x"},
-		{"slug": "x", "name": "x", "kind": "saml", "issuer": idp.srv.URL, "client_id": "x", "client_secret": "x"},
+		{"slug": "x", "name": "x", "kind": "cas", "issuer": idp.srv.URL, "client_id": "x", "client_secret": "x"},
 		{"slug": "x", "name": "x", "kind": "oidc", "issuer": "ftp://x", "client_id": "x", "client_secret": "x"},
 		{"slug": "x", "name": "x", "kind": "oidc", "issuer": idp.srv.URL, "client_id": "x"},
 	} {

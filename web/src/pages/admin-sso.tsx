@@ -6,8 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { useAdminProviderActions, useAdminProviders, type AdminProvider, type GroupMapping, type LDAPSettings, type ProviderFields } from "@/lib/sso";
+import { useAdminProviderActions, useAdminProviders, type AdminProvider, type GroupMapping, type LDAPSettings, type ProviderFields, type SAMLSettings } from "@/lib/sso";
 import { Textarea } from "@/components/ui/textarea";
+
+const issuerLabel = { github: "GitHub URL (Enterprise only)", ldap: "Directory URL", saml: "IdP metadata URL", oidc: "Issuer URL" };
+const issuerPlaceholder = {
+  github: "https://github.com",
+  ldap: "ldaps://ad.example.com",
+  saml: "https://idp.example.com/metadata (or paste it below)",
+  oidc: "https://sso.example.com/realms/main",
+};
 
 // SignInProvidersAdmin: the site's sign-in providers. Those from the
 // configuration file are read-only here.
@@ -27,10 +35,17 @@ export function SignInProvidersAdmin() {
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <strong>{p.name}</strong>
               <code className="text-xs text-muted-foreground">{p.slug}</code>
-              <Badge>{p.kind === "github" ? "GitHub" : p.kind === "ldap" ? "LDAP" : "OpenID Connect"}</Badge>
+              <Badge>{{ github: "GitHub", ldap: "LDAP", saml: "SAML", oidc: "OpenID Connect" }[p.kind]}</Badge>
               {!p.enabled && <Badge>disabled</Badge>}
               {p.from_config && <Badge>configuration file</Badge>}
             </div>
+            {p.kind === "saml" && p.metadata_url && (
+              <div className="space-y-1">
+                <Label>For the identity provider: this server's metadata (entity ID) and assertion consumer URL</Label>
+                <CopyField value={p.metadata_url} label={`SP metadata URL of ${p.name}`} />
+                {p.acs_url && <CopyField value={p.acs_url} label={`ACS URL of ${p.name}`} />}
+              </div>
+            )}
             {p.callback_url && p.kind !== "ldap" && (
               <div className="space-y-1">
                 <Label>Callback URL (register it at the provider)</Label>
@@ -90,7 +105,9 @@ function ProviderForm(props: {
   const id = p?.slug ?? "new";
   const [slug, setSlug] = useState(p?.slug ?? "");
   const [name, setName] = useState(p?.name ?? "");
-  const [kind, setKind] = useState<"oidc" | "github" | "ldap">(p?.kind ?? "oidc");
+  const [kind, setKind] = useState<"oidc" | "github" | "ldap" | "saml">(p?.kind ?? "oidc");
+  const [samlCfg, setSAML] = useState<SAMLSettings>(p?.saml ?? {});
+  const setS = (v: Partial<SAMLSettings>) => setSAML({ ...samlCfg, ...v });
   const [ldap, setLDAP] = useState<LDAPSettings>(p?.ldap ?? { user_base: "" });
   const setL = (v: Partial<LDAPSettings>) => setLDAP({ ...ldap, ...v });
   const [issuer, setIssuer] = useState(p?.issuer ?? "");
@@ -124,6 +141,7 @@ function ProviderForm(props: {
           groups_claim: groupsClaim, admin_group: adminGroup, group_mappings: mappings,
           ...(secret ? { client_secret: secret } : {}),
           ...(kind === "ldap" ? { ldap } : {}),
+          ...(kind === "saml" ? { saml: samlCfg } : {}),
         });
       }}
     >
@@ -132,31 +150,57 @@ function ProviderForm(props: {
         {field("Name (on the sign-in button)", "name", name, setName, { required: true, placeholder: "Company SSO" })}
         <div className="space-y-1.5">
           <Label htmlFor={`sso-kind-${id}`}>Kind</Label>
-          <Select id={`sso-kind-${id}`} className="w-full" value={kind} onChange={(e) => setKind(e.target.value as "oidc" | "github" | "ldap")}>
+          <Select id={`sso-kind-${id}`} className="w-full" value={kind} onChange={(e) => setKind(e.target.value as "oidc" | "github" | "ldap" | "saml")}>
             <option value="oidc">OpenID Connect</option>
             <option value="github">GitHub</option>
             <option value="ldap">LDAP / Active Directory</option>
+            <option value="saml">SAML 2.0</option>
           </Select>
         </div>
-        {field(kind === "github" ? "GitHub URL (Enterprise only)" : kind === "ldap" ? "Directory URL" : "Issuer URL", "issuer", issuer, setIssuer, {
-          required: kind !== "github",
-          placeholder: kind === "github" ? "https://github.com" : kind === "ldap" ? "ldaps://ad.example.com" : "https://sso.example.com/realms/main",
+        {field(issuerLabel[kind], "issuer", issuer, setIssuer, {
+          required: kind !== "github" && !(kind === "saml" && samlCfg.metadata_xml),
+          placeholder: issuerPlaceholder[kind],
         })}
-        {field(kind === "ldap" ? "Service account DN (optional)" : "Client ID", "client-id", clientId, setClientId, {
+        {kind !== "saml" && field(kind === "ldap" ? "Service account DN (optional)" : "Client ID", "client-id", clientId, setClientId, {
           required: kind !== "ldap",
           autoComplete: "off",
           placeholder: kind === "ldap" ? "cn=ogit,ou=services,dc=example,dc=com" : "",
         })}
-        {field(kind === "ldap" ? "Service account password" : "Client secret", "secret", secret, setSecret, {
+        {kind !== "saml" && field(kind === "ldap" ? "Service account password" : "Client secret", "secret", secret, setSecret, {
           type: "password",
           autoComplete: "new-password",
           required: !p && kind !== "ldap",
           placeholder: p?.has_secret ? "(unchanged)" : "",
         })}
-        {kind !== "ldap" && field("Extra scopes (optional)", "scopes", scopes, setScopes, { placeholder: kind === "github" ? "" : "groups" })}
+        {kind !== "ldap" && kind !== "saml" && field("Extra scopes (optional)", "scopes", scopes, setScopes, { placeholder: kind === "github" ? "" : "groups" })}
         {field("Allowed email domains (optional)", "domains", domains, setDomains, { placeholder: "example.com, example.org" })}
         {kind === "github" && field("Allowed organizations (optional)", "orgs", orgs, setOrgs, { placeholder: "my-org" })}
       </div>
+      {kind === "saml" && (
+        <fieldset className="space-y-2 rounded-md border p-3">
+          <legend className="px-1 text-sm font-medium">SAML</legend>
+          <p className="text-xs text-muted-foreground">
+            oGit makes its signing key when you save; give the identity provider this server's metadata URL (shown once saved). Responses must be signed; encrypted
+            assertions work.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor={`sso-saml-xml-${id}`}>IdP metadata XML (instead of the URL)</Label>
+            <Textarea id={`sso-saml-xml-${id}`} rows={3} className="font-mono text-xs" value={samlCfg.metadata_xml ?? ""} onChange={(e) => setS({ metadata_xml: e.target.value })} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {field("User name attribute", "saml-username", samlCfg.username_attribute ?? "", (v) => setS({ username_attribute: v }), { placeholder: "username, uid…" })}
+            {field("Email attribute", "saml-email", samlCfg.email_attribute ?? "", (v) => setS({ email_attribute: v }), { placeholder: "email, mail…" })}
+            {field("Stable id attribute", "saml-subject", samlCfg.subject_attribute ?? "", (v) => setS({ subject_attribute: v }), { placeholder: "empty: the NameID" })}
+          </div>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={!!samlCfg.allow_idp_initiated} onChange={(e) => setS({ allow_idp_initiated: e.target.checked })} />
+            <span>
+              Allow sign-ins started at the identity provider
+              <span className="block text-xs text-muted-foreground">From its dashboard. They can't be tied to the browser; each response is accepted once.</span>
+            </span>
+          </label>
+        </fieldset>
+      )}
       {kind === "ldap" && (
         <fieldset className="space-y-2 rounded-md border p-3">
           <legend className="px-1 text-sm font-medium">Directory</legend>
@@ -193,6 +237,7 @@ function ProviderForm(props: {
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {kind === "oidc" && field("Groups claim", "groups-claim", groupsClaim, setGroupsClaim, { placeholder: "groups (or realm_access.roles)" })}
+          {kind === "saml" && field("Groups attribute", "groups-claim", groupsClaim, setGroupsClaim, { placeholder: "groups, memberOf…" })}
           {field("Admin group", "admin-group", adminGroup, setAdminGroup, { placeholder: "Members are site admins" })}
         </div>
         {mappings.map((m, i) => (

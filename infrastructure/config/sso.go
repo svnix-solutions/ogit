@@ -35,6 +35,9 @@ type SSOProviderConfig struct {
 	// LDAP (kind ldap): issuer is the URL, client_id and client_secret the
 	// service account.
 	LDAP *domain.LDAPSettings `yaml:"ldap"`
+	// SAML (kind saml): issuer is the IdP's metadata URL; client_secret the
+	// SP's private key (PEM) and saml.certificate its certificate.
+	SAML *domain.SAMLSettings `yaml:"saml"`
 }
 
 // LoadSSOProviders reads sso.providers from the configuration file (none

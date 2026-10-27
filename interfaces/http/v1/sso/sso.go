@@ -33,6 +33,11 @@ type Controller struct {
 func Setup(c Controller, app *fiber.App, auth, user, admin *fiberoapi.OApiGroup) {
 	app.Get("/api/v1/auth/sso/:provider/start", c.Start)
 	app.Get("/api/v1/auth/sso/:provider/callback", c.Callback)
+	// SAML: the assertion consumer (the IdP posts there), the browser's
+	// next step, and this SP's metadata.
+	app.Post("/api/v1/auth/sso/:provider/acs", c.ACS)
+	app.Get("/api/v1/auth/sso/:provider/finish", c.Finish)
+	app.Get("/api/v1/auth/sso/:provider/metadata", c.Metadata)
 
 	tags := []string{"Single sign-on"}
 	fiberoapi.Get(auth, "/providers", c.Providers, fiberoapi.OpenAPIOptions{
@@ -82,7 +87,7 @@ func (c Controller) fail(ctx *fiber.Ctx, to string, err error) error {
 	var known bool
 	for _, e := range []error{application.ErrSSOFlow, application.ErrSSONotAllowed, application.ErrSSONoAccount, application.ErrSSOVerifiedEmail,
 		application.ErrSSOEmailTaken, application.ErrIdentityTaken, application.ErrAccountDisabled, application.ErrSSOProviderNotFound,
-		application.ErrSSONeedsPublicURL, application.ErrSudoRequired} {
+		application.ErrSSONeedsPublicURL, application.ErrSudoRequired, application.ErrSAMLReplay} {
 		known = known || errors.Is(err, e)
 	}
 	if !known && !strings.HasPrefix(msg, "the sign-in with ") {
@@ -117,6 +122,10 @@ func (c Controller) Start(ctx *fiber.Ctx) error {
 	}
 	ctx.Cookie(&fiber.Cookie{Name: application.SSOCookie, Value: start.Cookie, Path: "/api/v1/auth/sso/", MaxAge: 600,
 		HTTPOnly: true, Secure: c.secure(ctx), SameSite: fiber.CookieSameSiteLaxMode})
+	if len(start.Form) > 0 { // a SAML request posted to the IdP
+		ctx.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
+		return ctx.Send(start.Form)
+	}
 	return ctx.Redirect(start.URL, fiber.StatusFound)
 }
 
@@ -136,6 +145,12 @@ func (c Controller) Callback(ctx *fiber.Ctx) error {
 		}
 		return c.fail(ctx, "/login", err)
 	}
+	return c.outcome(ctx, out)
+}
+
+// outcome sends the browser on after a sign-in: signed in (cookies), to
+// the 2FA step, to the link page, or back (links and sudo).
+func (c Controller) outcome(ctx *fiber.Ctx, out *application.SSOOutcome) error {
 	switch {
 	case out.Login != nil:
 		expires := time.Now().Add(time.Duration(c.Config.Session.ExpirationMinutes) * time.Minute)
@@ -151,6 +166,48 @@ func (c Controller) Callback(ctx *fiber.Ctx) error {
 		return ctx.Redirect("/login/link#token="+out.LinkToken, fiber.StatusFound)
 	}
 	return ctx.Redirect(out.Redirect, fiber.StatusFound)
+}
+
+// ACS takes a SAML identity provider's POST.
+func (c Controller) ACS(ctx *fiber.Ctx) error {
+	ip := c.Limits.ClientIP(ctx)
+	if r, blocked := c.Limits.LoginBlocked(ctx.UserContext(), ip, ""); blocked {
+		return c.fail(ctx, "/login", errors.New("too many sign-in attempts; wait "+r.Reset.Round(time.Second).String()))
+	}
+	next, out, err := c.SSO.ACS(ctx.UserContext(), ctx.Params("provider"), ctx.FormValue("SAMLResponse"), ctx.FormValue("RelayState"), ctx.Get("User-Agent"), ip)
+	if err != nil {
+		c.Limits.LoginFailed(ctx.UserContext(), ip, "")
+		return c.fail(ctx, "/login", err)
+	}
+	if next != "" {
+		// A top-level GET: the flow's cookie comes along.
+		return ctx.Redirect(next, fiber.StatusSeeOther)
+	}
+	return c.outcome(ctx, out)
+}
+
+// Finish completes a SAML sign-in in the browser that started it.
+func (c Controller) Finish(ctx *fiber.Ctx) error {
+	cookie := ctx.Cookies(application.SSOCookie)
+	ctx.Cookie(&fiber.Cookie{Name: application.SSOCookie, Value: "", Path: "/api/v1/auth/sso/", MaxAge: -1, Expires: time.Unix(0, 0),
+		HTTPOnly: true, Secure: c.secure(ctx), SameSite: fiber.CookieSameSiteLaxMode})
+	ip := c.Limits.ClientIP(ctx)
+	out, err := c.SSO.Finish(ctx.Params("provider"), ctx.Query("state"), cookie, ctx.Get("User-Agent"), ip)
+	if err != nil {
+		c.Limits.LoginFailed(ctx.UserContext(), ip, "")
+		return c.fail(ctx, "/login", err)
+	}
+	return c.outcome(ctx, out)
+}
+
+// Metadata is this server's SAML SP metadata, for the identity provider.
+func (c Controller) Metadata(ctx *fiber.Ctx) error {
+	xml, err := c.SSO.SPMetadata(ctx.UserContext(), ctx.Params("provider"))
+	if err != nil {
+		return ctx.Status(fiber.StatusNotFound).SendString("not found")
+	}
+	ctx.Set(fiber.HeaderContentType, "application/samlmetadata+xml")
+	return ctx.Send(xml)
 }
 
 type Provider struct {
@@ -282,20 +339,25 @@ func (c Controller) Unlink(ctx *fiber.Ctx, req IdentityRequest) (*Message, *fibe
 
 // AdminProvider is a provider for admins (never the secret).
 type AdminProvider struct {
-	Slug             string `json:"slug"`
-	Name             string `json:"name"`
-	Kind             string `json:"kind"`
-	Issuer           string `json:"issuer"`
-	ClientId         string `json:"client_id"`
-	HasSecret        bool   `json:"has_secret"`
-	Scopes           string `json:"scopes"`
-	AllowedDomains   string `json:"allowed_domains"`
-	AllowedOrgs      string `json:"allowed_orgs"`
-	AutoCreate       bool   `json:"auto_create"`
-	RequireTwoFactor bool   `json:"require_two_factor"`
-	Enabled          bool   `json:"enabled"`
-	FromConfig       bool   `json:"from_config"`
-	CallbackURL      string `json:"callback_url"`
+	Slug           string `json:"slug"`
+	Name           string `json:"name"`
+	Kind           string `json:"kind"`
+	Issuer         string `json:"issuer"`
+	ClientId       string `json:"client_id"`
+	HasSecret      bool   `json:"has_secret"`
+	Scopes         string `json:"scopes"`
+	AllowedDomains string `json:"allowed_domains"`
+	AllowedOrgs    string `json:"allowed_orgs"`
+	// SAML (kind saml): issuer is the IdP's metadata URL; metadata_url is
+	// this SP's (entity id) for the IdP, acs_url where it posts.
+	SAML             *domain.SAMLSettings `json:"saml,omitempty"`
+	MetadataURL      string               `json:"metadata_url,omitempty"`
+	ACSURL           string               `json:"acs_url,omitempty"`
+	AutoCreate       bool                 `json:"auto_create"`
+	RequireTwoFactor bool                 `json:"require_two_factor"`
+	Enabled          bool                 `json:"enabled"`
+	FromConfig       bool                 `json:"from_config"`
+	CallbackURL      string               `json:"callback_url"`
 	// Group sync: groups_claim (OIDC, default "groups"), admin_group,
 	// group_mappings.
 	GroupsClaim   string                   `json:"groups_claim"`
@@ -307,10 +369,15 @@ type AdminProvider struct {
 }
 
 func (c Controller) toAdmin(p *domain.SSOProvider) AdminProvider {
-	return AdminProvider{Slug: p.Slug, Name: p.Name, Kind: p.Kind, Issuer: p.Issuer, ClientId: p.ClientId, HasSecret: p.ClientSecret != "",
+	out := AdminProvider{Slug: p.Slug, Name: p.Name, Kind: p.Kind, Issuer: p.Issuer, ClientId: p.ClientId, HasSecret: p.ClientSecret != "",
 		Scopes: p.Scopes, AllowedDomains: p.AllowedDomains, AllowedOrgs: p.AllowedOrgs, AutoCreate: p.AutoCreate, RequireTwoFactor: p.RequireTwoFactor,
 		Enabled: p.Enabled, FromConfig: p.FromConfig, CallbackURL: c.SSO.CallbackURL(p.Slug), GroupsClaim: p.GroupsClaim, AdminGroup: p.AdminGroup,
-		GroupMappings: application.Mappings(p), LDAP: application.DirectorySettings(p)}
+		GroupMappings: application.Mappings(p), LDAP: application.DirectorySettings(p), SAML: application.SAMLSettingsOf(p)}
+	if p.Kind == domain.SSOKindSAML && out.CallbackURL != "" {
+		base := strings.TrimSuffix(out.CallbackURL, "/callback")
+		out.MetadataURL, out.ACSURL, out.CallbackURL = base+"/metadata", base+"/acs", ""
+	}
+	return out
 }
 
 type AdminProvidersResponse struct {
@@ -351,12 +418,13 @@ type ProviderFields struct {
 	// role: member|maintainer}]; replaces them all.
 	GroupMappings *[]domain.SSOGroupMapping `json:"group_mappings"`
 	LDAP          *domain.LDAPSettings      `json:"ldap"`
+	SAML          *domain.SAMLSettings      `json:"saml"`
 }
 
 func (f ProviderFields) input() application.ProviderInput {
 	return application.ProviderInput{Name: f.Name, Kind: f.Kind, Issuer: f.Issuer, ClientId: f.ClientId, ClientSecret: f.ClientSecret,
 		Scopes: f.Scopes, AllowedDomains: f.AllowedDomains, AllowedOrgs: f.AllowedOrgs, AutoCreate: f.AutoCreate,
-		RequireTwoFactor: f.RequireTwoFactor, Enabled: f.Enabled, GroupsClaim: f.GroupsClaim, AdminGroup: f.AdminGroup, GroupMappings: f.GroupMappings, LDAP: f.LDAP}
+		RequireTwoFactor: f.RequireTwoFactor, Enabled: f.Enabled, GroupsClaim: f.GroupsClaim, AdminGroup: f.AdminGroup, GroupMappings: f.GroupMappings, LDAP: f.LDAP, SAML: f.SAML}
 }
 
 type CreateProviderRequest struct {

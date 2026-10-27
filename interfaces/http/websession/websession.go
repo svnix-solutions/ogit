@@ -48,7 +48,16 @@ var public = map[string]bool{
 }
 
 func isPublic(c *fiber.Ctx) bool {
-	return c.Method() == fiber.MethodPost && public[strings.TrimSuffix(c.Path(), "/")]
+	if c.Method() != fiber.MethodPost {
+		return false
+	}
+	path := strings.TrimSuffix(c.Path(), "/")
+	// SAML identity providers post to /auth/sso/<provider>/acs, cross-site
+	// or same-site (then with our cookies): it never uses them.
+	if rest, ok := strings.CutPrefix(path, "/api/v1/auth/sso/"); ok && strings.HasSuffix(rest, "/acs") && strings.Count(rest, "/") == 1 {
+		return true
+	}
+	return public[path]
 }
 
 // Middleware must be registered on /api/v1 before the routes.

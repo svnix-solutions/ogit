@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/labbs/ogit/domain"
+	helperError "github.com/labbs/ogit/infrastructure/helpers/error"
 	"gorm.io/gorm"
 )
 
@@ -95,6 +96,26 @@ func (p *ssoPers) TakeFlow(id string, now time.Time) (*domain.SSOFlow, error) {
 	return take[domain.SSOFlow](p.db, id, now)
 }
 
+func (p *ssoPers) Flow(id string, now time.Time) (*domain.SSOFlow, error) {
+	var f domain.SSOFlow
+	if err := p.db.Where("id = ? AND expires_at > ?", id, now).First(&f).Error; err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+func (p *ssoPers) SetFlowResult(id, result string) error {
+	return p.db.Model(&domain.SSOFlow{}).Where("id = ?", id).Update("result", result).Error
+}
+
+func (p *ssoPers) UseAssertion(id string, expires time.Time) (bool, error) {
+	err := p.db.Exec("INSERT INTO sso_used_assertion (id, expires_at) VALUES (?, ?)", id, expires).Error
+	if helperError.Catch(err) == gorm.ErrDuplicatedKey {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func (p *ssoPers) CreatePendingLink(l *domain.SSOPendingLink) error { return p.db.Create(l).Error }
 
 func (p *ssoPers) TakePendingLink(id string, now time.Time) (*domain.SSOPendingLink, error) {
@@ -113,5 +134,6 @@ func (p *ssoPers) DeleteExpired(now time.Time) error {
 	return errors.Join(
 		p.db.Where("expires_at <= ?", now).Delete(&domain.SSOFlow{}).Error,
 		p.db.Where("expires_at <= ?", now).Delete(&domain.SSOPendingLink{}).Error,
+		p.db.Exec("DELETE FROM sso_used_assertion WHERE expires_at <= ?", now).Error,
 	)
 }

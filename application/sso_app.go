@@ -230,6 +230,9 @@ func SafeRedirect(r string) string {
 type SSOStart struct {
 	URL    string
 	Cookie string
+	// Form (SAML IdPs without the redirect binding): an HTML page that
+	// posts the request.
+	Form []byte
 }
 
 // Start begins a sign-in (purpose login), a link or a sudo confirmation
@@ -266,17 +269,34 @@ func (c *SSOApp) Start(ctx context.Context, slug, purpose, redirect string, auth
 	default:
 		return nil, ErrSSOFlow
 	}
-	client, err := c.client(ctx, p)
-	if err != nil {
+	unreachable := func(err error) error {
 		c.Logger.Warn().Err(err).Str("component", "application.sso").Str("provider", p.Slug).Msg("provider unreachable")
-		return nil, fmt.Errorf("the sign-in with %s failed: the provider can't be reached; try again later", p.Name)
+		return fmt.Errorf("the sign-in with %s failed: the provider can't be reached; try again later", p.Name)
 	}
 	state, cookie := randomToken(""), randomToken("")
 	flow.Id, flow.BrowserKey = hashToken(state), hashToken(cookie)
+	start := &SSOStart{Cookie: cookie}
+	if p.Kind == domain.SSOKindSAML {
+		s, err := c.samlClient(ctx, p)
+		if err != nil {
+			return nil, unreachable(err)
+		}
+		req, err := s.Request(state)
+		if err != nil {
+			return nil, unreachable(err)
+		}
+		flow.Nonce, start.URL, start.Form = req.ID, req.Redirect, req.PostForm // the response must answer req.ID
+	} else {
+		client, err := c.client(ctx, p)
+		if err != nil {
+			return nil, unreachable(err)
+		}
+		start.URL = client.AuthURL(state, flow.Nonce, flow.Verifier)
+	}
 	if err := c.Pers.CreateFlow(flow); err != nil {
 		return nil, err
 	}
-	return &SSOStart{URL: client.AuthURL(state, flow.Nonce, flow.Verifier), Cookie: cookie}, nil
+	return start, nil
 }
 
 // SSOOutcome is what a callback did: a session (Login), a 2FA step
@@ -319,6 +339,13 @@ func (c *SSOApp) Callback(ctx context.Context, slug, state, code, providerError,
 		c.Logger.Warn().Err(err).Str("component", "application.sso").Str("provider", slug).Msg("sign-in failed at the provider")
 		return nil, fmt.Errorf("the sign-in with %s failed: %w", p.Name, err)
 	}
+	return c.afterClaims(out, flow, p, claims, userAgent, ip)
+}
+
+// afterClaims finishes a flow with the provider's verified claims: sudo,
+// link or sign-in.
+func (c *SSOApp) afterClaims(out *SSOOutcome, flow *domain.SSOFlow, p *domain.SSOProvider, claims *sso.Claims, userAgent, ip string) (*SSOOutcome, error) {
+	slug := p.Slug
 	if !domainAllowed(p, claims) {
 		return nil, ErrSSONotAllowed
 	}
@@ -719,6 +746,7 @@ type ProviderInput struct {
 	GroupsClaim, AdminGroup               *string
 	GroupMappings                         *[]domain.SSOGroupMapping
 	LDAP                                  *domain.LDAPSettings // kind ldap
+	SAML                                  *domain.SAMLSettings // kind saml
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -763,6 +791,11 @@ func (c *SSOApp) apply(p *domain.SSOProvider, in ProviderInput) error {
 		if err := checkDirectory(p, in.LDAP); err != nil {
 			return err
 		}
+	case domain.SSOKindSAML:
+		if err := c.checkSAML(p, in.SAML); err != nil {
+			return err
+		}
+		return nil // its secret is the SP key, made here
 	case domain.SSOKindOIDC, domain.SSOKindGitHub:
 		u, err := url.Parse(p.Issuer)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || p.ClientId == "" {
@@ -816,7 +849,7 @@ func (c *SSOApp) CreateProvider(auth *fiberoapi.AuthContext, in ProviderInput) (
 	if c.Config.Server.PublicURL == "" {
 		return nil, ErrSSONeedsPublicURL
 	}
-	p := &domain.SSOProvider{AutoCreate: true, Enabled: true, GroupMappings: "[]", LDAPConfig: "{}", CreatedAt: c.now(), UpdatedAt: c.now()}
+	p := &domain.SSOProvider{AutoCreate: true, Enabled: true, GroupMappings: "[]", LDAPConfig: "{}", SAMLConfig: "{}", CreatedAt: c.now(), UpdatedAt: c.now()}
 	if err := c.apply(p, in); err != nil {
 		return nil, err
 	}
@@ -826,7 +859,7 @@ func (c *SSOApp) CreateProvider(auth *fiberoapi.AuthContext, in ProviderInput) (
 	if _, err := c.Pers.Provider(p.Slug); err == nil {
 		return nil, ErrSSOProviderExists
 	}
-	if p.ClientSecret == "" && p.Kind != domain.SSOKindLDAP { // directories may search anonymously
+	if p.ClientSecret == "" && p.Kind != domain.SSOKindLDAP && p.Kind != domain.SSOKindSAML { // directories may search anonymously; SAML keys are made
 		return nil, ErrInvalidSSOProvider
 	}
 	if err := c.Pers.CreateProvider(p); err != nil {
@@ -855,7 +888,7 @@ func (c *SSOApp) UpdateProvider(auth *fiberoapi.AuthContext, slug string, in Pro
 	err = c.Pers.UpdateProvider(p.Id, map[string]any{"name": p.Name, "kind": p.Kind, "issuer": p.Issuer, "client_id": p.ClientId,
 		"client_secret": p.ClientSecret, "scopes": p.Scopes, "allowed_domains": p.AllowedDomains, "allowed_orgs": p.AllowedOrgs,
 		"auto_create": p.AutoCreate, "require_two_factor": p.RequireTwoFactor, "enabled": p.Enabled, "groups_claim": p.GroupsClaim,
-		"admin_group": p.AdminGroup, "group_mappings": p.GroupMappings, "ldap_config": p.LDAPConfig, "updated_at": p.UpdatedAt})
+		"admin_group": p.AdminGroup, "group_mappings": p.GroupMappings, "ldap_config": p.LDAPConfig, "saml_config": p.SAMLConfig, "updated_at": p.UpdatedAt})
 	if err != nil {
 		return nil, err
 	}
@@ -896,7 +929,7 @@ func (c *SSOApp) LoadConfig(cfgs []config.SSOProviderConfig) error {
 			ms[i] = domain.SSOGroupMapping{Group: m.Group, Target: m.Target, Role: domain.GroupRole(m.Role)}
 		}
 		in := ProviderInput{Slug: &pc.Slug, Name: &pc.Name, Kind: &pc.Kind, Issuer: &pc.Issuer, ClientId: &pc.ClientId, Scopes: &pc.Scopes,
-			AllowedDomains: &pc.AllowedDomains, AllowedOrgs: &pc.AllowedOrgs, GroupsClaim: &pc.GroupsClaim, AdminGroup: &pc.AdminGroup, GroupMappings: &ms, LDAP: pc.LDAP}
+			AllowedDomains: &pc.AllowedDomains, AllowedOrgs: &pc.AllowedOrgs, GroupsClaim: &pc.GroupsClaim, AdminGroup: &pc.AdminGroup, GroupMappings: &ms, LDAP: pc.LDAP, SAML: pc.SAML}
 		if err := c.apply(&p, in); err != nil {
 			return fmt.Errorf("sso.providers %q: %w", pc.Slug, err)
 		}

@@ -7,6 +7,7 @@ const (
 	SSOKindOIDC   = "oidc"
 	SSOKindGitHub = "github"
 	SSOKindLDAP   = "ldap" // LDAP or Active Directory: the sign-in form
+	SSOKindSAML   = "saml" // SAML 2.0 identity providers
 )
 
 // SSO flow purposes.
@@ -53,6 +54,10 @@ type SSOProvider struct {
 	// (ldap:// or ldaps://), ClientId and ClientSecret the service
 	// account's DN and password (empty: anonymous search).
 	LDAPConfig string `gorm:"column:ldap_config"`
+	// SAMLConfig (kind saml): SAMLSettings as JSON. Issuer is the IdP's
+	// metadata URL ("" with metadata_xml), ClientSecret the sealed SP
+	// private key (PEM).
+	SAMLConfig string `gorm:"column:saml_config"`
 	Enabled    bool
 	FromConfig bool `gorm:"-"`
 	CreatedAt  time.Time
@@ -82,6 +87,22 @@ type LDAPSettings struct {
 	// RootCA: PEM certificates to trust (else the system's).
 	RootCA             string `json:"root_ca" yaml:"root_ca"`
 	InsecureSkipVerify bool   `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
+}
+
+// SAMLSettings configure a SAML identity provider.
+type SAMLSettings struct {
+	// MetadataXML: the IdP's metadata pasted (instead of a URL).
+	MetadataXML string `json:"metadata_xml" yaml:"metadata_xml"`
+	// AllowIdPInitiated accepts sign-ins started at the IdP (its
+	// dashboard), which can't be tied to the browser.
+	AllowIdPInitiated bool   `json:"allow_idp_initiated" yaml:"allow_idp_initiated"`
+	UsernameAttribute string `json:"username_attribute" yaml:"username_attribute"`
+	EmailAttribute    string `json:"email_attribute" yaml:"email_attribute"`
+	NameAttribute     string `json:"name_attribute" yaml:"name_attribute"`
+	// SubjectAttribute: a stable id attribute; empty: the NameID.
+	SubjectAttribute string `json:"subject_attribute" yaml:"subject_attribute"`
+	// Certificate: the SP's certificate (PEM), generated with the provider.
+	Certificate string `json:"certificate" yaml:"certificate"`
 }
 
 // SSOGroupMapping makes members of an IdP group members of an oGit group.
@@ -116,8 +137,11 @@ type SSOFlow struct {
 	Redirect   string
 	UserId     *string // link and sudo
 	SessionId  *string // sudo
-	ExpiresAt  time.Time
-	CreatedAt  time.Time
+	// Result (SAML): the verified claims (JSON) the assertion consumer
+	// leaves for the browser's next step, which checks the cookie.
+	Result    string
+	ExpiresAt time.Time
+	CreatedAt time.Time
 }
 
 func (SSOFlow) TableName() string { return "sso_flow" }
@@ -155,6 +179,12 @@ type SSOPers interface {
 	CreateFlow(f *SSOFlow) error
 	// TakeFlow deletes and returns an unexpired flow (once).
 	TakeFlow(id string, now time.Time) (*SSOFlow, error)
+	// Flow returns an unexpired flow without taking it.
+	Flow(id string, now time.Time) (*SSOFlow, error)
+	SetFlowResult(id, result string) error
+	// UseAssertion records a SAML assertion's id until expires; false if
+	// it was used already (a replay).
+	UseAssertion(id string, expires time.Time) (bool, error)
 	CreatePendingLink(l *SSOPendingLink) error
 	// TakePendingLink deletes and returns an unexpired pending link.
 	TakePendingLink(id string, now time.Time) (*SSOPendingLink, error)
