@@ -166,4 +166,52 @@ describe("single sign-on", () => {
     const body = sent(fetch, "POST", "/admin/sso/providers")[0];
     expect(body).toMatchObject({ groups_claim: "realm_access.roles", admin_group: "ogit-admins", group_mappings: [{ group: "eng", target: "engineering", role: "maintainer" }] });
   });
+
+  it("takes directory user names, and sends links by email to the link page", async () => {
+    const fetch = fakeAPI({
+      "/instance": { ...instance, directory_sign_in: true }, "/auth/providers": { providers: [] },
+      "/user/profile": [401, { code: 401, details: "no", type: "UNAUTHORIZED" }],
+      "POST /auth/session": { link_token: "lt1" },
+      "/auth/sso/link?token=lt1": { provider: "Corp directory", email: "a@x", username: "alice" },
+    });
+    const router = renderRoutes(routes, "/login");
+    const field = await screen.findByLabelText("Email or username");
+    expect(field).toHaveAttribute("type", "text");
+    await userEvent.type(field, "ally");
+    await userEvent.type(screen.getByLabelText("Password"), "pw");
+    await userEvent.click(within(field.closest("form")!).getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/login/link"));
+    expect(router.state.location.hash).toBe("#token=lt1");
+    expect(sent(fetch, "POST", "/auth/session")).toEqual([{ email: "ally", password: "pw" }]);
+  });
+
+  it("lets admins add a directory", async () => {
+    let list: object[] = [];
+    const fetch = fakeAPI({
+      "/instance": instance, "/user/profile": me({ role: "admin", two_factor_enabled: true }),
+      "/admin/settings": { require_two_factor: false, require_two_factor_forced: false, sso_only: false, sso_only_forced: false, sso_only_exempt: [] },
+      "/admin/users?q=&limit=20&offset=0": { users: [], total: 0 }, "/admin/repositories?q=&limit=20&offset=0": { repositories: [], total: 0 },
+      "/admin/runners": { runners: [] }, "/admin/actions/secrets": { secrets: [] }, "/admin/actions/variables": { variables: [] },
+      "/admin/sso/providers": () => ({ providers: list }),
+      "POST /admin/sso/providers": (init: RequestInit) => {
+        list = [{ ...JSON.parse(init.body as string), has_secret: false, from_config: false, callback_url: "" }];
+        return list[0];
+      },
+    });
+    renderRoutes(routes, "/admin");
+    await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+    const section = document.getElementById("sign-in-providers")!;
+    await userEvent.selectOptions(within(section).getByLabelText("Kind"), "ldap");
+    await userEvent.type(within(section).getByLabelText("Slug (in URLs)"), "ad");
+    await userEvent.type(within(section).getByLabelText("Name (on the sign-in button)"), "Corp AD");
+    await userEvent.type(within(section).getByLabelText("Directory URL"), "ldaps://ad.example.com");
+    await userEvent.type(within(section).getByLabelText("User base DN"), "ou=people,dc=example,dc=com");
+    await userEvent.type(within(section).getByLabelText("Groups from attribute"), "memberOf");
+    expect(within(section).getByLabelText(/Ask for oGit's two-factor authentication too/)).toBeChecked();
+    await userEvent.click(within(section).getByRole("button", { name: "Add provider" }));
+    await waitFor(() => expect(sent(fetch, "POST", "/admin/sso/providers")).toHaveLength(1));
+    expect(sent(fetch, "POST", "/admin/sso/providers")[0]).toMatchObject({
+      slug: "ad", kind: "ldap", issuer: "ldaps://ad.example.com", ldap: { user_base: "ou=people,dc=example,dc=com", member_of_attribute: "memberOf" },
+    });
+  });
 });

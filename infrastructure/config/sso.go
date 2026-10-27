@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"github.com/labbs/ogit/domain"
 	"io/fs"
 	"os"
 
@@ -31,6 +32,9 @@ type SSOProviderConfig struct {
 		Target string `yaml:"target"`
 		Role   string `yaml:"role"`
 	} `yaml:"group_mappings"`
+	// LDAP (kind ldap): issuer is the URL, client_id and client_secret the
+	// service account.
+	LDAP *domain.LDAPSettings `yaml:"ldap"`
 }
 
 // LoadSSOProviders reads sso.providers from the configuration file (none

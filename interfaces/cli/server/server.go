@@ -325,6 +325,8 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.TwoFactorApp.PasswordBlocked = deps.SSOApp.PasswordBlocked
 	deps.AuthApp.PasswordBlocked = deps.SSOApp.PasswordBlocked
 	deps.AuthApp.SSOOnly = func() bool { on, _, _ := deps.SSOApp.SSOOnly(); return on }
+	deps.AuthApp.Directory = deps.SSOApp.SignInWithDirectory
+	deps.TwoFactorApp.DirectoryPassword = deps.SSOApp.DirectoryPassword
 	deps.WebhookApp.PushMirrors = deps.PushMirrorApp
 
 	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)

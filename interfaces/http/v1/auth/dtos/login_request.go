@@ -3,7 +3,8 @@ package dtos
 import "encoding/json"
 
 type LoginRequest struct {
-	Email    string `json:"email" validate:"required,email"`
+	// Email, or a directory user name when an LDAP directory is set up.
+	Email    string `json:"email" validate:"required"`
 	Password string `json:"password" validate:"required"`
 }
 
@@ -15,6 +16,9 @@ type LoginResponse struct {
 	TwoFactorRequired bool     `json:"two_factor_required,omitempty"`
 	Challenge         string   `json:"challenge,omitempty"`
 	Methods           []string `json:"methods,omitempty"` // totp, webauthn (recovery codes always work)
+	// LinkToken: a directory account whose email belongs to an account
+	// here; its password confirms the link (POST /auth/sso/link).
+	LinkToken string `json:"link_token,omitempty"`
 }
 
 // TwoFactorLoginRequest completes a login: a code, or a security key's

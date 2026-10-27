@@ -33,6 +33,8 @@ type InstanceResponse struct {
 	// SSOOnly: sign in through providers (/auth/providers); password
 	// sign-in is only for the configuration's break-glass accounts.
 	SSOOnly bool `json:"sso_only"`
+	// DirectorySignIn: the sign-in form also takes LDAP user names.
+	DirectorySignIn bool `json:"directory_sign_in"`
 }
 
 type Repository struct {
@@ -124,6 +126,7 @@ func (c Controller) Instance(ctx *fiber.Ctx, _ struct{}) (*InstanceResponse, *fi
 	if resp.MaxAssetSize <= 0 {
 		resp.MaxAssetSize = application.DefaultMaxAssetSize
 	}
+	resp.DirectorySignIn = c.SSO.HasDirectory()
 	if on, _, err := c.SSO.SSOOnly(); err == nil && on {
 		resp.SSOOnly, resp.RegistrationEnabled = true, false
 	}

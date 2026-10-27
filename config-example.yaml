@@ -109,6 +109,22 @@ sso:
   #   group_mappings:
   #     - {group: engineering, target: eng, role: member}
   #   enabled: true
+  # - slug: corp-ad             # LDAP / Active Directory: the sign-in form
+  #   name: Corp directory
+  #   kind: ldap
+  #   issuer: ldaps://ad.example.com
+  #   client_id: cn=ogit,ou=services,dc=example,dc=com   # service account (optional)
+  #   client_secret: ${OGIT_LDAP_PASSWORD}
+  #   admin_group: ogit-admins
+  #   ldap:
+  #     user_base: ou=people,dc=example,dc=com
+  #     user_filter: ""             # default (&(objectClass=person)(|(uid={input})(mail={input})))
+  #     username_attribute: uid     # AD: sAMAccountName
+  #     subject_attribute: entryUUID   # AD: objectGUID
+  #     member_of_attribute: ""     # AD: memberOf; else group_base and group_filter
+  #     group_base: ou=groups,dc=example,dc=com
+  #     start_tls: false
+  #     root_ca: ""                 # PEM
 
 releases:
   max_asset_size: 104857600   # bytes (100 MB) per uploaded asset

@@ -7,4 +7,5 @@ type SessionResponse struct {
 	TwoFactorRequired bool      `json:"two_factor_required,omitempty"`
 	Challenge         string    `json:"challenge,omitempty"`
 	Methods           []string  `json:"methods,omitempty"`
+	LinkToken         string    `json:"link_token,omitempty"`
 }

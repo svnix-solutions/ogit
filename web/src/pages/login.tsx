@@ -111,6 +111,8 @@ export function LoginPage() {
   // Only providers sign in: the password form is for break-glass accounts.
   const ssoOnly = !!instance.data?.sso_only;
   const [local, setLocal] = useState(false);
+  // An LDAP directory: its user names work in the form too.
+  const directory = !!instance.data?.directory_sign_in;
   const done = () => navigate(next, { replace: true });
 
   function submit(e: FormEvent) {
@@ -118,7 +120,14 @@ export function LoginPage() {
     setResent(false);
     login.mutate(
       { email, password },
-      { onSuccess: (r) => (r?.two_factor_required && r.challenge ? (setChallenge(r.challenge), setMethods(r.methods ?? []), setPassword("")) : done()) },
+      {
+        onSuccess: (r) =>
+          r?.link_token
+            ? navigate(`/login/link#token=${encodeURIComponent(r.link_token)}`)
+            : r?.two_factor_required && r.challenge
+              ? (setChallenge(r.challenge), setMethods(r.methods ?? []), setPassword(""))
+              : done(),
+      },
     );
   }
 
@@ -170,8 +179,15 @@ export function LoginPage() {
               </Button>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Label htmlFor="email">{directory ? "Email or username" : "Email"}</Label>
+              <Input
+                id="email"
+                type={directory ? "text" : "email"}
+                autoComplete={directory ? "username" : "email"}
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>

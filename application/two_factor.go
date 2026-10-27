@@ -67,13 +67,16 @@ type TwoFactorApp struct {
 	// PasswordBlocked: passwords can't confirm sudo for user (only
 	// sign-in providers); nil: never.
 	PasswordBlocked func(user *domain.User) bool
-	Config          config.Config
-	Logger          zerolog.Logger
-	Users           domain.UserPers
-	Sessions        domain.SessionPers
-	Pers            domain.TwoFactorPers
-	Box             *secretbox.Box // nil without security.encryption_key
-	Mailer          mail.Sender
+	// DirectoryPassword: password is user's in a linked directory (it
+	// confirms sudo too); nil: none.
+	DirectoryPassword func(user *domain.User, password string) bool
+	Config            config.Config
+	Logger            zerolog.Logger
+	Users             domain.UserPers
+	Sessions          domain.SessionPers
+	Pers              domain.TwoFactorPers
+	Box               *secretbox.Box // nil without security.encryption_key
+	Mailer            mail.Sender
 	// WebAuthn is nil without http.public_url (its host is the relying
 	// party): no security keys then.
 	WebAuthn *webauthn.WebAuthn
@@ -196,10 +199,11 @@ func (c *TwoFactorApp) Sudo(auth *fiberoapi.AuthContext, code, password string, 
 		if err != nil {
 			return time.Time{}, err
 		}
-		if c.PasswordBlocked != nil && c.PasswordBlocked(&user) {
+		directory := c.DirectoryPassword != nil && c.DirectoryPassword(&user, password)
+		if !directory && c.PasswordBlocked != nil && c.PasswordBlocked(&user) {
 			return time.Time{}, ErrPasswordLoginDisabled
 		}
-		if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)) != nil {
+		if !directory && bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)) != nil {
 			return time.Time{}, ErrInvalidCredentials
 		}
 	}

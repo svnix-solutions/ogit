@@ -7,6 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	fiberoapi "github.com/labbs/fiber-oapi"
 	"github.com/labbs/ogit/application"
+	"github.com/labbs/ogit/interfaces/http/v1/apierror"
 	"github.com/labbs/ogit/interfaces/http/v1/auth/dtos"
 )
 
@@ -37,6 +38,10 @@ func (ctrl Controller) Login(ctx *fiber.Ctx, req dtos.LoginRequest) (*dtos.Login
 			Details: "verify your email address first; POST /api/v1/auth/verify/resend sends a new link",
 			Type:    "EMAIL_NOT_VERIFIED",
 		}
+	case errors.Is(err, application.ErrSSONoAccount), errors.Is(err, application.ErrSSOVerifiedEmail),
+		errors.Is(err, application.ErrSSOEmailTaken), errors.Is(err, application.ErrSSONotAllowed):
+		// A directory knew the credentials, but they open no account here.
+		return nil, apierror.From(err, ctrl.Logger)
 	default:
 		logger.Error().Err(err).Msg("failed to authenticate user")
 		return nil, &fiberoapi.ErrorResponse{Code: fiber.StatusInternalServerError, Details: "internal error", Type: "INTERNAL_ERROR"}
