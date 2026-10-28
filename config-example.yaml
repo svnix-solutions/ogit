@@ -109,6 +109,17 @@ sso:
   #   group_mappings:
   #     - {group: engineering, target: eng, role: member}
   #   enabled: true
+  # - slug: okta                # SAML 2.0
+  #   name: Okta
+  #   kind: saml
+  #   issuer: https://corp.okta.com/app/xyz/sso/saml/metadata   # or saml.metadata_xml
+  #   client_secret: ${OGIT_SAML_KEY}   # the SP's private key (PEM); the admin page makes one itself
+  #   groups_claim: groups              # the groups attribute
+  #   saml:
+  #     certificate: |                  # the SP's certificate (PEM), with that key
+  #       -----BEGIN CERTIFICATE-----
+  #     allow_idp_initiated: false
+  #     email_attribute: ""             # default: email, mail, ...
   # - slug: corp-ad             # LDAP / Active Directory: the sign-in form
   #   name: Corp directory
   #   kind: ldap

@@ -214,4 +214,36 @@ describe("single sign-on", () => {
       slug: "ad", kind: "ldap", issuer: "ldaps://ad.example.com", ldap: { user_base: "ou=people,dc=example,dc=com", member_of_attribute: "memberOf" },
     });
   });
+
+  it("lets admins add a SAML identity provider and shows what to give it", async () => {
+    let list: object[] = [];
+    const fetch = fakeAPI({
+      "/instance": instance, "/user/profile": me({ role: "admin", two_factor_enabled: true }),
+      "/admin/settings": { require_two_factor: false, require_two_factor_forced: false, sso_only: false, sso_only_forced: false, sso_only_exempt: [] },
+      "/admin/users?q=&limit=20&offset=0": { users: [], total: 0 }, "/admin/repositories?q=&limit=20&offset=0": { repositories: [], total: 0 },
+      "/admin/runners": { runners: [] }, "/admin/actions/secrets": { secrets: [] }, "/admin/actions/variables": { variables: [] },
+      "/admin/sso/providers": () => ({ providers: list }),
+      "POST /admin/sso/providers": (init: RequestInit) => {
+        list = [{ ...JSON.parse(init.body as string), has_secret: true, from_config: false, callback_url: "",
+          metadata_url: "https://ogit.example/api/v1/auth/sso/okta/metadata", acs_url: "https://ogit.example/api/v1/auth/sso/okta/acs" }];
+        return list[0];
+      },
+    });
+    renderRoutes(routes, "/admin");
+    await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+    const section = document.getElementById("sign-in-providers")!;
+    await userEvent.selectOptions(within(section).getByLabelText("Kind"), "saml");
+    expect(within(section).queryByLabelText("Client ID")).not.toBeInTheDocument();
+    await userEvent.type(within(section).getByLabelText("Slug (in URLs)"), "okta");
+    await userEvent.type(within(section).getByLabelText("Name (on the sign-in button)"), "Okta");
+    await userEvent.type(within(section).getByLabelText("IdP metadata URL"), "https://corp.okta.com/app/x/sso/saml/metadata");
+    await userEvent.click(within(section).getByLabelText(/Allow sign-ins started at the identity provider/));
+    await userEvent.click(within(section).getByRole("button", { name: "Add provider" }));
+    await waitFor(() => expect(sent(fetch, "POST", "/admin/sso/providers")).toHaveLength(1));
+    expect(sent(fetch, "POST", "/admin/sso/providers")[0]).toMatchObject({
+      slug: "okta", kind: "saml", issuer: "https://corp.okta.com/app/x/sso/saml/metadata", saml: { allow_idp_initiated: true },
+    });
+    expect(await within(section).findByDisplayValue("https://ogit.example/api/v1/auth/sso/okta/metadata")).toBeInTheDocument();
+    expect(within(section).getByDisplayValue("https://ogit.example/api/v1/auth/sso/okta/acs")).toBeInTheDocument();
+  });
 });
