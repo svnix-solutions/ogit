@@ -1,0 +1,55 @@
+name: Docs
+
+# Builds the documentation site (docs/, VitePress) on pull requests, and
+# publishes it to GitHub Pages on pushes to refactor and main. Pages must be
+# set to "GitHub Actions" in the repository's settings.
+on:
+  pull_request:
+    branches: [main, refactor]
+    paths: ["docs/**", "config-example.yaml", ".github/workflows/docs.yaml"]
+  push:
+    branches: [main, refactor]
+    paths: ["docs/**", "config-example.yaml", ".github/workflows/docs.yaml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: npm ci
+        working-directory: docs
+      - run: npm run build
+        working-directory: docs
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    name: Deploy
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
