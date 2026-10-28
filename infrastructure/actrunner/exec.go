@@ -30,6 +30,10 @@ type Options struct {
 	ContainerNetwork string
 	// DockerHost overrides the Docker socket.
 	DockerHost string
+	// JobURL is where job containers reach the server, when that isn't
+	// the address the server gives (its public URL): runners whose jobs
+	// sit on an internal network, such as the Compose showcase's.
+	JobURL string
 	// ReportInterval: how often logs and job states are sent (2s if 0).
 	ReportInterval time.Duration
 }
@@ -244,6 +248,7 @@ func run(ctx context.Context, rep *reporter, task *application.Task, opts Option
 	for k, v := range task.Secrets {
 		secrets[k] = v
 	}
+	jobURL := jobServerURL(task, opts)
 	cfg := &runner.Config{
 		Actor:         task.Actor,
 		Workdir:       workspace,
@@ -251,9 +256,9 @@ func run(ctx context.Context, rep *reporter, task *application.Task, opts Option
 		EventPath:     eventPath,
 		DefaultBranch: task.DefaultBranch,
 		Env: map[string]string{
-			"GITHUB_SERVER_URL":       task.ServerURL,
-			"GITHUB_API_URL":          task.ServerURL + "/api/v3",
-			"GITHUB_GRAPHQL_URL":      task.ServerURL + "/api/graphql",
+			"GITHUB_SERVER_URL":       jobURL,
+			"GITHUB_API_URL":          jobURL + "/api/v3",
+			"GITHUB_GRAPHQL_URL":      jobURL + "/api/graphql",
 			"GITHUB_REPOSITORY":       task.Repository,
 			"GITHUB_REPOSITORY_OWNER": owner,
 			"GITHUB_REF":              task.Ref,
@@ -261,7 +266,7 @@ func run(ctx context.Context, rep *reporter, task *application.Task, opts Option
 			"GITHUB_REF_TYPE":         ref.kind,
 			"SHA_REF":                 task.Sha,
 			// actions/cache: GitHub's cache API on this server.
-			"ACTIONS_CACHE_URL": strings.TrimSuffix(task.ServerURL, "/") + "/",
+			"ACTIONS_CACHE_URL": jobURL + "/",
 			"GITHUB_RUN_NUMBER": fmt.Sprint(task.Number),
 			"GITHUB_RUN_ID":     runID(task),
 		},
@@ -277,12 +282,13 @@ func run(ctx context.Context, rep *reporter, task *application.Task, opts Option
 		NoSkipCheckout:        true,
 		ContainerDaemonSocket: opts.DockerHost,
 		ContainerNetworkMode:  containerNetwork(opts.ContainerNetwork),
-		ActionCache:           actionCache{inner: runner.GoGitActionCache{Path: filepath.Join(opts.WorkDir, "actions")}, server: task.ServerURL},
-		GitHubInstance:        hostOf(task.ServerURL),
+		// The runner itself fetches actions, through the address it uses.
+		ActionCache:    actionCache{inner: runner.GoGitActionCache{Path: filepath.Join(opts.WorkDir, "actions")}, server: rep.client.URL},
+		GitHubInstance: hostOf(jobURL),
 	}
 	// act hands these to job containers from the process environment:
 	// the artifact service (this server) and its token. One run at a time.
-	os.Setenv("ACTIONS_RUNTIME_URL", strings.TrimSuffix(task.ServerURL, "/")+"/")
+	os.Setenv("ACTIONS_RUNTIME_URL", jobURL+"/")
 	os.Setenv("ACTIONS_RUNTIME_TOKEN", task.RuntimeToken)
 	r, err := runner.New(cfg)
 	if err != nil {
@@ -318,4 +324,13 @@ func hostOf(url string) string {
 	url = strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
 	host, _, _ := strings.Cut(url, "/")
 	return host
+}
+
+// jobServerURL is where job containers reach the server: Options.JobURL,
+// else the address in the task (the server's public URL).
+func jobServerURL(task *application.Task, opts Options) string {
+	if opts.JobURL != "" {
+		return strings.TrimSuffix(opts.JobURL, "/")
+	}
+	return strings.TrimSuffix(task.ServerURL, "/")
 }

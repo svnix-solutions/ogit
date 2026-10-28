@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type Config struct {
 	// Version of the application
@@ -167,4 +170,28 @@ type Config struct {
 			Path string
 		}
 	}
+}
+
+// LinkBase is the base of links the server hands to a client that reached
+// it at requestBase (scheme://host): the public URL when the request came
+// in on the public host (so a TLS proxy's https is kept), otherwise the
+// address the client used, which it can reach by definition (Actions jobs
+// on an internal network get links on that network).
+func (c Config) LinkBase(requestBase string) string {
+	public := strings.TrimSuffix(c.Server.PublicURL, "/")
+	if public == "" {
+		return requestBase
+	}
+	if requestBase == "" || hostOfURL(public) == hostOfURL(requestBase) {
+		return public
+	}
+	return requestBase
+}
+
+func hostOfURL(u string) string {
+	if _, rest, ok := strings.Cut(u, "://"); ok {
+		u = rest
+	}
+	host, _, _ := strings.Cut(u, "/")
+	return strings.ToLower(host)
 }

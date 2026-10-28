@@ -28,7 +28,7 @@ The keys and passwords in `docker-compose.yaml` are public. To run oGit for real
 
 oGit reads `config-example.yaml`, the documented defaults (SQLite and local storage). The `x-ogit-environment` block in `docker-compose.yaml` sets what differs as environment variables, which override the file. See [Configuration](/admin/configuration).
 
-The showcase sets no `http.public_url`, so oGit answers with the address each request uses: `http://localhost:8080` for your browser, `http://ogit:8080` for the runner's jobs. Without it, passkeys and Git LFS over SSH aren't available; set it when you run oGit for real.
+The public URL is `http://localhost:8080`. Inside Docker, `localhost` is each container itself, so the runner's jobs reach the server on the Compose network instead, at `http://ogit:8080`: the runner is started with `--job-url http://ogit:8080`.
 
 The image is `ghcr.io/svnix-solutions/ogit:${OGIT_TAG:-latest}`. `--build` builds it from the checkout with the repository's `Dockerfile`. To use a released image instead, run `OGIT_TAG=<version> docker compose up -d` without `--build`.
 

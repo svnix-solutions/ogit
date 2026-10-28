@@ -19,10 +19,9 @@ name: ogit
 
 # oGit's settings, shared by the server and the seed job.
 x-ogit-environment: &ogit-environment
-  # No HTTP_PUBLIC_URL: oGit answers with the address each request uses, so
-  # your browser gets http://localhost:8080 and the runner's jobs
-  # http://ogit:8080. Set it when you run oGit for real (passkeys, LFS over
-  # SSH, emails and SSO need it).
+  # Where people reach it: used in links, passkeys, LFS over SSH, emails and
+  # SSO. The runner's jobs reach it at http://ogit:8080 instead (its --job-url).
+  HTTP_PUBLIC_URL: http://localhost:8080
   # Showcase keys, at least 32 bytes each. Make your own with openssl rand -hex 32.
   SESSION_SECRET_KEY: showcase-only-session-key-change-me-0123456789
   SECURITY_ENCRYPTION_KEY: showcase-only-encryption-key-change-me-012345

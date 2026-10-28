@@ -28,7 +28,7 @@ In the repository's **Settings → Runners**, click **New registration token**. 
 `register` writes the runner's state to `.runner` (keep it: it holds the runner's token). `run` takes runs from the server, one at a time.
 
 - **Labels** map `runs-on` to Docker images. The defaults map `ubuntu-latest`, `ubuntu-24.04` and `ubuntu-22.04` to Node images with git. To change them, pass `--labels` when registering, e.g. `--labels ubuntu-latest:docker://node:20-bookworm,big:docker://my/image`.
-- **Networking:** job containers call the server's URL. If oGit runs in Docker on the same machine, put the jobs on its network with `./ogit runner run --network <network>`.
+- **Networking:** job containers call the server at its public URL. If they can't reach it there (oGit in Docker on the same machine, or a server they only reach on an internal network), give them the address they can use: `./ogit runner run --network <network> --job-url http://ogit:8080`. The runner itself keeps using its `--url`.
 - Keep it running with systemd or your process manager of choice.
 
 ## 4. Add a workflow
