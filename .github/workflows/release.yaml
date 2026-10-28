@@ -30,6 +30,15 @@ jobs:
         cache: true
         cache-dependency-path: go.sum
 
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: web/.nvmrc
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+
+    - name: Build web UI
+      run: npm --prefix web ci && npm --prefix web run build
+
     - uses: nowsprinting/check-version-format-action@v3
       if: github.event_name != 'pull_request'
       id: version

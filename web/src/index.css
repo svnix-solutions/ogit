@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/* Theme tokens (shadcn-style). Dark mode follows the system unless the user
+   picked one: <html data-theme="light|dark">. */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+:root {
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.21 0.02 265);
+  --muted: oklch(0.96 0.005 265);
+  --muted-foreground: oklch(0.5 0.02 265);
+  --card: oklch(1 0 0);
+  --border: oklch(0.91 0.01 265);
+  --primary: oklch(0.51 0.23 277);
+  --primary-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.58 0.22 27);
+  --ring: oklch(0.51 0.23 277);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: oklch(0.17 0.01 265);
+    --foreground: oklch(0.95 0.005 265);
+    --muted: oklch(0.23 0.015 265);
+    --muted-foreground: oklch(0.7 0.02 265);
+    --card: oklch(0.2 0.012 265);
+    --border: oklch(0.3 0.015 265);
+    --primary: oklch(0.65 0.19 277);
+    --primary-foreground: oklch(0.15 0.01 265);
+    --destructive: oklch(0.65 0.2 25);
+    --ring: oklch(0.65 0.19 277);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --background: oklch(0.17 0.01 265);
+  --foreground: oklch(0.95 0.005 265);
+  --muted: oklch(0.23 0.015 265);
+  --muted-foreground: oklch(0.7 0.02 265);
+  --card: oklch(0.2 0.012 265);
+  --border: oklch(0.3 0.015 265);
+  --primary: oklch(0.65 0.19 277);
+  --primary-foreground: oklch(0.15 0.01 265);
+  --destructive: oklch(0.65 0.2 25);
+  --ring: oklch(0.65 0.19 277);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-ring: var(--ring);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  body { background: var(--color-background); color: var(--color-foreground); font-family: var(--font-sans); }
+}
+
+/* Syntax highlighting (highlight.js classes), following the theme. */
+:root {
+  --syn-keyword: #cf222e; --syn-string: #0a3069; --syn-comment: #6e7781; --syn-number: #0550ae;
+  --syn-title: #8250df; --syn-type: #953800; --syn-attr: #0550ae; --syn-tag: #116329;
+  --diff-add: #dafbe1; --diff-del: #ffebe9; --diff-add-strong: #aceebb; --diff-del-strong: #ffcecb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --syn-keyword: #ff7b72; --syn-string: #a5d6ff; --syn-comment: #8b949e; --syn-number: #79c0ff;
+    --syn-title: #d2a8ff; --syn-type: #ffa657; --syn-attr: #79c0ff; --syn-tag: #7ee787;
+    --diff-add: #12261e; --diff-del: #25171c; --diff-add-strong: #1f4b32; --diff-del-strong: #4c1f26;
+  }
+}
+:root[data-theme="dark"] {
+  --syn-keyword: #ff7b72; --syn-string: #a5d6ff; --syn-comment: #8b949e; --syn-number: #79c0ff;
+  --syn-title: #d2a8ff; --syn-type: #ffa657; --syn-attr: #79c0ff; --syn-tag: #7ee787;
+  --diff-add: #12261e; --diff-del: #25171c; --diff-add-strong: #1f4b32; --diff-del-strong: #4c1f26;
+}
+.hljs-keyword, .hljs-selector-tag, .hljs-meta .hljs-keyword, .hljs-doctag { color: var(--syn-keyword); }
+.hljs-string, .hljs-regexp, .hljs-meta .hljs-string { color: var(--syn-string); }
+.hljs-comment, .hljs-quote { color: var(--syn-comment); font-style: italic; }
+.hljs-number, .hljs-literal, .hljs-built_in, .hljs-variable.language_ { color: var(--syn-number); }
+.hljs-title, .hljs-title.function_, .hljs-section { color: var(--syn-title); }
+.hljs-type, .hljs-title.class_, .hljs-params { color: var(--syn-type); }
+.hljs-attr, .hljs-attribute, .hljs-property, .hljs-symbol, .hljs-meta { color: var(--syn-attr); }
+.hljs-tag, .hljs-name, .hljs-selector-class, .hljs-selector-id { color: var(--syn-tag); }
+.hljs-addition { color: var(--syn-tag); }
+.hljs-deletion { color: var(--syn-keyword); }
+
+/* Rendered Markdown (README and .md files). */
+.markdown { line-height: 1.6; overflow-wrap: anywhere; }
+.markdown > * + * { margin-top: 0.9em; }
+.markdown h1, .markdown h2 { font-weight: 600; padding-bottom: 0.3em; border-bottom: 1px solid var(--color-border); }
+.markdown h1 { font-size: 1.75em; } .markdown h2 { font-size: 1.4em; } .markdown h3 { font-size: 1.15em; font-weight: 600; }
+.markdown h4, .markdown h5, .markdown h6 { font-weight: 600; }
+.markdown a { color: var(--color-primary); } .markdown a:hover { text-decoration: underline; }
+.markdown ul { list-style: disc; padding-left: 1.6em; } .markdown ol { list-style: decimal; padding-left: 1.6em; }
+.markdown li + li { margin-top: 0.25em; }
+.markdown code { font-family: var(--font-mono); font-size: 0.875em; background: var(--color-muted); padding: 0.15em 0.35em; border-radius: 0.3em; }
+.markdown pre { background: var(--color-muted); padding: 0.9em 1em; border-radius: 0.4em; overflow-x: auto; }
+.markdown pre code { background: none; padding: 0; }
+.markdown blockquote { border-left: 3px solid var(--color-border); padding-left: 1em; color: var(--color-muted-foreground); }
+.markdown table { border-collapse: collapse; display: block; overflow-x: auto; }
+.markdown th, .markdown td { border: 1px solid var(--color-border); padding: 0.35em 0.75em; }
+.markdown img { max-width: 100%; display: inline; }
+.markdown hr { border-color: var(--color-border); }

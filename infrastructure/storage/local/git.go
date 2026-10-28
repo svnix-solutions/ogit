@@ -1,0 +1,239 @@
+package local
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	billyos "github.com/go-git/go-billy/v5/osfs"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/cache"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/storer"
+	"github.com/go-git/go-git/v5/storage/filesystem"
+	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/storage/initial"
+	"github.com/rs/zerolog"
+)
+
+type LocalStorage struct {
+	Logger   zerolog.Logger
+	basePath string
+	config   config.Config
+}
+
+func NewLocalStorage(logger zerolog.Logger, cfg config.Config) *LocalStorage {
+	return &LocalStorage{
+		Logger: logger,
+		config: cfg,
+	}
+}
+
+func (ls *LocalStorage) Configure() error {
+	ls.Logger.Info().Msg("Configuring local storage")
+
+	if ls.config.Storage.Local.Path == "" {
+		return errors.New("local storage path is not configured")
+	}
+
+	// Store the base path
+	ls.basePath = ls.config.Storage.Local.Path
+
+	// Check if local storage path exists and create if necessary
+	info, err := os.Stat(ls.basePath)
+	if os.IsNotExist(err) {
+		if err := os.MkdirAll(ls.basePath, os.ModePerm); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else if !info.IsDir() {
+		return errors.New("local storage path is not a directory")
+	}
+
+	return nil
+}
+
+func (ls *LocalStorage) GetStorer(repoPath string) (storer.Storer, error) {
+	fullPath := ls.getFullPath(repoPath)
+
+	if !ls.RepositoryExists(repoPath) {
+		return nil, errors.New("repository does not exist")
+	}
+
+	fs := billyos.New(fullPath)
+	return newAtomicRefs(filesystem.NewStorage(fs, cache.NewObjectLRUDefault()), fullPath), nil
+}
+
+func (ls *LocalStorage) InitRepository(repoPath string) error {
+	if ls.RepositoryExists(repoPath) {
+		return errors.New("repository already exists")
+	}
+	_, err := git.PlainInitWithOptions(ls.getFullPath(repoPath), &git.PlainInitOptions{
+		Bare: true, InitOptions: git.InitOptions{DefaultBranch: plumbing.Main},
+	})
+	return err
+}
+
+func (ls *LocalStorage) CreateRepository(repoPath, name string) error {
+	fullPath := ls.getFullPath(repoPath)
+
+	if ls.RepositoryExists(repoPath) {
+		return errors.New("repository already exists")
+	}
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		return err
+	}
+
+	// Create a temporary normal repository first to add initial commit
+	tempPath := fullPath + "_temp"
+	defer os.RemoveAll(tempPath) // Clean up temp directory
+
+	// Initialize normal (non-bare) repository on main, matching the S3 backend
+	repo, err := git.PlainInitWithOptions(tempPath, &git.PlainInitOptions{
+		InitOptions: git.InitOptions{DefaultBranch: plumbing.Main},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Get worktree to create files
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return err
+	}
+
+	// Create README.md with repository information
+	readmeContent := initial.Readme(name)
+
+	readmeFile, err := worktree.Filesystem.Create("README.md")
+	if err != nil {
+		return err
+	}
+
+	if _, err := readmeFile.Write(readmeContent); err != nil {
+		readmeFile.Close()
+		return err
+	}
+	readmeFile.Close()
+
+	// Add README.md to staging
+	if _, err := worktree.Add("README.md"); err != nil {
+		return err
+	}
+
+	// Create initial commit
+	commit, err := worktree.Commit("Initial commit", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Git Server S3",
+			Email: "git-server@localhost",
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Now clone this repository as bare to the final location
+	bare, err := git.PlainClone(fullPath, true, &git.CloneOptions{
+		URL: tempPath,
+	})
+	if err != nil {
+		return err
+	}
+	// The clone keeps refs/remotes/origin/* and an "origin" remote pointing at
+	// the temp directory; clients would see them as stray refs.
+	if err := dropRemote(bare); err != nil {
+		return err
+	}
+
+	ls.Logger.Info().Str("commit", commit.String()).Str("repo", repoPath).Msg("Created repository with initial commit")
+	return nil
+}
+
+func (ls *LocalStorage) RepositoryExists(repoPath string) bool {
+	fullPath := ls.getFullPath(repoPath)
+	info, err := os.Stat(fullPath)
+	return err == nil && info.IsDir()
+}
+
+func (ls *LocalStorage) DeleteRepository(repoPath string) error {
+	fullPath := ls.getFullPath(repoPath)
+
+	if !ls.RepositoryExists(repoPath) {
+		return errors.New("repository does not exist")
+	}
+
+	return os.RemoveAll(fullPath)
+}
+
+func (ls *LocalStorage) ListRepositories() ([]string, error) {
+	var repos []string
+
+	err := filepath.Walk(ls.basePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Package files are not repositories.
+		if info.IsDir() && path == filepath.Join(ls.basePath, "packages") {
+			return filepath.SkipDir
+		}
+		// Check if this is a git repository (ends with .git and is a directory)
+		if info.IsDir() && strings.HasSuffix(info.Name(), ".git") {
+			// Get relative path from base
+			relPath, err := filepath.Rel(ls.basePath, path)
+			if err != nil {
+				return err
+			}
+			repos = append(repos, relPath)
+		}
+
+		return nil
+	})
+
+	return repos, err
+}
+
+func (ls *LocalStorage) getFullPath(repoPath string) string {
+	// Clean the repo path and ensure it ends with .git
+	cleanPath := filepath.Clean(repoPath)
+	if !strings.HasSuffix(cleanPath, ".git") {
+		cleanPath += ".git"
+	}
+
+	// Join with base path
+	return filepath.Join(ls.basePath, cleanPath)
+}
+
+// dropRemote removes the "origin" remote and its remote-tracking refs.
+func dropRemote(repo *git.Repository) error {
+	refs, err := repo.References()
+	if err != nil {
+		return err
+	}
+	var remoteRefs []plumbing.ReferenceName
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Name().IsRemote() {
+			remoteRefs = append(remoteRefs, ref.Name())
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, name := range remoteRefs {
+		if err := repo.Storer.RemoveReference(name); err != nil {
+			return err
+		}
+	}
+	if err := repo.DeleteRemote("origin"); err != nil && !errors.Is(err, git.ErrRemoteNotFound) {
+		return err
+	}
+	return nil
+}

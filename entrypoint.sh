@@ -1,8 +1,6 @@
 #!/bin/sh
+
 set -e
 
-# Start the migration
-# ./app migration -c /config/config.yaml
-
-# Start the server
+./app migration -c /config/config.yaml
 exec ./app server -c /config/config.yaml

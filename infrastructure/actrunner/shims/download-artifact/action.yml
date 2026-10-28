@@ -1,0 +1,24 @@
+name: Download a Build Artifact (oGit)
+description: Download artifacts from oGit, with actions/download-artifact@v4's inputs and outputs.
+inputs:
+  name:
+    description: "The artifact to download (default: all of the run's)"
+  pattern:
+    description: Glob of artifact names to download, when name isn't given
+  merge-multiple:
+    description: Put every artifact in path instead of one directory each
+    default: "false"
+  path:
+    description: Destination
+  run-id:
+    description: Another run's id (GITHUB_RUN_ID), with github-token
+  github-token:
+    description: A token that can read the repository, for run-id
+  repository:
+    description: The repository of run-id (owner/name)
+outputs:
+  download-path:
+    description: Where the artifacts were downloaded
+runs:
+  using: node20
+  main: index.js

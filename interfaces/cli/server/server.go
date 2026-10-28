@@ -1,0 +1,376 @@
+package server
+
+import (
+	"context"
+	"github.com/labbs/ogit/infrastructure/helpers/secretbox"
+	"github.com/labbs/ogit/infrastructure/mirror"
+	"github.com/labbs/ogit/infrastructure/netguard"
+	"github.com/labbs/ogit/infrastructure/ratelimit"
+	"net"
+	"strconv"
+	"time"
+
+	"github.com/labbs/ogit/application"
+	"github.com/labbs/ogit/infrastructure"
+	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/cronscheduler"
+	"github.com/labbs/ogit/infrastructure/database"
+	"github.com/labbs/ogit/infrastructure/http"
+	"github.com/labbs/ogit/infrastructure/jobs"
+	"github.com/labbs/ogit/infrastructure/logger"
+	"github.com/labbs/ogit/infrastructure/mail"
+	"github.com/labbs/ogit/infrastructure/persistence"
+	"github.com/labbs/ogit/infrastructure/storage"
+	"github.com/labbs/ogit/infrastructure/webhook"
+	routes "github.com/labbs/ogit/interfaces/http"
+	sshserver "github.com/labbs/ogit/interfaces/ssh"
+
+	"github.com/urfave/cli/v3"
+)
+
+// NewInstance creates a new CLI command for starting the server.
+// It's called by the main application to add the "server" command to the CLI.
+func NewInstance(version string) *cli.Command {
+	cfg := &config.Config{}
+	cfg.Version = version
+	serverFlags := getFlags(cfg)
+
+	return &cli.Command{
+		Name:  "server",
+		Usage: "Start the HTTP server",
+		Flags: serverFlags,
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return runServer(*cfg)
+		},
+	}
+}
+
+// getFlags returns the list of CLI flags required for the server command.
+func getFlags(cfg *config.Config) (list []cli.Flag) {
+	list = append(list, config.GenericFlags(cfg)...)
+	list = append(list, config.ServerFlags(cfg)...)
+	list = append(list, config.LoggerFlags(cfg)...)
+	list = append(list, config.DatabaseFlags(cfg)...)
+	list = append(list, config.SessionFlags(cfg)...)
+	list = append(list, config.SecurityFlags(cfg)...)
+	list = append(list, config.RegistrationFlags(cfg)...)
+	list = append(list, config.StorageFlags(cfg)...)
+	list = append(list, config.SMTPFlags(cfg)...)
+	list = append(list, config.SSHFlags(cfg)...)
+	list = append(list, config.RateLimitFlags(cfg)...)
+	list = append(list, config.WebhookFlags(cfg)...)
+	list = append(list, config.MirrorFlags(cfg)...)
+	list = append(list, config.ReleaseFlags(cfg)...)
+	list = append(list, config.GitFlags(cfg)...)
+	list = append(list, config.LFSFlags(cfg)...)
+	list = append(list, config.ActionsFlags(cfg)...)
+	list = append(list, config.PackagesFlags(cfg)...)
+	return
+}
+
+// runServer initializes the necessary dependencies and starts the HTTP server.
+func runServer(cfg config.Config) error {
+	deps, err := setupDeps(cfg)
+	if err != nil {
+		return err
+	}
+	logger := deps.Logger.With().Str("component", "interfaces.cli.http.runserver").Logger()
+
+	// Setup cron jobs
+	configJobs := jobs.Config{
+		Logger:        deps.Logger,
+		CronScheduler: deps.CronScheduler,
+		SessionApp:    *deps.SessionApp,
+		TwoFactorApp:  deps.TwoFactorApp,
+	}
+
+	err = configJobs.SetupJobs()
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.jobs.setup").Msg("Failed to setup cron jobs")
+		return err
+	}
+
+	// Setup routes
+	routes.SetupRoutes(deps)
+
+	// Webhook deliveries, on every server (each delivery is claimed once).
+	go deps.WebhookApp.Run(context.Background(), 2*time.Second)
+	// Runs whose runner stopped reporting fail.
+	go deps.ActionsApp.Watch(context.Background(), time.Minute)
+	// Unused container blobs and abandoned uploads.
+	go deps.PackagesApp.Run(context.Background(), time.Hour)
+	// Pull mirrors and imports, on every server (each sync is claimed once).
+	go deps.MirrorApp.Run(context.Background(), 5*time.Second)
+	// Push mirrors: within seconds of a push (each sync claimed once).
+	go deps.PushMirrorApp.Run(context.Background(), 5*time.Second, 4)
+	// API imports (issues, pull requests, releases), each claimed once.
+	go deps.ImportApp.Run(context.Background(), 5*time.Second)
+	// Sign-ins that were never finished.
+	go func() {
+		for range time.Tick(10 * time.Minute) {
+			if err := deps.SSOApp.Sweep(); err != nil {
+				deps.Logger.Warn().Err(err).Str("component", "application.sso").Msg("failed to delete expired sign-ins")
+			}
+		}
+	}()
+
+	if cfg.SSH.Enabled {
+		if err := startSSH(deps); err != nil {
+			logger.Fatal().Err(err).Str("event", "http.runserver.ssh").Msg("Failed to start SSH server")
+			return err
+		}
+	}
+
+	// Start HTTP server
+	logger.Info().Str("event", "http.runserver.http.listen").Msgf("Starting HTTP server on port %d", cfg.Server.Port)
+	err = deps.Http.Fiber.Listen(":" + strconv.Itoa(cfg.Server.Port))
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.http.listen").Msg("Failed to start HTTP server")
+		return err
+	}
+
+	return nil
+}
+
+// setupDeps initializes the logger, cron scheduler, database, storage,
+// application services and HTTP server. Routes and cron jobs are not set up.
+func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
+	var err error
+	var deps infrastructure.Deps
+
+	// Initialize logger
+	deps.Logger = logger.NewLogger(cfg.Logger.Level, cfg.Logger.Pretty, cfg.Version)
+	logger := deps.Logger.With().Str("component", "interfaces.cli.http.runserver").Logger()
+
+	// Validate configuration before anything uses it
+	if err = cfg.EnsureSessionSecret(deps.Logger); err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.session_secret").Msg("Invalid session configuration")
+		return deps, err
+	}
+	if err = cfg.ValidateEncryptionKey(); err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.encryption_key").Msg("Invalid security configuration")
+		return deps, err
+	}
+	if cfg.Security.EncryptionKey == "" {
+		logger.Warn().Str("event", "config.security.no_encryption_key").Msg("security.encryption_key is not set: two-factor authentication with an authenticator app is unavailable")
+	}
+	if err = cfg.ValidateEmailVerification(); err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.email_verification").Msg("Invalid email verification configuration")
+		return deps, err
+	}
+	deps.Config = cfg
+
+	// Initialize other cron scheduler (go-cron)
+	deps.CronScheduler, err = cronscheduler.Configure(deps.Logger)
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.cronscheduler.configure").Msg("Failed to configure cron scheduler")
+		return deps, err
+	}
+
+	// Initialize database connection (gorm)
+	deps.Database, err = database.Configure(deps.Config, deps.Logger)
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.database.configure").Msg("Failed to configure database connection")
+		return deps, err
+	}
+
+	// Initialize storage
+	deps.Storage, err = storage.Configure(deps.Config, deps.Logger)
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.storage.configure").Msg("Failed to configure storage")
+		return deps, err
+	}
+
+	// Initialize application services
+	userPers := persistence.NewUserPers(deps.Database.Db)
+	groupPers := persistence.NewGroupPers(deps.Database.Db)
+	sessionPers := persistence.NewSessionPers(deps.Database.Db)
+	repoPers := persistence.NewRepositoryPers(deps.Database.Db)
+	tokenPers := persistence.NewTokenPers(deps.Database.Db)
+	repositoryMemberPers := persistence.NewRepositoryMemberPers(deps.Database.Db)
+
+	// Before the services that send mail (SSHKeyApp got nil before).
+	deps.Mailer = mail.NewSMTPSender(deps.Config)
+
+	deps.UserApp = application.NewUserApp(deps.Config, deps.Logger, userPers, groupPers)
+	deps.SessionApp = application.NewSessionApp(deps.Config, deps.Logger, sessionPers, deps.UserApp)
+	box, err := secretbox.New(deps.Config.Security.EncryptionKey)
+	if err != nil {
+		return deps, err
+	}
+	relyingParty, err := application.NewWebAuthn(deps.Config.Server.PublicURL)
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.webauthn").Msg("Invalid http.public_url for security keys")
+		return deps, err
+	}
+	deps.TwoFactorApp = &application.TwoFactorApp{
+		Config: deps.Config, Logger: deps.Logger, Users: userPers, Sessions: sessionPers,
+		Pers: persistence.NewTwoFactorPers(deps.Database.Db), Box: box, Mailer: deps.Mailer, WebAuthn: relyingParty,
+		Settings: persistence.NewSiteSettingPers(deps.Database.Db),
+	}
+	deps.RepoApp = application.NewRepositoryApp(deps.Config, deps.Logger, repoPers, repositoryMemberPers, groupPers, userPers, nil, deps.Storage)
+	deps.BrowseApp = &application.BrowseApp{Repositories: deps.RepoApp, Storage: deps.Storage}
+	deps.NotificationApp = &application.NotificationApp{
+		Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewNotificationPers(deps.Database.Db), Repositories: deps.RepoApp,
+		Users: userPers, Mailer: deps.Mailer,
+	}
+	deps.RepoApp.Notifications = deps.NotificationApp
+	deps.PullApp = &application.PullRequestApp{
+		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Users: userPers, Notifications: deps.NotificationApp,
+		Pulls: persistence.NewPullRequestPers(deps.Database.Db), Reviews: persistence.NewReviewPers(deps.Database.Db),
+		Labels: persistence.NewLabelPers(deps.Database.Db),
+	}
+	sender, err := webhook.NewSender(deps.Config.Webhooks.AllowedHosts, deps.Config.Webhooks.Timeout)
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.webhooks").Msg("Invalid webhooks.allowed_hosts")
+		return deps, err
+	}
+	deps.WebhookApp = &application.WebhookApp{
+		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Users: userPers,
+		Hooks: persistence.NewWebhookPers(deps.Database.Db), Sender: sender,
+		Pulls: deps.PullApp.Pulls, Labels: deps.PullApp.Labels,
+	}
+	deps.RepoApp.Webhooks = deps.WebhookApp
+	deps.PullApp.Webhooks = deps.WebhookApp
+	deps.ProtectionApp = &application.ProtectionApp{
+		Logger: deps.Logger, Repositories: deps.RepoApp, Rules: persistence.NewBranchProtectionPers(deps.Database.Db),
+		Tags: persistence.NewProtectedTagPers(deps.Database.Db), Users: userPers, Groups: groupPers,
+	}
+	deps.PullApp.Protection = deps.ProtectionApp
+	deps.StatusApp = &application.StatusApp{
+		Logger: deps.Logger, Repositories: deps.RepoApp, Statuses: persistence.NewCommitStatusPers(deps.Database.Db), Webhooks: deps.WebhookApp,
+	}
+	deps.PullApp.Statuses = deps.StatusApp
+	deps.StatusApp.Failed = deps.PullApp.StatusFailed
+	assignees, milestones := persistence.NewAssigneePers(deps.Database.Db), persistence.NewMilestonePers(deps.Database.Db)
+	deps.WebhookApp.Assignees, deps.WebhookApp.Milestones = assignees, milestones
+	deps.IssueApp = &application.IssueApp{
+		Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Issues: persistence.NewIssuePers(deps.Database.Db),
+		Pulls: deps.PullApp.Pulls, Labels: deps.PullApp.Labels, Assignees: assignees, Milestones: milestones,
+		Webhooks: deps.WebhookApp, Notifications: deps.NotificationApp,
+	}
+	deps.PullApp.Assignees, deps.PullApp.Milestones, deps.PullApp.Issues = assignees, milestones, deps.IssueApp
+	deps.PullApp.Reviewers = persistence.NewRequestedReviewerPers(deps.Database.Db)
+	deps.MilestoneApp = &application.MilestoneApp{Logger: deps.Logger, Repositories: deps.RepoApp, Milestones: milestones, Webhooks: deps.WebhookApp}
+	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
+	deps.TokenApp.MustEnroll = deps.TwoFactorApp.MustEnroll
+	deps.RepoApp.TwoFactorEnabled = deps.TwoFactorApp.Satisfied
+	deps.GroupApp = application.NewGroupApp(deps.Config, deps.Logger, groupPers, userPers, repoPers)
+	packagesPers := persistence.NewPackagesPers(deps.Database.Db)
+	deps.GroupApp.Packages = packagesPers
+	deps.GroupApp.TwoFactor = deps.TwoFactorApp
+	deps.WebhookApp.Groups = deps.GroupApp
+	deps.AdminApp = &application.AdminApp{
+		Config: deps.Config, Logger: deps.Logger, UserPers: userPers, SessionPers: sessionPers,
+		RepoPers: repoPers, RepositoryMemberPers: repositoryMemberPers, GroupPers: groupPers, Storage: deps.Storage, Packages: packagesPers,
+	}
+	deps.SSHKeyApp = &application.SSHKeyApp{
+		Config: deps.Config, Logger: deps.Logger, SSHKeyPers: persistence.NewSSHKeyPers(deps.Database.Db), UserPers: userPers,
+		RepositoryApp: deps.RepoApp, AdminApp: deps.AdminApp, Mailer: deps.Mailer,
+	}
+	deps.AuthApp = application.NewAuthApp(deps.Config, deps.Logger, *deps.UserApp, *deps.SessionApp, *deps.TokenApp, *deps.RepoApp,
+		deps.Mailer, persistence.NewEmailVerificationPers(deps.Database.Db))
+	deps.AuthApp.ForkEdits = deps.PullApp.EditableBranches
+	deps.AuthApp.TwoFactor = deps.TwoFactorApp
+	deps.AdminApp.TwoFactor = deps.TwoFactorApp
+	deps.RepoTokenApp = &application.RepositoryTokenApp{Repositories: deps.RepoApp, Tokens: deps.TokenApp}
+	deps.ReleaseApp = &application.ReleaseApp{
+		Logger: deps.Logger, Repositories: deps.RepoApp, Releases: persistence.NewReleasePers(deps.Database.Db),
+		Assets: persistence.NewReleaseAssetPers(deps.Database.Db), MaxAssetSize: deps.Config.Releases.MaxAssetSize,
+		Pulls: deps.PullApp.Pulls, Users: userPers, Webhooks: deps.WebhookApp, TagCheck: deps.ProtectionApp.ReleaseTagCheck,
+		Notifications: deps.NotificationApp,
+	}
+	deps.LFSApp = &application.LFSApp{Config: deps.Config, Logger: deps.Logger, Auth: deps.AuthApp, Repositories: deps.RepoApp,
+		Storage: deps.Storage, Locks: persistence.NewLFSLockPers(deps.Database.Db)}
+	deps.BrowseApp.LFS = deps.LFSApp
+	deps.WikiApp = &application.WikiApp{Logger: deps.Logger, Repositories: deps.RepoApp, Storage: deps.Storage, Users: userPers,
+		Webhooks: deps.WebhookApp, Notifications: deps.NotificationApp}
+	deps.WebhookApp.Wikis = deps.WikiApp
+	deps.ActionsApp = &application.ActionsApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewActionsPers(deps.Database.Db),
+		Repositories: deps.RepoApp, Groups: deps.GroupApp.GroupPers, GroupApp: deps.GroupApp, Admin: deps.AdminApp, Webhooks: deps.WebhookApp, Box: deps.TwoFactorApp.Box, Statuses: deps.StatusApp}
+	deps.WebhookApp.Actions = deps.ActionsApp
+	deps.TokenApp.JobToken = deps.ActionsApp.JobToken
+	deps.TokenApp.JobTokenHash = deps.ActionsApp.JobTokenByHash
+	deps.AuthApp.Actions = deps.ActionsApp
+	deps.PackagesApp = &application.PackagesApp{Config: deps.Config, Logger: deps.Logger, Pers: packagesPers,
+		Repositories: deps.RepoApp, Storage: deps.Storage, Tokens: deps.TokenApp}
+	deps.GoProxyApp = &application.GoProxyApp{Config: deps.Config}
+	mirrorGuard, err := netguard.New(deps.Config.Mirrors.AllowedHosts, "mirrors.allowed_hosts")
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.mirrors").Msg("Invalid mirrors.allowed_hosts")
+		return deps, err
+	}
+	deps.MirrorApp = &application.MirrorApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewMirrorPers(deps.Database.Db),
+		Repositories: deps.RepoApp, Storage: deps.Storage, LFS: deps.LFSApp, Box: deps.TwoFactorApp.Box, Dialer: mirror.Dialer{Guard: mirrorGuard}}
+	deps.PushMirrorApp = &application.PushMirrorApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewPushMirrorPers(deps.Database.Db),
+		Repositories: deps.RepoApp, Storage: deps.Storage, LFS: deps.LFSApp, Box: deps.TwoFactorApp.Box, Dialer: mirror.Dialer{Guard: mirrorGuard}}
+	deps.MirrorApp.PushMirrors = deps.PushMirrorApp
+	deps.ImportApp = &application.ImportApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewImportPers(deps.Database.Db),
+		Repositories: deps.RepoApp, Users: userPers, Issues: deps.IssueApp.Issues, Pulls: deps.PullApp.Pulls, Labels: deps.PullApp.Labels,
+		Milestones: milestones, Releases: deps.ReleaseApp.Releases, Assets: deps.ReleaseApp.Assets, Storage: deps.Storage,
+		Box: deps.TwoFactorApp.Box, Dialer: mirror.Dialer{Guard: mirrorGuard}}
+	deps.MirrorApp.Imports = deps.ImportApp
+	deps.SSOApp = &application.SSOApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewSSOPers(deps.Database.Db),
+		Auth: deps.AuthApp, Users: userPers, Repos: deps.RepoApp, TwoFactor: deps.TwoFactorApp, Admin: deps.AdminApp, Box: deps.TwoFactorApp.Box,
+		Groups: groupPers, Settings: deps.TwoFactorApp.Settings}
+	ssoProviders, err := config.LoadSSOProviders(deps.Config.ConfigFile)
+	if err == nil {
+		err = deps.SSOApp.LoadConfig(ssoProviders)
+	}
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.sso").Msg("Invalid sso.providers")
+		return deps, err
+	}
+	if len(ssoProviders) > 0 && deps.Config.Server.PublicURL == "" {
+		logger.Warn().Str("event", "http.runserver.config.sso").Msg("sso.providers need http.public_url: sign-in providers are off")
+	}
+	deps.TwoFactorApp.IdPTrusted = deps.SSOApp.Trusted
+	deps.TwoFactorApp.PasswordBlocked = deps.SSOApp.PasswordBlocked
+	deps.AuthApp.PasswordBlocked = deps.SSOApp.PasswordBlocked
+	deps.AuthApp.SSOOnly = func() bool { on, _, _ := deps.SSOApp.SSOOnly(); return on }
+	deps.AuthApp.Directory = deps.SSOApp.SignInWithDirectory
+	deps.TwoFactorApp.DirectoryPassword = deps.SSOApp.DirectoryPassword
+	deps.WebhookApp.PushMirrors = deps.PushMirrorApp
+
+	deps.Limits, err = ratelimit.NewGuard(deps.Config, deps.Logger)
+	if err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.ratelimit").Msg("Invalid rate limit configuration")
+		return deps, err
+	}
+
+	// Initialize HTTP server (fiber + fiberoapi)
+	deps.Http, err = http.Configure(deps.Config, deps.Logger, *deps.SessionApp, true)
+	if err != nil {
+		logger.Fatal().Err(err).Str("event", "http.runserver.http.configure").Msg("Failed to configure HTTP server")
+		return deps, err
+	}
+
+	return deps, nil
+}
+
+// startSSH listens for git over SSH on ssh.port in the background.
+func startSSH(deps infrastructure.Deps) error {
+	srv, err := sshserver.New(deps.Config.SSH.HostKeyPath, deps.Logger, deps.AuthApp, deps.SSHKeyApp.SSHKeyPers, deps.Storage)
+	if srv != nil {
+		srv.Limits = deps.Limits
+		srv.Webhooks = deps.WebhookApp
+		srv.Protection = deps.ProtectionApp
+		srv.Pulls = deps.PullApp
+		srv.LFS = deps.LFSApp
+		srv.MaxPushSize = deps.Config.Git.MaxPushSize
+	}
+	if err != nil {
+		return err
+	}
+	ln, err := net.Listen("tcp", ":"+strconv.Itoa(deps.Config.SSH.Port))
+	if err != nil {
+		return err
+	}
+	deps.Logger.Info().Str("event", "http.runserver.ssh.listen").Msgf("Starting SSH server on port %d", deps.Config.SSH.Port)
+	go func() {
+		if err := srv.Serve(ln); err != nil {
+			deps.Logger.Error().Err(err).Msg("SSH server stopped")
+		}
+	}()
+	return nil
+}

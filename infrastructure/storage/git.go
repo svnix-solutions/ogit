@@ -1,0 +1,112 @@
+package storage
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/go-git/go-git/v5/plumbing/storer"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/labbs/ogit/infrastructure/config"
+	"github.com/labbs/ogit/infrastructure/storage/local"
+	"github.com/labbs/ogit/infrastructure/storage/s3"
+	"github.com/rs/zerolog"
+)
+
+// GitRepositoryStorage defines the interface for Git repository storage backends
+type Config interface {
+	// GetStorer returns a go-git storer for the given repository path
+	GetStorer(repoPath string) (storer.Storer, error)
+
+	// CreateRepository creates a new bare repository at the specified path
+	// with an initial commit on main: a README titled name.
+	CreateRepository(repoPath, name string) error
+
+	// InitRepository creates an empty bare repository (HEAD -> main, no
+	// commits), to be filled by a fork.
+	InitRepository(repoPath string) error
+
+	// RepositoryExists checks if a repository exists at the given path
+	RepositoryExists(repoPath string) bool
+
+	// DeleteRepository removes a repository at the given path
+	DeleteRepository(repoPath string) error
+
+	// PutAsset stores a release asset with the repository (deleted with
+	// it); OpenAsset reads it back and DeleteAsset removes it (no error if
+	// it is missing). Sizes are the caller's business.
+	PutAsset(repoPath, id string, r io.Reader) error
+	OpenAsset(repoPath, id string) (io.ReadCloser, error)
+	DeleteAsset(repoPath, id string) error
+
+	// PutFile, OpenFile and DeleteFile store files of an area of the
+	// repository: "artifacts" and "actions-cache" (Actions), with the
+	// same rules as assets ("release-assets").
+	PutFile(repoPath, area, id string, r io.Reader) error
+	OpenFile(repoPath, area, id string) (io.ReadCloser, error)
+	DeleteFile(repoPath, area, id string) error
+	// OpenFileRange reads length bytes of a file from offset (ranged
+	// downloads of cache entries).
+	OpenFileRange(repoPath, area, id string, offset, length int64) (io.ReadCloser, error)
+
+	// Package files are stored per namespace owner, outside repositories
+	// (name: a relative path such as "blobs/sha256/<hex>").
+	PutPackageFile(ownerId, name string, r io.Reader) error
+	OpenPackageFile(ownerId, name string) (io.ReadCloser, error)
+	DeletePackageFile(ownerId, name string) error
+
+	// LFS objects (oid: lowercase hex SHA-256, checked by the caller) are
+	// stored with the repository too. StatLFSObject reports a missing
+	// object as ok false.
+	PutLFSObject(repoPath, oid string, r io.Reader) error
+	OpenLFSObject(repoPath, oid string) (io.ReadCloser, error)
+	StatLFSObject(repoPath, oid string) (size int64, ok bool, err error)
+
+	// ListRepositories returns a list of all repository paths
+	ListRepositories() ([]string, error)
+
+	// Configure initializes the storage backend
+	Configure() error
+}
+
+// GitServerLoader implements go-git's server.Loader interface
+// using our storage abstraction
+type GitServerLoader struct {
+	storage  Config
+	repoPath string
+}
+
+// NewGitServerLoader creates a new loader for a specific repository
+func NewGitServerLoader(storage Config, repoPath string) *GitServerLoader {
+	return &GitServerLoader{
+		storage:  storage,
+		repoPath: repoPath,
+	}
+}
+
+// Load implements server.Loader interface
+func (l *GitServerLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
+	return l.storage.GetStorer(l.repoPath)
+}
+
+// Config creates a new Config instance based on configuration
+func Configure(_cfg config.Config, logger zerolog.Logger) (Config, error) {
+	logger = logger.With().Str("component", "infrastructure.storage").Logger()
+	logger.Info().Str("storage_type", _cfg.Storage.Type).Msg("configuring storage backend")
+	var storage Config
+	switch _cfg.Storage.Type {
+	case "local":
+		storage = local.NewLocalStorage(logger, _cfg)
+	case "s3":
+		storage = s3.NewS3Storage(logger, _cfg)
+	default:
+		return nil, fmt.Errorf("unsupported storage type: %s", _cfg.Storage.Type)
+	}
+
+	err := storage.Configure()
+	if err != nil {
+		logger.Error().Err(err).Str("storage_type", _cfg.Storage.Type).Msg("failed to configure storage")
+		return nil, err
+	}
+
+	return storage, nil
+}
