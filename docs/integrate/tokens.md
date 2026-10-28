@@ -44,7 +44,7 @@ curl https://git.example.com/api/v1/repository/me%2Fmy-project/issues -H "Author
 
 ## Actions job tokens
 
-Each [Actions](/user/actions) job gets `GITHUB_TOKEN`, valid while its run runs, for its repository only. It reads the repository; with `permissions:` it can push (`contents: write`), post statuses (`statuses: write`) and publish packages (`packages: write`). It works wherever a repository token does.
+Each [Actions](/user/actions) job gets a token, <span v-pre>`${{ secrets.GITHUB_TOKEN }}`</span>, valid while its run runs, for its repository only. It reads the repository; with `permissions:` it can push (`contents: write`), post statuses (`statuses: write`) and publish packages (`packages: write`). It works wherever a repository token does.
 
 ## Deploy keys
 

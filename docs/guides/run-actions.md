@@ -1,6 +1,6 @@
 # Run Actions on your own runner
 
-Actions workflows run on runners you host: any Linux machine with Docker. This guide registers a runner for one repository and runs a first workflow.
+Actions workflows run on runners you host: any Linux machine with Docker. This guide registers a runner for one repository and runs a first workflow. (The [Docker Compose showcase](./try-it) comes with a runner already registered for its demo repository.)
 
 ## 1. Get the runner
 

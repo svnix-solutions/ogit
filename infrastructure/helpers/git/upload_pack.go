@@ -2,13 +2,13 @@ package git
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/format/pktline"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
 	"github.com/go-git/go-git/v5/plumbing/storer"
@@ -41,9 +41,25 @@ import (
 // that is the newest shared commit (clients send haves newest first); with
 // several wants the pack may contain some objects the client has.
 
-// AdvertiseUploadPackHTTP adds multi_ack_detailed to an upload-pack
-// advertisement served over HTTP.
+// AdvertiseUploadPack adds what oGit serves beyond go-git to an upload-pack
+// advertisement: shallow fetches (shallow.go), and wants of any commit a
+// branch or tag reaches, not only their tips (actions/checkout fetches
+// GITHUB_SHA, which may no longer be a tip; checkWants enforces "reaches").
+func AdvertiseUploadPack(adv *packp.AdvRefs) error {
+	for _, c := range []capability.Capability{capability.Shallow, capability.AllowTipSHA1InWant, capability.AllowReachableSHA1InWant} {
+		if err := adv.Capabilities.Set(c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AdvertiseUploadPackHTTP is AdvertiseUploadPack plus multi_ack_detailed,
+// for HTTP.
 func AdvertiseUploadPackHTTP(adv *packp.AdvRefs) error {
+	if err := AdvertiseUploadPack(adv); err != nil {
+		return err
+	}
 	return adv.Capabilities.Set(capability.MultiACKDetailed)
 }
 
@@ -55,12 +71,28 @@ func ServeUploadPack(ctx context.Context, sess transport.UploadPackSession, obje
 	if err := wants.Decode(in); err != nil {
 		return fmt.Errorf("read wants: %w", err)
 	}
-	if len(wants.Shallows) > 0 || wants.Depth != nil && !wants.Depth.IsZero() {
-		return errors.New("shallow clones are not supported")
-	}
 	detailed := stateless && wants.Capabilities.Supports(capability.MultiACKDetailed)
 	// go-git rejects capabilities it does not implement itself.
 	wants.Capabilities.Delete(capability.MultiACKDetailed)
+	wants.Capabilities.Delete(capability.Shallow)
+
+	if err := checkWants(objects, wants.Wants); err != nil {
+		return err
+	}
+
+	var plan *shallowPlan
+	if isShallowRequest(wants) {
+		var err error
+		if plan, err = planShallow(objects, wants); err != nil {
+			return err
+		}
+		// Only with a depth does the client wait for this list (shallow.go).
+		if plan.depth > 0 {
+			if err := writeShallowUpdate(out, plan); err != nil {
+				return err
+			}
+		}
+	}
 
 	enc := pktline.NewEncoder(out)
 	scanner := pktline.NewScanner(in)
@@ -124,12 +156,73 @@ func ServeUploadPack(ctx context.Context, sess transport.UploadPackSession, obje
 			if err != nil {
 				return err
 			}
+			if plan != nil {
+				return writeShallowPack(objects, wants, plan, common, out)
+			}
 			return writePack(ctx, sess, wants, common, out)
 
 		default:
 			return fmt.Errorf("unexpected line in negotiation: %q", line)
 		}
 	}
+}
+
+// checkWants refuses wants that no ref reaches: a client may ask for any
+// commit of the history by its id, but not for objects left over from
+// deleted or rewritten branches.
+func checkWants(objects storer.EncodedObjectStorer, wants []plumbing.Hash) error {
+	refs, ok := objects.(storer.ReferenceStorer)
+	if !ok {
+		return nil
+	}
+	need := map[plumbing.Hash]bool{}
+	for _, w := range wants {
+		need[w] = true
+	}
+	iter, err := refs.IterReferences()
+	if err != nil {
+		return err
+	}
+	var queue []plumbing.Hash
+	err = iter.ForEach(func(r *plumbing.Reference) error {
+		if r.Type() == plumbing.HashReference {
+			delete(need, r.Hash())
+			queue = append(queue, r.Hash())
+		}
+		return nil
+	})
+	if err != nil || len(need) == 0 {
+		return err
+	}
+	// Walk from every tip (tags peeled) until each want is found.
+	seen := map[plumbing.Hash]bool{}
+	for len(queue) > 0 && len(need) > 0 {
+		h := queue[0]
+		queue = queue[1:]
+		if seen[h] {
+			continue
+		}
+		seen[h] = true
+		delete(need, h)
+		o, err := objects.EncodedObject(plumbing.AnyObject, h)
+		if err != nil {
+			continue
+		}
+		switch o.Type() {
+		case plumbing.TagObject:
+			if t, err := object.DecodeTag(objects, o); err == nil {
+				queue = append(queue, t.Target)
+			}
+		case plumbing.CommitObject:
+			if c, err := object.DecodeCommit(objects, o); err == nil {
+				queue = append(queue, c.ParentHashes...)
+			}
+		}
+	}
+	for w := range need {
+		return fmt.Errorf("not our ref %s", w)
+	}
+	return nil
 }
 
 // writePack sends the objects reachable from the wants but not from common.
