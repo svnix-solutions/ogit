@@ -43,6 +43,10 @@ server {
 }
 ```
 
+## Nginx Proxy Manager
+
+Create a proxy host that forwards to oGit (`http`, port 8080), request a certificate on the **SSL** tab with **Force SSL**, and put the nginx settings above (body size, buffering, timeouts) in the **Advanced** tab's custom configuration. The [Docker guide](/guides/docker-postgres#_5-set-up-the-proxy-host) goes through it.
+
 ## Caddy
 
 ```txt
