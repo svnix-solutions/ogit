@@ -1,8 +1,8 @@
 name: Docs
 
 # Builds the documentation site (docs/, VitePress) on pull requests, and
-# publishes it to GitHub Pages on pushes to refactor and main. Pages must be
-# set to "GitHub Actions" in the repository's settings.
+# publishes it to GitHub Pages on pushes to main (the github-pages
+# environment only allows main). Pushes to refactor build it as a check.
 on:
   pull_request:
     branches: [main, refactor]
@@ -34,14 +34,14 @@ jobs:
         working-directory: docs
       - run: npm run build
         working-directory: docs
-      - if: github.event_name != 'pull_request'
+      - if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/.vitepress/dist
 
   deploy:
     name: Deploy
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:

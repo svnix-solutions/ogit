@@ -1,7 +1,7 @@
 import { defineConfig } from "vitepress";
 
 // The site is published to GitHub Pages at https://svnix-solutions.github.io/ogit/
-// (.github/workflows/docs.yaml); DOCS_BASE overrides the base path.
+// from main (.github/workflows/docs.yaml); DOCS_BASE overrides the base path.
 export default defineConfig({
   title: "oGit",
   description: "A self-hosted Git server: repositories, pull requests, issues, wikis, Actions, packages and more.",

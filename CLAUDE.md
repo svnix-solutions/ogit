@@ -28,7 +28,7 @@ npm --prefix docs ci && npm --prefix docs run build   # documentation site (Vite
 npm --prefix docs run dev                      # docs with hot reload
 ```
 
-There is no Makefile. `.github/workflows/docs.yaml` builds the docs on PRs and publishes them to GitHub Pages (https://svnix-solutions.github.io/ogit/) on pushes to `refactor` and `main`. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs a web job (npm ci, typecheck, vitest), then gofmt, `go vet`, `go test -race`, the UI build and a static Linux build that embeds it, and a separate job running the MinIO and Mailpit tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
+There is no Makefile. `.github/workflows/docs.yaml` builds the docs on PRs and publishes them to GitHub Pages (https://svnix-solutions.github.io/ogit/) on pushes to `main` only (the `github-pages` environment allows only `main`), so the site changes when `refactor` is merged into `main`. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs a web job (npm ci, typecheck, vitest), then gofmt, `go vet`, `go test -race`, the UI build and a static Linux build that embeds it, and a separate job running the MinIO and Mailpit tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
 
 ## Layout
 
