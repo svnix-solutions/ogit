@@ -39,6 +39,7 @@ The **Settings** tab (maintainers and up) has:
 | **Branch protection**, **Protected tags** | owners | see [Branch protection](./branch-protection) |
 | **Webhooks** | maintainers | HTTP callbacks for events |
 | **Deploy keys** | maintainers | SSH keys for one repository ([more](./git#deploy-keys)) |
+| **Access tokens** | maintainers | tokens for this repository only, for CI ([more](/integrate/tokens#repository-tokens)) |
 | **Push mirrors**, **Mirror** | maintainers | see [Mirroring](./mirroring) |
 | **Runners**, **Secrets**, **Variables**, **Caches** | maintainers | see [Actions](./actions) |
 | **Transfer** | owners | move it to another namespace |
