@@ -29,18 +29,19 @@ export function DiffStats({ diff }: { diff: Diff }) {
   );
 }
 
-export function DiffView({ diff, fullPath, gitRef, inline }: { diff: Diff; fullPath: string; gitRef: string; inline?: InlineComments }) {
+// fileHref, when given, is where a file name links (the blob page otherwise).
+export function DiffView({ diff, fullPath, gitRef, inline, fileHref }: { diff: Diff; fullPath: string; gitRef: string; inline?: InlineComments; fileHref?: (path: string) => string }) {
   return (
     <div className="space-y-4">
       <DiffStats diff={diff} />
       {diff.files.map((f) => (
-        <FileDiffView key={f.old_path + "→" + f.path} file={f} fullPath={fullPath} gitRef={gitRef} inline={inline} />
+        <FileDiffView key={f.old_path + "→" + f.path} file={f} fullPath={fullPath} gitRef={gitRef} inline={inline} fileHref={fileHref} />
       ))}
     </div>
   );
 }
 
-function FileDiffView({ file, fullPath, gitRef, inline }: { file: FileDiff; fullPath: string; gitRef: string; inline?: InlineComments }) {
+function FileDiffView({ file, fullPath, gitRef, inline, fileHref }: { file: FileDiff; fullPath: string; gitRef: string; inline?: InlineComments; fileHref?: (path: string) => string }) {
   const [open, setOpen] = useState(true);
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
@@ -54,7 +55,7 @@ function FileDiffView({ file, fullPath, gitRef, inline }: { file: FileDiff; full
           {file.status === "deleted" ? (
             file.path
           ) : (
-            <Link to={`/${fullPath}/blob/${encodePath(gitRef)}/${encodePath(file.path)}`} className="hover:underline">
+            <Link to={fileHref ? fileHref(file.path) : `/${fullPath}/blob/${encodePath(gitRef)}/${encodePath(file.path)}`} className="hover:underline">
               {file.path}
             </Link>
           )}

@@ -77,11 +77,13 @@ function General({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
   const [archived, setArchived] = useState(repo.archived);
   const [approvals, setApprovals] = useState(repo.required_approvals ?? 0);
   const [hasIssues, setHasIssues] = useState(repo.has_issues !== false);
+  const [wikiAccess, setWikiAccess] = useState(repo.wiki_access ?? "writers");
   const changed = useRepoChanged();
   const save = useMutation({
     mutationFn: () => {
       const body: Record<string, unknown> = {};
       if (description !== repo.description) body.description = description;
+      if (wikiAccess !== (repo.wiki_access ?? "writers")) body.wiki_access = wikiAccess;
       if (isOwner) {
         if (name !== repo.name) body.name = name;
         if (isPrivate !== repo.is_private) body.is_private = isPrivate;
@@ -100,7 +102,7 @@ function General({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
   }
 
   return (
-    <Section title="General" description={isOwner ? undefined : "Owners change the name, visibility and archiving."}>
+    <Section title="General" description={isOwner ? undefined : "Owners change the name, visibility, archiving and issues; maintainers the description and the wiki."}>
       <form className="space-y-4" onSubmit={submit}>
         <div className="space-y-1.5">
           <Label htmlFor="repo-name">Name</Label>
@@ -119,6 +121,14 @@ function General({ repo, isOwner }: { repo: Repository; isOwner: boolean }) {
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={hasIssues} disabled={!isOwner} onChange={(e) => setHasIssues(e.target.checked)} /> Issues (when off, existing issues stay readable)
+        </label>
+        <label className="flex flex-wrap items-center gap-2 text-sm">
+          Wiki
+          <Select aria-label="Wiki" value={wikiAccess} onChange={(e) => setWikiAccess(e.target.value as typeof wikiAccess)}>
+            <option value="writers">Developers and up edit it</option>
+            <option value="readers">Everyone who can read the repository edits it</option>
+            <option value="off">Off (hidden, content kept)</option>
+          </Select>
         </label>
         <label className="flex items-center gap-2 text-sm">
           Approvals required to merge a pull request

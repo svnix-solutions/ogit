@@ -10,7 +10,7 @@ export type Notification = {
   reason: string;
   participating: boolean;
   repository: string;
-  subject: { type: "issue" | "pull_request" | "release"; number?: number; title: string; url: string };
+  subject: { type: "issue" | "pull_request" | "release" | "wiki"; number?: number; title: string; url: string };
   summary: string;
   actor?: string;
   updated_at: string;

@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { BellOff, CircleDot, GitPullRequest, Mail, MailOpen, Tag } from "lucide-react";
+import { BellOff, BookOpen, CircleDot, GitPullRequest, Mail, MailOpen, Tag } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { pageParam, Pager } from "@/components/pager";
@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 const perPage = 50;
 
-const icons = { issue: CircleDot, pull_request: GitPullRequest, release: Tag };
+const icons = { issue: CircleDot, pull_request: GitPullRequest, release: Tag, wiki: BookOpen };
 
 // NotificationsPage is the inbox: one entry per thread, grouped by
 // repository, newest first.

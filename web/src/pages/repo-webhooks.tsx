@@ -45,6 +45,7 @@ export const webhookEvents: { name: string; label: string }[] = [
   { name: "issue_comment", label: "Conversation comments" },
   { name: "repository", label: "Repository changes" },
   { name: "status", label: "Commit statuses" },
+  { name: "gollum", label: "Wiki pages" },
 ];
 
 // eventsSummary describes a hook's events for its list entry.
