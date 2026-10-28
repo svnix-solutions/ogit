@@ -14,7 +14,9 @@ export default defineConfig({
     nav: [
       { text: "Using oGit", link: "/user/", activeMatch: "/user/" },
       { text: "Administration", link: "/admin/", activeMatch: "/admin/" },
+      { text: "Integrations", link: "/integrate/", activeMatch: "/integrate/" },
       { text: "Guides", link: "/guides/", activeMatch: "/guides/" },
+      { text: "Contributing", link: "/contribute/", activeMatch: "/contribute/" },
     ],
     sidebar: {
       "/user/": [
@@ -83,6 +85,27 @@ export default defineConfig({
             { text: "Upgrades", link: "/admin/upgrades" },
             { text: "Backups", link: "/admin/backups" },
             { text: "Logging and monitoring", link: "/admin/monitoring" },
+          ],
+        },
+      ],
+      "/integrate/": [
+        {
+          text: "Integrations",
+          items: [
+            { text: "Overview and the REST API", link: "/integrate/" },
+            { text: "Tokens", link: "/integrate/tokens" },
+            { text: "Webhooks", link: "/integrate/webhooks" },
+            { text: "Commit statuses", link: "/integrate/statuses" },
+            { text: "GitHub-compatible API", link: "/integrate/github-api" },
+          ],
+        },
+      ],
+      "/contribute/": [
+        {
+          text: "Contributing",
+          items: [
+            { text: "How oGit is built", link: "/contribute/" },
+            { text: "Development", link: "/contribute/development" },
           ],
         },
       ],
