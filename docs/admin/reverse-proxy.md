@@ -65,4 +65,4 @@ Caddy sets the forwarded headers and doesn't limit body sizes by default.
 
 ## SSH
 
-Git over SSH is a separate port (`ssh.port`, 2222), not HTTP: forward it as TCP (a load balancer's TCP listener, or a port published straight to the server). Clone URLs then look like `ssh://git@git.example.com:2222/<owner>/<repo>.git`. Keep `ssh.host_key_path` on persistent storage: when the host key changes, clients warn about a possible attack.
+Git over SSH is a separate port (`ssh.port`, 2222), not HTTP: forward it as TCP. That can be a port published straight to the server, a load balancer's TCP listener, an nginx `stream` block, or a Nginx Proxy Manager **stream** (see the [Docker guide](/guides/docker-postgres#_6-forward-ssh-with-a-stream)). Caddy needs the third-party `caddy-l4` plugin for it. A TCP proxy hides the client's address from oGit; SSH rate limits count per key, so they still work. Clone URLs then look like `ssh://git@git.example.com:2222/<owner>/<repo>.git`. Keep `ssh.host_key_path` on persistent storage: when the host key changes, clients warn about a possible attack.

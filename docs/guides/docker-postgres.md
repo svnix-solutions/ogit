@@ -1,6 +1,6 @@
 # Run oGit with Docker and PostgreSQL
 
-This guide sets up oGit on one host with Docker Compose: PostgreSQL for the database, a volume for the repositories, git over SSH, and [Nginx Proxy Manager](https://nginxproxymanager.com/) for TLS. Replace `git.example.com` with your host name, and point its DNS at the host.
+This guide sets up oGit on one host with Docker Compose: PostgreSQL for the database, a volume for the repositories, and [Nginx Proxy Manager](https://nginxproxymanager.com/) in front of it for both HTTPS (a proxy host, with TLS) and git over SSH (a stream). Replace `git.example.com` with your host name, and point its DNS at the host.
 
 ## 1. Generate the keys
 
@@ -78,8 +78,7 @@ services:
     volumes:
       - ./config.yaml:/config/config.yaml:ro
       - data:/data
-    ports:
-      - "2222:2222"   # git over SSH; HTTP goes through the proxy
+    # No ports: HTTP and SSH both go through the proxy.
 
   proxy:
     image: jc21/nginx-proxy-manager:latest   # pin a version in production
@@ -87,6 +86,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "2222:2222"         # git over SSH, forwarded to oGit by a stream (step 6)
       - "127.0.0.1:81:81"   # the admin UI: local only (reach it through an SSH tunnel)
     volumes:
       - npm-data:/data
@@ -99,7 +99,7 @@ volumes:
   npm-letsencrypt:
 ```
 
-oGit's port 8080 isn't published: the proxy reaches it on the Compose network as `ogit:8080`.
+oGit publishes no ports: the proxy reaches it on the Compose network as `ogit:8080` (HTTP) and `ogit:2222` (SSH). Nginx Proxy Manager can only listen on ports published on its own container, so every port you forward must be listed under `proxy`.
 
 ## 4. Start it
 
@@ -159,7 +159,40 @@ Check it:
 curl https://git.example.com/api/health
 ```
 
-## 6. Create the first admin
+## 6. Forward SSH with a stream
+
+SSH isn't HTTP, so it doesn't go through a proxy host. A **stream** forwards the TCP connection as it is. In the admin UI, **Hosts → Streams → Add Stream**:
+
+| Field | Value |
+|---|---|
+| Incoming Port | `2222` |
+| Forward Host | `ogit` |
+| Forward Port | `2222` |
+| TCP Forwarding | on |
+| UDP Forwarding | off |
+
+If your version offers an SSL certificate for streams, leave it off. SSH encrypts the connection itself, and git clients don't expect TLS around it.
+
+Check it:
+
+```bash
+ssh -p 2222 git@git.example.com
+# Hi <you>! You've successfully authenticated, but oGit does not provide shell access.
+```
+
+That answer needs an SSH key added in your oGit settings; before that, the server refuses the key. Clone URLs look like `ssh://git@git.example.com:2222/<owner>/<repo>.git`. Allow port 2222 in your firewall.
+
+Notes:
+
+- **Client addresses:** a TCP stream doesn't pass on the client's address, so oGit sees the proxy's address for every SSH connection. SSH rate limits count per key, so they still work; only the addresses in the logs are lost.
+- **Host key:** the proxy only relays bytes, so clients still check oGit's own host key (`ssh.host_key_path`), and moving SSH behind the proxy doesn't make them warn.
+- **Port 22:** to use the standard port, the host's own SSH server must move to another port first: two services can't listen on the same port.
+
+::: tip Simpler: publish SSH directly
+If you don't need SSH to go through the proxy, skip the stream: remove `2222:2222` from `proxy` and add it to `ogit` instead (`ports: ["2222:2222"]`). oGit then also sees SSH clients' real addresses.
+:::
+
+## 7. Create the first admin
 
 Register at `https://git.example.com/register`, then:
 
@@ -168,10 +201,6 @@ docker compose exec ogit ./app admin promote -c /config/config.yaml --email you@
 ```
 
 Sign in again, set up two-factor authentication (admin actions need it), and open `/admin`.
-
-## Git over SSH
-
-SSH doesn't go through Nginx Proxy Manager: port 2222 is published straight from the oGit container. Clone URLs look like `ssh://git@git.example.com:2222/<owner>/<repo>.git`. Allow the port in your firewall.
 
 ## Next steps
 
