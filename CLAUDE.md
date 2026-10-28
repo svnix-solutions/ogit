@@ -4,7 +4,7 @@ Guidance for Claude Code in this repository.
 
 ## What this is
 
-oGit: a Git Smart HTTP server with users, sessions, per-repository access control and pluggable repository storage (local filesystem or S3-compatible). Go module `github.com/labbs/ogit`. Development happens on the `refactor` branch; `main` holds an older, unrelated layout (`internal/`, `pkg/`).
+oGit: a Git Smart HTTP server with users, sessions, per-repository access control and pluggable repository storage (local filesystem or S3-compatible). Go module `github.com/labbs/ogit`. Development happens on the `refactor` branch (feature PRs go there); `refactor` is merged into `main` from time to time, with a merge commit.
 
 ## Commands
 
