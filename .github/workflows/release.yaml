@@ -1,28 +1,35 @@
 name: Release
 
+# On a v* tag: check that the UI and the binary build, build the image and
+# a static binary on native amd64 and arm64 runners in parallel, join the
+# images into one multi-arch image on ghcr.io, and publish a GitHub release
+# with the binaries, their checksums and the notes in
+# .github/releases/<tag>.md (GitHub's generated notes when there is none).
+#
+# Pull requests that change the release files run the same builds without
+# publishing anything.
 on:
   push:
     tags:
       - 'v*'
+  pull_request:
+    branches: [main]
+    paths: [Dockerfile, entrypoint.sh, .dockerignore, .github/workflows/release.yaml]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ${{ github.repository }}
+  IMAGE: ghcr.io/${{ github.repository }}
+  PUBLISH: ${{ github.ref_type == 'tag' }}
 
 jobs:
-  build:
-    name: Build
+  check:
+    name: Check
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        submodules: true
+    - uses: actions/checkout@v4
 
     - uses: actions/setup-go@v5
       with:
@@ -39,37 +46,155 @@ jobs:
     - name: Build web UI
       run: npm --prefix web ci && npm --prefix web run build
 
-    - uses: nowsprinting/check-version-format-action@v3
-      if: github.event_name != 'pull_request'
-      id: version
+    - name: Check the version tag
+      if: github.ref_type == 'tag'
+      uses: nowsprinting/check-version-format-action@v3
       with:
         prefix: 'v'
 
     - name: Build app
-      run: CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static" -X "main.version=${{ steps.version.outputs.full }}"' -o bin/app cmd/cmd.go
+      run: CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static" -X "main.version=${{ github.ref_name }}"' -o bin/app cmd/cmd.go
+
+  build:
+    name: Build (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - {arch: amd64, runner: ubuntu-24.04}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+    - uses: docker/setup-buildx-action@v3
+
+    - name: Version
+      id: version
+      run: |
+        if [ "$GITHUB_REF_TYPE" = tag ]; then v="$GITHUB_REF_NAME"; else v="pr-${{ github.event.number }}"; fi
+        echo "version=$v" >> "$GITHUB_OUTPUT"
 
     - name: Docker meta
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+        images: ${{ env.IMAGE }}
 
     - name: Log in to GitHub Container Registry
+      if: env.PUBLISH == 'true'
       uses: docker/login-action@v3
-      if: github.event_name != 'pull_request'
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    # The steps above check that the UI and the binary build; the image
-    # builds both again, from source, in Docker (see Dockerfile).
-    - name: Build and push
-      uses: docker/build-push-action@v5
+    # Pushed by digest only; the merge job tags the multi-arch image.
+    - name: Build the image
+      id: image
+      uses: docker/build-push-action@v6
       with:
         context: .
-        file: ./Dockerfile
-        build-args: VERSION=${{ steps.version.outputs.full }}
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ steps.meta.outputs.tags }}
+        platforms: linux/${{ matrix.arch }}
+        build-args: VERSION=${{ steps.version.outputs.version }}
         labels: ${{ steps.meta.outputs.labels }}
+        outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ env.PUBLISH }}
+        cache-from: type=gha,scope=${{ matrix.arch }}
+        cache-to: type=gha,scope=${{ matrix.arch }},mode=max
+
+    - name: Build the binary
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        target: binary
+        platforms: linux/${{ matrix.arch }}
+        build-args: VERSION=${{ steps.version.outputs.version }}
+        outputs: type=local,dest=dist
+        cache-from: type=gha,scope=${{ matrix.arch }}
+
+    - name: Check and package the binary
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        file dist/ogit | tee /dev/stderr | grep -q "statically linked"
+        dist/ogit --version
+        mkdir -p out
+        tar -C dist -czf "out/ogit_${VERSION#v}_linux_${{ matrix.arch }}.tar.gz" ogit
+        echo "${{ steps.image.outputs.digest }}" > "out/digest-${{ matrix.arch }}"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: build-${{ matrix.arch }}
+        path: out/
+        retention-days: 7
+
+  merge:
+    name: Publish the image
+    if: github.ref_type == 'tag'
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: build-*
+        merge-multiple: true
+        path: out
+
+    - uses: docker/setup-buildx-action@v3
+
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.IMAGE }}
+        tags: |
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
+          type=semver,pattern={{major}},enable=${{ !contains(github.ref_name, '-') }}
+        flavor: |
+          latest=${{ !contains(github.ref_name, '-') }}
+
+    - uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create the multi-arch image
+      run: |
+        tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+        refs=$(for f in out/digest-*; do printf '%s@%s ' "$IMAGE" "$(cat "$f")"; done)
+        docker buildx imagetools create $tags $refs
+        docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}"
+
+  release:
+    name: Publish the release
+    if: github.ref_type == 'tag'
+    needs: [merge]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: build-*
+        merge-multiple: true
+        path: out
+
+    - name: Create the release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.ref_name }}
+      run: |
+        cd out && sha256sum *.tar.gz > checksums.txt && cd ..
+        notes=(--generate-notes)
+        [ -f ".github/releases/$TAG.md" ] && notes=(--notes-file ".github/releases/$TAG.md")
+        flags=()
+        case "$TAG" in *-*) flags=(--prerelease) ;; esac
+        gh release create "$TAG" out/*.tar.gz out/checksums.txt --title "oGit $TAG" --verify-tag "${notes[@]}" "${flags[@]}"

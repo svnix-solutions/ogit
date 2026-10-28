@@ -4,13 +4,13 @@
 
 To look around first, [try oGit with Docker Compose](/guides/try-it): one command starts it with PostgreSQL, S3 and Redis.
 
-Release images are published to `ghcr.io/svnix-solutions/ogit` for every `v*` tag. The container reads `/config/config.yaml`, runs the database migrations, then starts the server:
+Release images are published to `ghcr.io/svnix-solutions/ogit` for linux/amd64 and linux/arm64, tagged with the version (`2.0.0`), its minor and major versions (`2.0`, `2`) and `latest`. The container reads `/config/config.yaml`, runs the database migrations, then starts the server:
 
 ```bash
 docker run -p 8080:8080 -p 2222:2222 \
   -v "$PWD/config.yaml:/config/config.yaml:ro" \
   -v "$PWD/data:/data" \
-  ghcr.io/svnix-solutions/ogit:<tag>
+  ghcr.io/svnix-solutions/ogit:2
 ```
 
 Keep everything that must survive the container on the `/data` volume:
@@ -26,6 +26,19 @@ ssh:
 ```
 
 See [Run oGit with Docker and PostgreSQL](/guides/docker-postgres) for a complete setup.
+
+## Binaries
+
+Each [release](https://github.com/svnix-solutions/ogit/releases) has static `ogit` binaries for Linux (amd64 and arm64), with `checksums.txt`:
+
+```bash
+curl -LO https://github.com/svnix-solutions/ogit/releases/download/v2.0.0/ogit_2.0.0_linux_amd64.tar.gz
+curl -LO https://github.com/svnix-solutions/ogit/releases/download/v2.0.0/checksums.txt
+sha256sum --check --ignore-missing checksums.txt && tar -xzf ogit_2.0.0_linux_amd64.tar.gz
+./ogit --version
+```
+
+They include the web UI and need no other files.
 
 ## From source
 
