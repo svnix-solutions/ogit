@@ -166,4 +166,6 @@ Repositories are addressed by **path, `<namespace>/<slug>`** (`application/names
 
 ## Docker
 
+`docker-compose.yaml` is a showcase (PostgreSQL, Redis, MinIO with an `s3-init` job that creates the bucket, oGit, and `seed`, which runs `docker/seed.sh` in the oGit image: a `demo` admin with a random password kept in the `ogit-data` volume, and `demo/showcase` with an issue and a wiki page). Its settings are `config-docker-compose.yaml`, public keys on purpose; `docker compose up db` alone is the development PostgreSQL. oGit's image is built from source by `Dockerfile.source` (Node for the UI, Go on Alpine with CGO, a static binary) when `ghcr.io/svnix-solutions/ogit:${OGIT_TAG:-latest}` isn't there. The health check uses `127.0.0.1`: Fiber listens on IPv4 only, and `localhost` can resolve to `::1`.
+
 The release workflow builds a static binary (`CGO_ENABLED=1`, `-extldflags -static`) into `bin/app`. The Dockerfile copies it into Alpine, and `entrypoint.sh` (POSIX `sh`, since Alpine has no bash) runs `migration` and then `server` with `/config/config.yaml`.
