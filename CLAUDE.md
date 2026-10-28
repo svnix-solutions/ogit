@@ -4,7 +4,7 @@ Guidance for Claude Code in this repository.
 
 ## What this is
 
-oGit: a Git Smart HTTP server with users, sessions, per-repository access control and pluggable repository storage (local filesystem or S3-compatible). Go module `github.com/labbs/ogit`. Development happens on the `refactor` branch (feature PRs go there); `refactor` is merged into `main` from time to time, with a merge commit.
+oGit: a Git Smart HTTP server with users, sessions, per-repository access control and pluggable repository storage (local filesystem or S3-compatible). Go module `github.com/labbs/ogit`. Development happens on `main`: branch from it and open pull requests into it (`refactor` was the development branch until 2026-10-28 and is gone).
 
 ## Commands
 
@@ -24,9 +24,11 @@ go test -run 'TestGitHTTPAuthorization/s3_fake/non_member' ./interfaces/cli/serv
 npm --prefix web ci && npm --prefix web run build   # web UI into web/dist (embedded by go build)
 npm --prefix web run dev                       # Vite on :5173, proxies /api to a server on :8080
 npm --prefix web run typecheck && npm --prefix web test
+npm --prefix docs ci && npm --prefix docs run build   # documentation site (VitePress) into docs/.vitepress/dist
+npm --prefix docs run dev                      # docs with hot reload
 ```
 
-There is no Makefile. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs a web job (npm ci, typecheck, vitest), then gofmt, `go vet`, `go test -race`, the UI build and a static Linux build that embeds it, and a separate job running the MinIO and Mailpit tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
+There is no Makefile. `.github/workflows/docs.yaml` builds the docs on PRs and publishes them to GitHub Pages (https://svnix-solutions.github.io/ogit/) on pushes to `main` (the `github-pages` environment allows only `main`), so every merged docs change goes live. CI (`.github/workflows/pr.yaml`, PRs into `main`) runs a web job (npm ci, typecheck, vitest), then gofmt, `go vet`, `go test -race`, the UI build and a static Linux build that embeds it, and a separate job running the MinIO and Mailpit tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
 
 ## Layout
 
@@ -48,6 +50,9 @@ interfaces/http/registry/          OCI distribution API (/v2: docker push and pu
 interfaces/http/packages/          package formats' routes (/api/packages/<owner>/generic/...)
 interfaces/http/runner/            the `ogit runner` protocol (/api/actions/runner)
 infrastructure/actrunner/          the runner: protocol client + act executor
+docs/                              user, admin, integrator and contributor documentation (VitePress;
+                                   nav and sidebar in docs/.vitepress/config.ts; the README only links to it).
+                                   Document features there, not in the README; dead links fail the build
 web/                               React 19 + Vite + TS + Tailwind 4 app; web/embed.go embeds
                                    web/dist (only .gitkeep is committed)
                                    pages in web/src/pages (repository views: repo-code.tsx,

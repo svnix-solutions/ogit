@@ -24,6 +24,8 @@ storage (local filesystem or any S3-compatible object store).
 - **Webhooks**: GitHub-compatible push, pull request and repository events, signed and retried
 - **REST API** with OpenAPI documentation at `/documentation`
 
+The documentation is at **https://svnix-solutions.github.io/ogit/** (sources in [`docs/`](docs/)).
+
 ## Quick start
 
 Building needs Go (see `go.mod`) and a C toolchain, because the SQLite driver
@@ -38,28 +40,10 @@ cp config-example.yaml config.yaml   # then edit it
 ./ogit server -c config.yaml         # listens on :8080 by default
 ```
 
-The web UI is at `http://localhost:8080/`. A binary built without the UI
-step still works and shows how to build it there.
-
-Run `migration` before the first start and after every upgrade. The server
-starts without it, but API calls then fail with missing tables.
-
-### Docker
-
-Release images are published to `ghcr.io/<owner>/<repo>` for `v*` tags. The
-container reads `/config/config.yaml`, runs the migrations, then starts the
-server:
-
-```bash
-docker run -p 8080:8080 \
-  -v "$PWD/config.yaml:/config/config.yaml:ro" \
-  -v "$PWD/data:/data" \
-  ghcr.io/<owner>/<repo>:<tag>
-```
-
-Point `database.dsn` and `storage.local.path` at the `/data` volume, or use
-PostgreSQL and S3. `docker-compose.yaml` starts a local PostgreSQL for
-development.
+The web UI is at `http://localhost:8080/`, and the API documentation at
+`/documentation`. Docker images, production settings, storage, single sign-on,
+backups and upgrades are covered in the
+[administration docs](https://svnix-solutions.github.io/ogit/admin/).
 
 ## Using git
 
@@ -563,205 +547,23 @@ curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/members -H "Author
   - Groups are visible to their members only.
 - `GET /api/v1/repository` and `GET /api/v1/group` list your repositories and groups.
 
-## Administration
+## Running a server
 
-Make the first site admin from the server. The command uses the database
-directly, like `migration`:
+The [administration docs](https://svnix-solutions.github.io/ogit/admin/) cover
+[installation](https://svnix-solutions.github.io/ogit/admin/install) (binary and Docker, the first admin),
+[configuration](https://svnix-solutions.github.io/ogit/admin/configuration),
+[database](https://svnix-solutions.github.io/ogit/admin/database) and [storage](https://svnix-solutions.github.io/ogit/admin/storage) (local and S3, `ogit storage gc` and `prune`),
+[reverse proxies](https://svnix-solutions.github.io/ogit/admin/reverse-proxy),
+[registration and email](https://svnix-solutions.github.io/ogit/admin/registration),
+[two-factor authentication](https://svnix-solutions.github.io/ogit/admin/two-factor),
+[single sign-on](https://svnix-solutions.github.io/ogit/admin/sso) (OIDC, GitHub, LDAP, SAML),
+[rate limits](https://svnix-solutions.github.io/ogit/admin/rate-limits),
+[site administration](https://svnix-solutions.github.io/ogit/admin/administration),
+[upgrades](https://svnix-solutions.github.io/ogit/admin/upgrades), [backups](https://svnix-solutions.github.io/ogit/admin/backups) and
+[monitoring](https://svnix-solutions.github.io/ogit/admin/monitoring). The [guides](https://svnix-solutions.github.io/ogit/guides/) walk through
+common setups.
 
-```bash
-./ogit admin promote -c config.yaml --email you@example.com   # or --username
-./ogit admin demote  -c config.yaml --username someone
-./ogit admin reset-2fa -c config.yaml --username someone   # lost device and recovery codes
-# Docker: docker exec <container> ./app admin promote -c /config/config.yaml --email you@example.com
-```
-
-Admins use `/api/v1/admin` (`/documentation` lists the details):
-
-| Endpoint | |
-|---|---|
-| `GET /api/v1/admin/users?q=&limit=&offset=` | list and search users |
-| `POST /api/v1/admin/users` | create a verified account with an initial password (works when registration is off) |
-| `PATCH /api/v1/admin/users/<username>` | `{"active": false}` disables the account and ends its sessions immediately; also `"email_verified": true`, `"role": "admin"` or `"user"` |
-| `DELETE /api/v1/admin/users/<username>` | delete a user and their sessions, tokens and memberships |
-| `POST /api/v1/admin/users/<username>/reset-2fa` | turn off a user's two-factor authentication (they're emailed and can set it up again) |
-| `GET /api/v1/admin/repositories` | list every repository |
-| `POST /api/v1/admin/repositories/<owner>%2F<slug>/owner` | make a user owner, e.g. when a repo's owners are gone |
-| `POST /api/v1/admin/repositories/<owner>%2F<slug>/transfer` | `{"namespace": "..."}` moves it to any user's or group's namespace |
-| `DELETE /api/v1/admin/repositories/<owner>%2F<slug>?confirm=<slug>` | permanently delete a repository and its git data |
-| `POST /api/v1/admin/groups/<name>/transfer` | make a user the group owner |
-
-- Admins have no implicit access to repository content. To get access, they make themselves owner, which shows in the member list.
-- A user is not deleted while they're the only owner of a repository, have repositories in their namespace, or own a group. The error lists them, so the admin can hand them over (or move them) first.
-- The API never removes the last active admin; the CLI can always promote one.
-- Admin actions are logged with `"component":"audit"`.
-
-Users change their own password with `POST /api/v1/user/password`
-(`current_password`, `new_password`), which also ends their other sessions.
-
-## Configuration
-
-Settings come from the YAML file given with `-c` (default `config.yaml`; a
-missing file is ignored), from environment variables, or from flags. Flags
-override environment variables, and environment variables override the file.
-`config-example.yaml` documents every key. The main ones:
-
-| YAML key | Environment | Default |
-|---|---|---|
-| `http.port` | `HTTP_PORT` | `8080` |
-| `http.logs` | `HTTP_LOGS` | `false` |
-| `logger.level` / `logger.pretty` | `LOGGER_LEVEL` / `LOGGER_PRETTY` | `info` / `false` |
-| `database.dialect` | `DATABASE_DIALECT` | `sqlite` (or `postgres`) |
-| `database.dsn` | `DATABASE_DSN` | `./database.sqlite` |
-| `session.secret_key` | `SESSION_SECRET_KEY` | random per start; set ≥ 32 bytes in production |
-| `session.expiration_minutes` | `SESSION_EXPIRATION_MINUTES` | `43200` (30 days) |
-| `registration.enabled` | `REGISTRATION_ENABLED` | `true` |
-| `registration.domain_whitelist` | `REGISTRATION_DOMAIN_WHITELIST` | any domain |
-| `registration.password_min_length` | `REGISTRATION_PASSWORD_MIN_LENGTH` | `12` |
-| `registration.password_complexity` | `REGISTRATION_PASSWORD_COMPLEXITY` | `true` |
-| `registration.require_email_verification` | `REGISTRATION_REQUIRE_EMAIL_VERIFICATION` | `false`; see [Email verification](#email-verification) |
-| `http.public_url` | `HTTP_PUBLIC_URL` | none; needed for email links and webhook payloads |
-| `http.trusted_proxies` | `HTTP_TRUSTED_PROXIES` | none; see [Rate limits](#rate-limits) |
-| `ratelimit.*` | `RATELIMIT_*` | enabled, in memory; see [Rate limits](#rate-limits) |
-| `smtp.host`, `.port`, `.username`, `.password`, `.from`, `.tls` | `SMTP_*` | port `587`, tls `starttls` |
-| `webhooks.allowed_hosts` / `webhooks.timeout` | `WEBHOOKS_ALLOWED_HOSTS` / `WEBHOOKS_TIMEOUT` | none / `10s`; see [Webhooks](#webhooks) |
-| `ssh.enabled` / `ssh.port` / `ssh.host_key_path` | `SSH_ENABLED` / `SSH_PORT` / `SSH_HOST_KEY_PATH` | `false` / `2222` / `./ssh_host_ed25519_key` |
-| `storage.type` | `STORAGE_TYPE` | `local` (or `s3`) |
-| `storage.local.path` | `STORAGE_LOCAL_PATH` | `./repositories` |
-| `storage.s3.bucket`, `.endpoint`, `.accesskey`, `.secretkey`, `.region` | `STORAGE_S3_*` | region `us-east-1` |
-| `storage.s3.cache.type` / `.max_mb` / `.redis_url` | `STORAGE_S3_CACHE_*` | `memory` / `256` / none; see [S3 storage](#s3-storage) |
-
-`./ogit server --help` lists every flag.
-
-### Rate limits
-
-Enabled by default (`config-example.yaml` lists every rule):
-
-- **Password and token guessing:** 10 failed logins, password changes or git token checks per IP in 15 minutes, and 50 failed logins per account from any IP. Successful logins don't count. After that, even the right password gets `429` until the window ends (`Retry-After` says when).
-- **Registration** and verification emails: 5 per IP per hour.
-- **API:** 600 requests a minute per signed-in user, 120 per IP without a session (`RateLimit-*` headers show what's left).
-- **Git** (HTTP, SSH, raw files and archives): 300 operations a minute per token, user or SSH key; 60 per IP without credentials.
-
-Counters live in memory, so each server counts on its own; with
-`ratelimit.store: redis` all servers share them. If Redis is down, requests
-are allowed (and the error logged).
-
-Behind a reverse proxy, list it in `http.trusted_proxies`: otherwise every
-request seems to come from the proxy, and they all share one budget.
-`X-Forwarded-For` (and `X-Forwarded-Proto`) are only believed from those
-addresses, read from the right, so a client can't choose its own address.
-
-### Two-factor authentication
-
-Users turn it on in their settings (or `POST /api/v1/user/2fa/totp`, then
-`/api/v1/user/2fa/totp/confirm` with a first code) with any authenticator app.
-They get 10 single-use recovery codes, shown once. The server needs
-`security.encryption_key` (at least 32 bytes; it encrypts the app secrets): keep
-it, since changing it turns app codes off for everyone (recovery codes still
-work).
-
-- **Security keys and passkeys** (WebAuthn) are added in the settings too; they need `http.public_url`, whose host is the relying party, so keys only work on that address. A key added as a passkey verifies the user (PIN, biometrics) and can also sign in without the password ("Sign in with a passkey"), which counts as both factors. The first second factor (app or key) comes with the recovery codes; removing the last one turns 2FA off. A key whose signature counter goes backwards (a clone) is refused.
-- Signing in with 2FA: `POST /api/v1/auth/login` answers `{"two_factor_required": true, "challenge": "…", "methods": ["totp", "webauthn"]}`. With a key, `POST /api/v1/auth/login/2fa/webauthn {"challenge"}` returns WebAuthn options, and the browser's answer goes to `/auth/login/2fa` as `credential` with the `ceremony`. Send `POST /api/v1/auth/login/2fa {"challenge": "…", "code": "123456"}` (or a recovery code) within 5 minutes; 5 wrong codes end the attempt, and wrong codes count as failed logins. The web UI does the same with `/auth/session` and `/auth/session/2fa`.
-- **Sudo mode:** turning 2FA off, new recovery codes, new access tokens, SSH and deploy keys, repository tokens, and resetting someone's 2FA need a session confirmed in the last 10 minutes. Otherwise they answer 403 `SUDO_REQUIRED`. Signing in counts; `POST /api/v1/auth/sudo` confirms again with `{"code": …}` (or `{"password": …}` without 2FA). The web UI asks automatically.
-- Access tokens and SSH keys keep working for git and CI without codes.
-- Users are emailed (when SMTP is set) when 2FA is turned on or off, or reset by an admin.
-- **Requiring it:**
-  - site-wide with `security.require_2fa: true`, or from the admin page (`PATCH /api/v1/admin/settings {"require_two_factor": true}`). Users without 2FA can still sign in, but only reach its setup until they add an app or a key; the API answers 403 `TWO_FACTOR_REQUIRED`, and their access tokens and SSH keys are refused. Repository tokens and deploy keys keep working;
-  - per group, by its owner (`PATCH /api/v1/group/<name> {"require_two_factor": true}`): members without 2FA get no access to the group's repositories through the group, and can't create repositories in it, until they set it up. They stay members; owners and maintainers see who lacks 2FA;
-  - site admins always need 2FA for admin actions (`ADMIN_TWO_FACTOR_REQUIRED`). `ogit admin` on the server is not affected.
-- Lost device and recovery codes: an admin resets it (`POST /api/v1/admin/users/<username>/reset-2fa`, or `ogit admin reset-2fa`).
-
-### Single sign-on
-
-Users can sign in with OpenID Connect providers (Keycloak, Authentik, Entra ID, Okta, Google, GitLab…) and GitHub (OAuth2, optionally limited to organizations). Site admins add them on the admin page (`POST /api/v1/admin/sso/providers`, with sudo; client secrets need `security.encryption_key`), or declare them under `sso.providers` in the configuration (read-only in the UI; see `config-example.yaml`). Providers need `http.public_url`: register `{http.public_url}/api/v1/auth/sso/<slug>/callback` as the redirect URI.
-
-- **Signing in:** the sign-in page shows a button per enabled provider (`GET /api/v1/auth/providers`; the browser goes to `/api/v1/auth/sso/<slug>/start?redirect=/path`). The flow uses PKCE (and a nonce with OIDC), is used once within 10 minutes, and must be finished by the browser that started it.
-- **New users** get an account the first time (`auto_create`, on by default) when the provider verified their email (and it is in `allowed_domains`, if set): their user name comes from the provider, made unique, and they have no password. A user whose verified email is already registered here confirms with their password (and 2FA code) once to link the provider.
-- **Two-factor authentication:** the provider's own MFA is trusted: no oGit 2FA prompt, and such sessions count as two-factor for `security.require_2fa`. Users without a password, signing in only through such providers, count as having 2FA everywhere (tokens, groups, admin). With `require_two_factor` on a provider, users who have oGit 2FA are asked for it after the provider.
-- **Settings:** users link more providers and unlink them (with sudo; never their last way to sign in), and users without a password can set one. Without a password, "confirm it's you" goes through a linked provider.
-- **LDAP / Active Directory:** a provider of kind `ldap` (URL `ldap://` or `ldaps://`, `client_id`/`client_secret`: an optional service account's DN and password, and `ldap` settings: `user_base`, optional `user_filter` with `{input}`, attribute names, `member_of_attribute` or `group_base`, `start_tls`, `root_ca`). Users sign in with the normal form, with their directory user name or email: every enabled directory is tried first, then local accounts (so a local admin still gets in when the directory is down). The same account rules apply (creation, link by email, group sync), but a directory password is one factor: oGit's 2FA is asked when the user has it. The directory password also confirms sudo; git over HTTPS keeps using tokens.
-- **SAML 2.0:** a provider of kind `saml` with the identity provider's metadata URL as `issuer` (fetched daily, the last good copy kept) or its XML in `saml.metadata_xml`. oGit makes its signing key pair when the provider is added; give the IdP this server's metadata, `{http.public_url}/api/v1/auth/sso/<slug>/metadata` (the entity ID; the assertion consumer is `.../acs`). AuthnRequests are signed, responses must be signed and answer the request, encrypted assertions are decrypted; user name, email, name and groups come from the usual attributes or the ones named in `saml` (`username_attribute`, ..., `groups_claim` for groups). Sign-ins started at the IdP's dashboard are refused unless `saml.allow_idp_initiated` (each response is then accepted once). The IdP's MFA is trusted like OIDC's.
-- **Group sync:** per provider, `groups_claim` (default `groups`; a dotted path such as `realm_access.roles` works; GitHub's groups are the user's organizations, listed with `allowed_orgs`), `admin_group` (its members are site admins) and `group_mappings` (`[{"group": "eng", "target": "engineering", "role": "member"}]`, role `member` or `maintainer`). They apply at each sign-in through the provider: memberships are added, raised and removed as the user's groups change, but only those sync added (memberships set by hand are never touched), and site admin is taken back only from admins sync made, never from the last active admin.
-- **Sign in only through providers:** `security.sso_only: true`, or the admin page (with an enabled provider, and only if the admin turning it on keeps a way in). Password and passkey sign-in, password sudo and registration are then off, except for the user names in `security.sso_only_exempt` (keep a local admin there: it is only set in the configuration, so a broken provider can't lock you out). Access tokens and SSH keys keep working; existing sessions last until they expire.
-- Logins, links and provider changes are audit-logged (`"component":"audit"`).
-
-### Email verification
-
-With `registration.require_email_verification: true`, new users receive a link
-(`{http.public_url}/api/v1/auth/verify?token=…`, valid
-`registration.verification_ttl_hours`) and cannot log in until they open it.
-The server refuses to start unless `smtp.host`, `smtp.from` and
-`http.public_url` are set.
-
-- Accounts that existed before the upgrade, or were created while the setting was off, count as verified.
-- `POST /api/v1/auth/verify/resend {"email": "…"}` sends a new link. It sends at most one per minute, older links stop working, and it gives the same answer whether or not the address is registered.
-- If the email can't be sent at registration, the account is still created and the user can resend later.
-- `registration.verification_url_template` changes the link, e.g. to point at a web UI that calls `POST /api/v1/auth/verify {"token": "…"}`.
-
-### S3 storage
-
-Repositories on S3 are stored as git packs (`objects/pack/pack-<sha>.pack` and
-`.idx`), one per push, read with ranged requests. Several servers can share
-one bucket: ref updates use conditional writes (`If-Match` /
-`If-None-Match`), so concurrent pushes to the same branch can't overwrite
-each other, and each request lists the packs again, so it sees the latest
-push.
-
-Packs never change once written, so their indexes and 4 MiB blocks are
-cached by `storage.s3.cache.type`:
-
-- `memory` (default): an LRU in each server, limited to `max_mb`.
-- `redis`: one cache shared by every server (`redis_url`). If Redis is down, requests go to S3 and Redis is retried after 30 seconds.
-- `none`: every read goes to S3.
-
-On a 300-commit repository, the number of S3 requests went from 1810 to 12
-for a push, from 1513 to 12 for a clone and from 1256 to 14 for a one-commit
-fetch.
-
-Each push adds a pack, and each request lists and loads every pack, so a
-repository gets slower with every push (a clone after 40 pushes takes 92
-requests instead of 12). Merge them regularly, e.g. from a nightly cron job:
-
-```bash
-./ogit storage gc -c config.yaml --all             # or --repository <owner>/<name>
-```
-
-It merges the small packs and leaves the big old ones alone, so each run
-costs about the size of the recent pushes. Objects are only moved, never
-pruned, so it cannot lose data, and it is safe while the server is running
-and pushes are arriving. The packs it replaces are hidden at once, but kept
-for `--grace` (default 1h) for requests that were already reading them, and
-deleted by the next run after that. It also packs loose objects (see below).
-
-`gc` never deletes objects. Commits dropped by force-pushes or deleted
-branches stay until you prune them, e.g. weekly:
-
-```bash
-./ogit storage prune -c config.yaml --all --dry-run   # report only
-./ogit storage prune -c config.yaml --all             # --expire 336h (2 weeks) by default
-```
-
-An object is pruned only when no ref (branches, tags, notes, any `refs/`
-name, HEAD) reaches it and it is older than `--expire`, so force-pushed work
-can be recovered by its hash for two weeks. Objects needed by recent packs,
-such as a push still in progress, are kept. Objects that `gc` has just
-merged sit in a new pack, so their two weeks start again. Prune rewrites the repository's
-old packs, so it costs a full read and write of them. The same `--grace`
-rule as `gc` applies to the packs it replaces. If an object is missing from
-the repository, prune stops without deleting anything.
-
-Repositories created before packs (one S3 object per git object) still
-work, but stay slow until they are converted:
-
-```bash
-./ogit storage repack -c config.yaml --repository <owner>/<name>   # or --all
-```
-
-The command writes one pack, checks that every object is in it, then deletes
-the loose objects. The server can keep running, but a clone or fetch of that
-repository that is in progress when the loose objects are deleted can fail
-and must be retried, so run it when the repository is quiet.
-
-### Web UI
+## Web UI
 
 The web UI covers what the API does:
 
@@ -800,7 +602,7 @@ npm --prefix web run dev                       # UI on :5173 with hot reload; pr
 npm --prefix web test                          # UI unit tests (vitest)
 ```
 
-Pull requests into `main` and `refactor` run gofmt, `go vet`, the tests and
+Pull requests into `main` run gofmt, `go vet`, the tests and
 the MinIO, Mailpit, Redis and PostgreSQL integration tests in CI.
 
 ## License
