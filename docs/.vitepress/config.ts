@@ -7,6 +7,8 @@ export default defineConfig({
   description: "A self-hosted Git server: repositories, pull requests, issues, wikis, Actions, packages and more.",
   base: process.env.DOCS_BASE ?? "/ogit/",
   cleanUrls: true,
+  // Guides link to the oGit running on your machine (http://localhost:8080).
+  ignoreDeadLinks: "localhostLinks",
   srcExclude: ["README.md"],
   themeConfig: {
     nav: [
@@ -50,6 +52,7 @@ export default defineConfig({
           text: "Guides",
           items: [
             { text: "All guides", link: "/guides/" },
+            { text: "Try oGit with Docker Compose", link: "/guides/try-it" },
             { text: "Run oGit with Docker and PostgreSQL", link: "/guides/docker-postgres" },
             { text: "Sign in with Keycloak", link: "/guides/sso-keycloak" },
             { text: "Back up and restore", link: "/guides/backup-restore" },
