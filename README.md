@@ -372,6 +372,13 @@ curl -X POST localhost:8080/api/v1/repository/bob%2Fapp/sync -H "Authorization: 
 Every repository has a wiki: Markdown pages kept in a git repository of their
 own, `<owner>/<repo>.wiki.git`, which is created by the first edit or push.
 
+In the web UI, the repository's **Wiki** tab lists the pages, renders them
+with their sidebar and footer, and lets writers create, edit (with a preview
+and file attachments), rename and delete pages, browse each page's history and
+changes, revert to an older version, and search. `[[Page Name]]` and
+`[[text|Page Name]]` link pages; links to pages that don't exist yet are red
+and open the new page form. Maintainers choose who edits in **Settings**.
+
 ```bash
 # Create, read, edit (base: the head the page was read at), rename, delete
 curl -X POST localhost:8080/api/v1/repository/alice%2Fapp/wiki/pages -H "Authorization: Bearer $SESSION" \

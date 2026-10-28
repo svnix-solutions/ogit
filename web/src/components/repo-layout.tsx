@@ -1,4 +1,4 @@
-import { Archive, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Package, PlayCircle, Settings, Tag } from "lucide-react";
+import { Archive, BookOpen, ChevronDown, CircleDot, Code2, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Globe, Lock, Package, PlayCircle, Settings, Tag } from "lucide-react";
 import { ForkButton, ForkedFrom, SyncButton, WatchSelect } from "@/components/forks";
 import { useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from "react-router";
@@ -121,6 +121,11 @@ export function RepoLayout({ path: nested }: { path?: string } = {}) {
         <NavLink to={`${base}/compare`} className={tab}>
           <GitCompare className="h-4 w-4" /> Compare
         </NavLink>
+        {repo.wiki_access !== "off" && (
+          <NavLink to={`${base}/wiki`} className={tab}>
+            <BookOpen className="h-4 w-4" /> Wiki
+          </NavLink>
+        )}
         <NavLink to={`${base}/releases`} className={tab}>
           <Tag className="h-4 w-4" /> Releases <ReleaseCount fullPath={repo.full_path} />
         </NavLink>

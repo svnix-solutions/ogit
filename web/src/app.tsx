@@ -25,6 +25,7 @@ const issues = () => import("@/pages/repo-issues");
 const releases = () => import("@/pages/repo-releases");
 const actions = () => import("@/pages/repo-actions");
 const packages = () => import("@/pages/packages");
+const wiki = () => import("@/pages/repo-wiki");
 
 // repoChildren are a repository's pages, under each repository route.
 const repoChildren = (): RouteObject[] => [
@@ -49,6 +50,8 @@ const repoChildren = (): RouteObject[] => [
   { path: "actions", lazy: page(actions, "ActionsPage") },
   { path: "actions/runs/:number", lazy: page(actions, "RunPage") },
   { path: "packages", lazy: page(packages, "RepoPackagesPage") },
+  { path: "wiki", lazy: page(wiki, "WikiPage") },
+  { path: "wiki/*", lazy: page(wiki, "WikiPage") },
   {
     element: <RequireAuth />,
     children: [
