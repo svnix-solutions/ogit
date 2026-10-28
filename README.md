@@ -602,7 +602,7 @@ npm --prefix web run dev                       # UI on :5173 with hot reload; pr
 npm --prefix web test                          # UI unit tests (vitest)
 ```
 
-Pull requests into `main` and `refactor` run gofmt, `go vet`, the tests and
+Pull requests into `main` run gofmt, `go vet`, the tests and
 the MinIO, Mailpit, Redis and PostgreSQL integration tests in CI.
 
 ## License

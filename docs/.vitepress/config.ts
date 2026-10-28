@@ -59,7 +59,7 @@ export default defineConfig({
     },
     search: { provider: "local" },
     socialLinks: [{ icon: "github", link: "https://github.com/svnix-solutions/ogit" }],
-    editLink: { pattern: "https://github.com/svnix-solutions/ogit/edit/refactor/docs/:path", text: "Edit this page" },
+    editLink: { pattern: "https://github.com/svnix-solutions/ogit/edit/main/docs/:path", text: "Edit this page" },
     outline: [2, 3],
   },
 });

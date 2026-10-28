@@ -4,7 +4,7 @@ Guidance for Claude Code in this repository.
 
 ## What this is
 
-oGit: a Git Smart HTTP server with users, sessions, per-repository access control and pluggable repository storage (local filesystem or S3-compatible). Go module `github.com/labbs/ogit`. Development happens on the `refactor` branch (feature PRs go there); `refactor` is merged into `main` from time to time, with a merge commit.
+oGit: a Git Smart HTTP server with users, sessions, per-repository access control and pluggable repository storage (local filesystem or S3-compatible). Go module `github.com/labbs/ogit`. Development happens on `main`: branch from it and open pull requests into it (`refactor` was the development branch until 2026-10-28 and is gone).
 
 ## Commands
 
@@ -28,7 +28,7 @@ npm --prefix docs ci && npm --prefix docs run build   # documentation site (Vite
 npm --prefix docs run dev                      # docs with hot reload
 ```
 
-There is no Makefile. `.github/workflows/docs.yaml` builds the docs on PRs and publishes them to GitHub Pages (https://svnix-solutions.github.io/ogit/) on pushes to `main` only (the `github-pages` environment allows only `main`), so the site changes when `refactor` is merged into `main`. CI (`.github/workflows/pr.yaml`, PRs into `main` and `refactor`) runs a web job (npm ci, typecheck, vitest), then gofmt, `go vet`, `go test -race`, the UI build and a static Linux build that embeds it, and a separate job running the MinIO and Mailpit tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
+There is no Makefile. `.github/workflows/docs.yaml` builds the docs on PRs and publishes them to GitHub Pages (https://svnix-solutions.github.io/ogit/) on pushes to `main` (the `github-pages` environment allows only `main`), so every merged docs change goes live. CI (`.github/workflows/pr.yaml`, PRs into `main`) runs a web job (npm ci, typecheck, vitest), then gofmt, `go vet`, `go test -race`, the UI build and a static Linux build that embeds it, and a separate job running the MinIO and Mailpit tests and the e2e suite on Postgres. Keep `gofmt -l .` empty.
 
 ## Layout
 
