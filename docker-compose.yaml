@@ -96,9 +96,7 @@ services:
 
   ogit:
     image: ghcr.io/svnix-solutions/ogit:${OGIT_TAG:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile.source
+    build: .
     restart: unless-stopped
     depends_on:
       db: {condition: service_healthy}
@@ -119,9 +117,7 @@ services:
   # Creates the demo user and repository once, and prints how to sign in.
   seed:
     image: ghcr.io/svnix-solutions/ogit:${OGIT_TAG:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile.source
+    build: .
     depends_on:
       ogit: {condition: service_healthy}
     entrypoint: ["/bin/sh", "/seed.sh"]
