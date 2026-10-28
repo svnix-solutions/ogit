@@ -16,6 +16,7 @@ storage (local filesystem or any S3-compatible object store).
 - **Packages**: a container registry (`docker push` and `pull`), an npm registry, a Go module proxy and generic files, owned by users and groups, linked to repositories and published from Actions
 - **Releases**: on tags, with drafts, pre-releases, generated notes, uploaded assets and protected tags; GitHub's releases API for release tools
 - **Forks**: fork any repository you can read, open pull requests from your fork, sync it with the original
+- **Wikis**: a Markdown wiki per repository, edited in the API or by git push, with history, revert, search and attachments
 - **Issues**: per repository, numbered with pull requests, with comments, labels, assignees, milestones and "Fixes #N"
 - **Branch protection**: no force-pushes or deletion, pull-request-only branches, per-branch approvals, push and merge allowlists
 - **Commit statuses**: CI reports pass or fail per commit (GitHub-compatible API), and protected branches can require checks
@@ -366,6 +367,36 @@ curl -X POST localhost:8080/api/v1/repository/bob%2Fapp/sync -H "Authorization: 
 - **Sync:** fast-forwards a fork's branch when it has no commits of its own, otherwise answers `DIVERGED`.
 - **Webhooks:** GitHub's `fork` event goes to the original's hooks.
 
+### Wikis
+
+Every repository has a wiki: Markdown pages kept in a git repository of their
+own, `<owner>/<repo>.wiki.git`, which is created by the first edit or push.
+
+```bash
+# Create, read, edit (base: the head the page was read at), rename, delete
+curl -X POST localhost:8080/api/v1/repository/alice%2Fapp/wiki/pages -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"name": "Getting Started", "content": "# Hello"}'
+curl 'localhost:8080/api/v1/repository/alice%2Fapp/wiki/page?name=Getting-Started'
+curl -X PUT localhost:8080/api/v1/repository/alice%2Fapp/wiki/page -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"name": "Getting-Started", "content": "# Hello again", "base": "<head>"}'
+# Search, revert a page to a commit, upload an attachment
+curl 'localhost:8080/api/v1/repository/alice%2Fapp/wiki/search?q=hello'
+curl -X POST localhost:8080/api/v1/repository/alice%2Fapp/wiki/revert -H "Authorization: Bearer $SESSION" \
+  -H 'Content-Type: application/json' -d '{"name": "Getting-Started", "version": "<commit>"}'
+curl -X POST 'localhost:8080/api/v1/repository/alice%2Fapp/wiki/uploads?name=diagram.png' -H "Authorization: Bearer $SESSION" --data-binary @diagram.png
+# Or with git
+git clone http://localhost:8080/alice/app.wiki.git
+```
+
+- **Who:** anyone who can read the repository reads its wiki. Developers and up edit it, by default. Maintainers can let every signed-in reader edit it (`"wiki_access": "readers"` on `PATCH /api/v1/repository/<id>`) or turn it off (`"off"`: hidden everywhere, content kept). Archived repositories' and mirrors' wikis are read-only.
+- **Pages** are `.md` files (`.markdown` is read too) on the wiki's default branch, in folders if you like. A page's name is its path without the extension, and its title is the last segment with dashes shown as spaces (`Docs/Getting-Started`). `Home` is the front page. `_Sidebar` and `_Footer` are shown with every page; the nearest one wins, from the page's folder up.
+- **Edits** are commits by the editor. An edit names the head it started from (`base`), and fails with `WIKI_CONFLICT` if that page changed since. Edits of other pages in the meantime don't conflict. Without `base`, an edit overwrites the page.
+- **History and diffs** use the browse API on `<owner>%2F<repo>.wiki`, e.g. `/api/v1/repository/alice%2Fapp.wiki/commits?spec=main/Home.md`. Raw files are at `/alice/app.wiki/raw/<ref>/<path>`.
+- **Attachments** (25 MiB each) are stored as Git LFS objects and committed as pointers under `uploads/`, with a `.gitattributes` so clones get the files. Raw links serve them, never as HTML.
+- **Git:** `<path>.wiki.git` over HTTP and SSH, with the repository's tokens and keys and the same roles. Branch protection and LFS locks are the repository's and don't apply to its wiki.
+- **Events:** each change (UI edit, or push to the wiki's default branch) sends GitHub's `gollum` webhook event, starts workflows with `on: gollum`, and notifies the repository's watchers at "all activity".
+- **Copies:** forks copy the wiki (unless it's off). Pull mirrors and imports fetch the remote's `<url>.wiki.git` when it has one, and push mirrors push to the remote's wiki, best effort (forges usually create a wiki only from their UI). Renames and transfers keep it; deleting the repository deletes it.
+
 ### Issues
 
 ```bash
@@ -464,7 +495,7 @@ curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/de
 curl -X POST localhost:8080/api/v1/repository/me%2Fmy-project/hooks/<hook-id>/pings -H "Authorization: Bearer $SESSION"
 ```
 
-- **Events:** `status` (commit statuses), `push` (the default; HTTP, SSH and pull request merges, including deleted branches), `repository` (renamed, transferred, publicized, privatized, archived, unarchived, edited), or `*` for all. A `ping` is sent when a hook is created.
+- **Events:** `gollum` (wiki pages created or edited, see [Wikis](#wikis)), `status` (commit statuses), `push` (the default; HTTP, SSH and pull request merges, including deleted branches), `repository` (renamed, transferred, publicized, privatized, archived, unarchived, edited), or `*` for all. A `ping` is sent when a hook is created.
   - `pull_request`: opened, edited, closed (with `merged: true` for merges), reopened, synchronize (a push to the source branch), converted_to_draft, ready_for_review, labeled, unlabeled.
   - `pull_request_review`: submitted. `pull_request_review_comment`: inline comments created, edited, deleted (also those of a review).
   - `issue_comment`: conversation comments created, edited, deleted; for pull requests the `issue` has a `pull_request` field, as on GitHub.

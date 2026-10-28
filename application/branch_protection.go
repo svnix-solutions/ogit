@@ -379,7 +379,7 @@ func (c *ProtectionApp) checkRef(repo *domain.Repository, rule *domain.BranchPro
 // PushCheck returns the check for a push to repo by pusher (nil: no
 // rules). Rules are read once per push.
 func (c *ProtectionApp) PushCheck(repo *domain.Repository, pusher Pusher, objects storer.EncodedObjectStorer) func(plumbing.ReferenceName, plumbing.Hash, plumbing.Hash) error {
-	if c == nil {
+	if c == nil || repo.Wiki { // rules are the repository's
 		return nil
 	}
 	var rules []domain.BranchProtection

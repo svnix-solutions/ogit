@@ -21,6 +21,8 @@ type GetRepositoryResponse struct {
 	// RequiredApprovals before pull requests can be merged.
 	RequiredApprovals int  `json:"required_approvals"`
 	HasIssues         bool `json:"has_issues"`
+	// WikiAccess: who edits the wiki (writers, readers) or off.
+	WikiAccess string `json:"wiki_access"`
 	// ForkOf is the repository this one was forked from, when the caller
 	// can read it; IsFork is set even when they can't (or it was deleted:
 	// then false).
@@ -41,6 +43,9 @@ type UpdateRepositoryRequest struct {
 	RequiredApprovals *int `json:"required_approvals"`
 	// HasIssues: owners; turn issues on or off.
 	HasIssues *bool `json:"has_issues"`
+	// WikiAccess: maintainers and owners; writers (developers and up edit
+	// the wiki), readers (everyone who can read it) or off.
+	WikiAccess *string `json:"wiki_access"`
 }
 
 type DeleteRepositoryRequest struct {

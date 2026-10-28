@@ -40,6 +40,13 @@ type Repository struct {
 	// set it (true for new repositories).
 	HasIssues bool
 
+	// WikiAccess: who edits the wiki (WikiWriters, WikiReaders) or WikiOff.
+	// No gorm default: BeforeCreate sets writers when empty.
+	WikiAccess WikiAccess
+	// Wiki: this value describes the repository's wiki (StorageKey is the
+	// wiki's), as returned by git authorization; never stored.
+	Wiki bool `gorm:"-"`
+
 	// ForkOfId is the repository this one was forked from (nil when it
 	// isn't a fork, or the original was deleted).
 	ForkOfId *string

@@ -15,7 +15,8 @@ const lockLimit = 100
 
 // CreateLock locks path for the caller (a person with write access).
 func (c *LFSApp) CreateLock(acc *LFSAccess, path, ref string) (*domain.LFSLock, error) {
-	if !acc.Write || acc.Limited || !domain.IsPerson(acc.UserId) {
+	// Wikis have no locks (the repository's are its own).
+	if !acc.Write || acc.Limited || !domain.IsPerson(acc.UserId) || acc.Repo.Wiki {
 		return nil, ErrGitForbidden
 	}
 	path, err := cleanLockPath(path)
@@ -43,6 +44,9 @@ func (c *LFSApp) CreateLock(acc *LFSAccess, path, ref string) (*domain.LFSLock, 
 func (c *LFSApp) ListLocks(acc *LFSAccess, path, id, cursor string, limit int) (locks []domain.LFSLock, next string, err error) {
 	if limit <= 0 || limit > lockLimit {
 		limit = lockLimit
+	}
+	if acc.Repo.Wiki {
+		return nil, "", nil
 	}
 	if path != "" {
 		if path, err = cleanLockPath(path); err != nil {
@@ -86,6 +90,9 @@ func (c *LFSApp) Unlock(acc *LFSAccess, id string, force bool) (*domain.LFSLock,
 	if !acc.Write || !domain.IsPerson(acc.UserId) {
 		return nil, ErrGitForbidden
 	}
+	if acc.Repo.Wiki {
+		return nil, ErrLFSLockNotFound
+	}
 	l, err := c.Locks.Get(acc.Repo.Id, id)
 	if isNotFound(err) {
 		return nil, ErrLFSLockNotFound
@@ -123,7 +130,7 @@ func (e *LockedPathError) Error() string {
 // other than the pusher. A new branch is compared with the default branch.
 // The locks are read once per push, and nothing is read without locks.
 func (c *LFSApp) PushCheck(repo *domain.Repository, pusher Pusher, objects storer.EncodedObjectStorer) func(plumbing.ReferenceName, plumbing.Hash, plumbing.Hash) error {
-	if c == nil || c.Locks == nil {
+	if c == nil || c.Locks == nil || repo.Wiki {
 		return nil
 	}
 	var locks []domain.LFSLock

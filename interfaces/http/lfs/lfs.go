@@ -182,7 +182,7 @@ func (c Controller) Batch(ctx *fiber.Ctx) error {
 		}
 		token, ttl := c.LFS.Token(acc)
 		auth := map[string]string{"Authorization": "Bearer " + token}
-		href := c.baseURL(ctx) + "/" + acc.Repo.FullPath() + ".git/info/lfs/objects/"
+		href := c.baseURL(ctx) + "/" + acc.Repo.GitPath() + ".git/info/lfs/objects/"
 		out := make([]fiber.Map, 0, len(results))
 		for _, o := range results {
 			obj := fiber.Map{"oid": o.Oid, "size": o.Size, "authenticated": true}

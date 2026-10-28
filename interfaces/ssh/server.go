@@ -34,7 +34,7 @@ const handshakeTimeout = 15 * time.Second
 // pathPattern matches <namespace>/<slug>: a username or group path (see
 // domain.ValidNamespaceName and ValidGroupPath) and a gosimple/slug slug. Anything else in a
 // command, including path traversal, is rejected.
-var pathPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*){0,4}/[a-z0-9][a-z0-9-]*$`) // up to 5 group levels
+var pathPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*){0,4}/[a-z0-9][a-z0-9-]*(\.wiki)?$`) // up to 5 group levels; .wiki: its wiki
 
 // flatPattern is a repository path from before namespaces (one segment).
 var flatPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -299,7 +299,7 @@ func (s *Server) lfsAuthenticate(ch gossh.Channel, repo *domain.Repository, push
 	}
 	token, ttl := s.LFS.Token(s.LFS.AccessFor(repo, pusher, write))
 	out, _ := json.Marshal(map[string]any{
-		"href":       strings.TrimSuffix(s.LFS.Config.Server.PublicURL, "/") + "/" + repo.FullPath() + ".git/info/lfs",
+		"href":       strings.TrimSuffix(s.LFS.Config.Server.PublicURL, "/") + "/" + repo.GitPath() + ".git/info/lfs",
 		"header":     map[string]string{"Authorization": "Bearer " + token},
 		"expires_in": int(ttl.Seconds()),
 	})

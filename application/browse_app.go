@@ -23,10 +23,24 @@ func (c *BrowseApp) LFSFor(repo *domain.Repository, userId string) gitbrowse.LFS
 
 // Open returns the repository identified by id or path and its git storer,
 // if userId ("" for anonymous) may read it.
+// A path ending in .wiki opens the repository's wiki (wiki_app.go).
 func (c *BrowseApp) Open(id, path *string, userId string) (*domain.Repository, storer.Storer, error) {
+	var wiki bool
+	if path != nil {
+		base, isWiki := domain.SplitWikiPath(*path)
+		path, wiki = &base, isWiki
+	}
 	repo, err := c.Repositories.GetRepositoryForUser(id, path, userId)
 	if err != nil {
 		return nil, nil, err
+	}
+	if wiki {
+		if repo.WikiAccess == domain.WikiOff {
+			return nil, nil, ErrWikiNotFound
+		}
+		if repo, err = c.Repositories.wikiFor(repo, false); err != nil {
+			return nil, nil, ErrWikiNotFound
+		}
 	}
 	st, err := c.Storage.GetStorer(repo.StorageKey)
 	if err != nil {

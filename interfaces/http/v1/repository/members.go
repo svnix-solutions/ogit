@@ -51,10 +51,15 @@ func (ctrl *Controller) UpdateRepository(ctx *fiber.Ctx, req dtos.UpdateReposito
 		return nil, apierror.Unauthenticated()
 	}
 	id, slug := repoid.Split(req.Identifier)
-	repo, err := ctrl.RepositoryApp.Update(id, slug, authCtx.UserID, application.RepositoryUpdate{
+	upd := application.RepositoryUpdate{
 		Name: req.Name, Description: req.Description, IsPrivate: req.IsPrivate, Archived: req.Archived,
 		RequiredApprovals: req.RequiredApprovals, HasIssues: req.HasIssues,
-	})
+	}
+	if req.WikiAccess != nil {
+		access := domain.WikiAccess(*req.WikiAccess)
+		upd.WikiAccess = &access
+	}
+	repo, err := ctrl.RepositoryApp.Update(id, slug, authCtx.UserID, upd)
 	if err != nil {
 		return nil, apierror.From(err, ctrl.Logger)
 	}
@@ -64,7 +69,7 @@ func (ctrl *Controller) UpdateRepository(ctx *fiber.Ctx, req dtos.UpdateReposito
 func repositoryResponse(repo *domain.Repository) *dtos.GetRepositoryResponse {
 	return &dtos.GetRepositoryResponse{Id: repo.Id, Namespace: repo.Namespace, OwnerType: string(repo.OwnerType), Slug: repo.Slug,
 		FullPath: repo.FullPath(), Name: repo.Name, Description: repo.Description, IsPrivate: repo.IsPrivate, IsArchived: repo.IsArchived,
-		IsMirror: repo.IsMirror, RequiredApprovals: repo.RequiredApprovals, HasIssues: repo.HasIssues}
+		IsMirror: repo.IsMirror, RequiredApprovals: repo.RequiredApprovals, HasIssues: repo.HasIssues, WikiAccess: string(repo.WikiAccess)}
 }
 
 func (ctrl *Controller) DeleteRepository(ctx *fiber.Ctx, req dtos.DeleteRepositoryRequest) (*dtos.DeleteRepositoryResponse, *fiberoapi.ErrorResponse) {

@@ -278,8 +278,9 @@ func (c *AuthApp) authorizeJobToken(repoPath, operation, token string) (*domain.
 	if err != nil {
 		return nil, Pusher{}, ErrGitUnauthenticated
 	}
-	repo, err := c.RepositoryApp.GetRepository(nil, &repoPath)
-	if err != nil || repo.Id != run.RepositoryId {
+	path, wiki := domain.SplitWikiPath(repoPath)
+	repo, err := c.RepositoryApp.GetRepository(nil, &path)
+	if err != nil || repo.Id != run.RepositoryId || (wiki && repo.WikiAccess == domain.WikiOff) {
 		return nil, Pusher{}, ErrGitNotFound
 	}
 	if operation != "git-upload-pack" {
@@ -293,7 +294,36 @@ func (c *AuthApp) authorizeJobToken(repoPath, operation, token string) (*domain.
 			return nil, Pusher{}, ErrGitMirror
 		}
 	}
+	if wiki {
+		if repo, err = c.RepositoryApp.wikiFor(repo, operation != "git-upload-pack"); err != nil {
+			return nil, Pusher{}, err
+		}
+	}
 	return repo, Pusher{Name: "github-actions[bot]", JobToken: true}, nil
+}
+
+// wikiGitAccess decides a user's git access to repo's wiki: readers of
+// the repository read it; writers edit it, or every reader when the
+// repository says so (application/wiki_app.go).
+func (c *AuthApp) wikiGitAccess(repo *domain.Repository, userId string, write bool) error {
+	canRead, err := c.RepositoryApp.CanUserAccess(repo.Id, userId, "read")
+	if err != nil {
+		return err
+	}
+	if !canRead {
+		return ErrGitNotFound
+	}
+	if !write || repo.WikiAccess == domain.WikiReaders {
+		return nil
+	}
+	canWrite, err := c.RepositoryApp.CanUserAccess(repo.Id, userId, "write")
+	if err != nil {
+		return err
+	}
+	if !canWrite {
+		return ErrGitForbidden
+	}
+	return nil
 }
 
 // userGitAccess decides a user's git access to repo. A user who can't
@@ -341,12 +371,19 @@ func (c *AuthApp) authorizeGit(repoPath, operation string, creds *GitCredentials
 		return nil, nil, nil, fmt.Errorf("invalid git operation: %s", operation)
 	}
 
-	repo, repoErr := c.RepositoryApp.GetRepository(nil, &repoPath)
+	path, wiki := domain.SplitWikiPath(repoPath)
+	repo, repoErr := c.RepositoryApp.GetRepository(nil, &path)
+	if repoErr == nil && wiki && repo.WikiAccess == domain.WikiOff {
+		repoErr = ErrGitNotFound
+	}
 	var only []string // set when the user may only push some branches
 
 	if creds == nil {
 		if repoErr == nil && !repo.IsPrivate && gitOperation == "read" {
-			return repo, nil, nil, nil
+			if wiki {
+				repo, repoErr = c.RepositoryApp.wikiFor(repo, false)
+			}
+			return repo, nil, nil, repoErr
 		}
 		return nil, nil, nil, ErrGitUnauthenticated
 	}
@@ -373,7 +410,11 @@ func (c *AuthApp) authorizeGit(repoPath, operation string, creds *GitCredentials
 			return nil, nil, nil, ErrGitTwoFactorRequired
 		}
 
-		only, err = c.userGitAccess(repo, *authToken.UserId, gitOperation == "write")
+		if wiki {
+			err = c.wikiGitAccess(repo, *authToken.UserId, gitOperation == "write")
+		} else {
+			only, err = c.userGitAccess(repo, *authToken.UserId, gitOperation == "write")
+		}
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -397,6 +438,11 @@ func (c *AuthApp) authorizeGit(repoPath, operation string, creds *GitCredentials
 	}
 	if gitOperation == "write" && repo.IsMirror {
 		return nil, nil, nil, ErrGitMirror
+	}
+	if wiki {
+		if repo, err = c.RepositoryApp.wikiFor(repo, gitOperation == "write"); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	return repo, authToken, only, nil

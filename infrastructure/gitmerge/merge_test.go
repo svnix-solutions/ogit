@@ -290,3 +290,22 @@ func TestWrite(t *testing.T) {
 		})
 	}
 }
+
+func TestEdit(t *testing.T) {
+	st := memory.NewStorage()
+	sig := object.Signature{Name: "A", Email: "a@x", When: time.Unix(1700000000, 0)}
+	first, err := Edit(st, nil, map[string][]byte{"Home.md": []byte("hi\n"), "docs/Guide.md": []byte("g\n")}, sig, "first")
+	require.NoError(t, err)
+	require.NoError(t, Write(st, first))
+	c1, err := object.GetCommit(st, first.Commit)
+	require.NoError(t, err)
+	assert.Empty(t, c1.ParentHashes)
+
+	second, err := Edit(st, c1, map[string][]byte{"Home.md": []byte("hello\n"), "docs/Guide.md": nil, "New.md": []byte("n\n")}, sig, "second")
+	require.NoError(t, err)
+	require.NoError(t, Write(st, second))
+	c2, err := object.GetCommit(st, second.Commit)
+	require.NoError(t, err)
+	assert.Equal(t, []plumbing.Hash{c1.Hash}, c2.ParentHashes)
+	assert.Equal(t, map[string]string{"Home.md": "hello\n", "New.md": "n\n"}, files(t, st, second, second.Commit))
+}

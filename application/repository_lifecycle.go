@@ -17,7 +17,8 @@ import (
 //   - owners rename (the slug follows the name; the old path keeps working
 //     through a redirect until another repository takes it), change
 //     visibility, archive/unarchive and delete;
-//   - maintainers and owners edit the description;
+//   - maintainers and owners edit the description and the wiki's access
+//     (application/wiki_app.go);
 //   - an archived repository refuses every push (ErrGitArchived), owners'
 //     included; reads keep working;
 //   - deleting needs the slug repeated and removes the git data.
@@ -41,6 +42,8 @@ type RepositoryUpdate struct {
 	RequiredApprovals *int
 	// HasIssues turns issues on or off (owners).
 	HasIssues *bool
+	// WikiAccess: who edits the wiki, or off (maintainers and owners).
+	WikiAccess *domain.WikiAccess
 }
 
 func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryUpdate) (*domain.Repository, error) {
@@ -53,8 +56,11 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 	if ownerOnly && role != domain.AccessTypeOwner {
 		return nil, ErrForbidden
 	}
-	if upd.Description != nil && !role.CanAdmin() {
+	if (upd.Description != nil || upd.WikiAccess != nil) && !role.CanAdmin() {
 		return nil, ErrForbidden
+	}
+	if upd.WikiAccess != nil && !upd.WikiAccess.Valid() {
+		return nil, ErrInvalidWikiMode
 	}
 
 	// Repository events, sent once everything is saved.
@@ -100,6 +106,10 @@ func (c *RepositoryApp) Update(id, slug *string, actorId string, upd RepositoryU
 	if upd.HasIssues != nil {
 		fields["has_issues"] = *upd.HasIssues
 		repo.HasIssues = *upd.HasIssues
+	}
+	if upd.WikiAccess != nil {
+		fields["wiki_access"] = string(*upd.WikiAccess)
+		repo.WikiAccess = *upd.WikiAccess
 	}
 	if upd.IsPrivate != nil {
 		if *upd.IsPrivate != repo.IsPrivate {
@@ -158,9 +168,14 @@ func purgeRepository(pers domain.RepositoryPers, store storage.Config, logger ze
 	if err := pers.Purge(repo.Id); err != nil {
 		return err
 	}
-	if err := store.DeleteRepository(repo.StorageKey); err != nil {
-		logger.Error().Err(err).Str("component", "application.repository").Str("repository", repo.FullPath()).
-			Msg("repository deleted but its git data could not be removed")
+	for _, key := range []string{repo.StorageKey, domain.WikiOf(repo).StorageKey} {
+		if key != repo.StorageKey && !store.RepositoryExists(key) {
+			continue // no wiki
+		}
+		if err := store.DeleteRepository(key); err != nil {
+			logger.Error().Err(err).Str("component", "application.repository").Str("repository", repo.FullPath()).Str("storage_key", key).
+				Msg("repository deleted but its git data could not be removed")
+		}
 	}
 	return nil
 }

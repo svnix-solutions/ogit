@@ -108,7 +108,7 @@ func (c *ActionsApp) Event(repo *domain.Repository, event, action string, payloa
 		if p, ok := payload.(PullRequestPayload); ok {
 			c.pullRequest(repo, p)
 		}
-	case "issues", "issue_comment", "release":
+	case "issues", "issue_comment", "release", "gollum":
 		data, err := json.Marshal(payload)
 		if err != nil {
 			return

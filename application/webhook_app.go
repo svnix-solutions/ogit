@@ -30,11 +30,11 @@ import (
 var (
 	ErrWebhookNotFound  = errors.New("webhook not found")
 	ErrDeliveryNotFound = errors.New("delivery not found")
-	ErrInvalidWebhook   = errors.New("webhook URL must be http(s)://host/path, and events one of push, pull_request, pull_request_review, pull_request_review_comment, issues, issue_comment, milestone, repository, status, fork, release or *")
+	ErrInvalidWebhook   = errors.New("webhook URL must be http(s)://host/path, and events one of push, pull_request, pull_request_review, pull_request_review_comment, issues, issue_comment, milestone, repository, status, fork, release, gollum or *")
 )
 
 // WebhookEvents are the events hooks can subscribe to ("*" is all).
-var WebhookEvents = []string{"push", "pull_request", "pull_request_review", "pull_request_review_comment", "issues", "issue_comment", "milestone", "repository", "status", "fork", "release"}
+var WebhookEvents = []string{"push", "pull_request", "pull_request_review", "pull_request_review_comment", "issues", "issue_comment", "milestone", "repository", "status", "fork", "release", "gollum"}
 
 // retryAfter[i] is the wait after failed attempt i+1.
 var retryAfter = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, 30 * time.Minute}
@@ -61,7 +61,9 @@ type WebhookApp struct {
 	PushMirrors *PushMirrorApp
 	// Groups: group hooks (nil: none).
 	Groups *GroupApp
-	now    func() time.Time
+	// Wikis: pushes to wikis (nil: none).
+	Wikis *WikiApp
+	now   func() time.Time
 }
 
 func (c *WebhookApp) clock() time.Time {

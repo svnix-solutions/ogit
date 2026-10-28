@@ -10,9 +10,9 @@ import (
 )
 
 // streamedRoutes may read request bodies larger than fiber's BodyLimit, as
-// a stream: release asset uploads (they enforce releases.max_asset_size)
-// and git pushes (git.max_push_size).
-var streamedRoutes = regexp.MustCompile(`^(/api/(v1/repository/[^/]+|v3/repos/[^/]+/[^/]+|uploads/repos/[^/]+/[^/]+)/releases/[^/]+/assets/?|/[^/]+/[^/]+/git-receive-pack)$`)
+// a stream: release asset uploads (they enforce releases.max_asset_size),
+// wiki attachments (25 MiB) and git pushes (git.max_push_size).
+var streamedRoutes = regexp.MustCompile(`^(/api/(v1/repository/[^/]+|v3/repos/[^/]+/[^/]+|uploads/repos/[^/]+/[^/]+)/releases/[^/]+/assets/?|/api/v1/repository/[^/]+/wiki/uploads|/[^/]+/[^/]+/git-receive-pack)$`)
 
 // lfsUploadRoute: PUT uploads that are streamed: Git LFS objects
 // (lfs.max_object_size) and Actions artifacts (actions.max_artifact_size).

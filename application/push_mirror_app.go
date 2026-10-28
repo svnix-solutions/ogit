@@ -317,7 +317,24 @@ func (c *PushMirrorApp) push(ctx context.Context, repo *domain.Repository, m *do
 	if err != nil {
 		return err
 	}
-	remote, err := c.Dialer.Remote(ctx, m.URL, cred)
+	if err := c.pushTo(ctx, repo, m, m.URL, cred); err != nil {
+		return err
+	}
+	// The wiki, if any, to the remote's (best effort: forges create
+	// theirs only from their UI).
+	wiki := domain.WikiOf(repo)
+	if repo.WikiAccess != domain.WikiOff && c.Storage.RepositoryExists(wiki.StorageKey) {
+		if err := c.pushTo(ctx, wiki, m, mirror.WikiURL(m.URL), cred); err != nil && !errors.Is(err, mirror.ErrNothingToPush) {
+			c.Logger.Warn().Err(err).Str("component", "application.push_mirror").Str("repository", repo.FullPath()).
+				Str("url", mirror.SafeURL(mirror.WikiURL(m.URL))).Msg("failed to push the wiki to the mirror")
+		}
+	}
+	return nil
+}
+
+// pushTo pushes repo (or a wiki) to url.
+func (c *PushMirrorApp) pushTo(ctx context.Context, repo *domain.Repository, m *domain.PushMirror, url string, cred mirror.Credentials) error {
+	remote, err := c.Dialer.Remote(ctx, url, cred)
 	if err != nil {
 		return err
 	}
@@ -332,7 +349,7 @@ func (c *PushMirrorApp) push(ctx context.Context, repo *domain.Repository, m *do
 			if err != nil || len(objects) == 0 {
 				return err
 			}
-			server, err := c.Dialer.LFSServer(ctx, m.URL, cred, "upload")
+			server, err := c.Dialer.LFSServer(ctx, url, cred, "upload")
 			if err != nil {
 				return err
 			}
@@ -351,7 +368,7 @@ func (c *PushMirrorApp) push(ctx context.Context, repo *domain.Repository, m *do
 		return err
 	}
 	if len(res.Updated) > 0 {
-		c.Logger.Info().Str("component", "application.push_mirror").Str("repository", repo.FullPath()).Str("url", mirror.SafeURL(m.URL)).
+		c.Logger.Info().Str("component", "application.push_mirror").Str("repository", repo.GitPath()).Str("url", mirror.SafeURL(url)).
 			Str("refs", strings.Join(res.Updated, ",")).Msg("pushed to mirror")
 	}
 	return res.Err()
