@@ -2,6 +2,8 @@
 
 ## Docker
 
+To look around first, [try oGit with Docker Compose](/guides/try-it): one command starts it with PostgreSQL, S3 and Redis.
+
 Release images are published to `ghcr.io/svnix-solutions/ogit` for every `v*` tag. The container reads `/config/config.yaml`, runs the database migrations, then starts the server:
 
 ```bash

@@ -1,10 +1,133 @@
+# A complete oGit to try on your machine: oGit with PostgreSQL, S3 storage
+# (MinIO) and Redis, plus a demo user and repository.
+#
+#   docker compose up --build      # builds oGit from source the first time
+#   docker compose logs seed       # the demo user's password
+#
+# Then open http://localhost:8080.
+#
+# oGit reads config-example.yaml (the defaults: SQLite, local storage), and
+# the environment variables below change what differs. Every setting has
+# one (`./ogit server --help` lists them), and they win over the file.
+#
+# The keys and passwords here are public: this is a showcase, not a
+# production setup (see https://svnix-solutions.github.io/ogit/admin/).
+#
+# For development, `docker compose up db` starts only PostgreSQL on :5432.
+
+name: ogit
+
+# oGit's settings, shared by the server and the seed job.
+x-ogit-environment: &ogit-environment
+  # Where people reach it: used in links, webhooks, SSO callbacks and passkeys.
+  HTTP_PUBLIC_URL: http://localhost:8080
+  # Showcase keys, at least 32 bytes each. Make your own with openssl rand -hex 32.
+  SESSION_SECRET_KEY: showcase-only-session-key-change-me-0123456789
+  SECURITY_ENCRYPTION_KEY: showcase-only-encryption-key-change-me-012345
+  DATABASE_DIALECT: postgres
+  DATABASE_DSN: host=db user=ogit password=ogit-showcase dbname=ogit port=5432 sslmode=disable
+  STORAGE_TYPE: s3
+  STORAGE_S3_ENDPOINT: http://s3:9000
+  STORAGE_S3_BUCKET: ogit                       # created by s3-init
+  STORAGE_S3_ACCESSKEY: ogit-showcase
+  STORAGE_S3_SECRETKEY: ogit-showcase-secret
+  STORAGE_S3_CACHE_TYPE: redis                  # pack data cached in Redis, shared by every server
+  STORAGE_S3_CACHE_REDIS_URL: redis://redis:6379/0
+  RATELIMIT_STORE: redis                        # rate limit counters shared through Redis
+  RATELIMIT_REDIS_URL: redis://redis:6379/1
+  SSH_ENABLED: "true"
+  SSH_HOST_KEY_PATH: /data/ssh_host_ed25519_key # on the ogit-data volume: keep it
+
 services:
   db:
-    image: postgres
-    restart: always
+    image: postgres:17-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: local
-      POSTGRES_PASSWORD: local
-      POSTGRES_DB: local
+      POSTGRES_USER: ogit
+      POSTGRES_PASSWORD: ogit-showcase
+      POSTGRES_DB: ogit
     ports:
-      - 5432:5432
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ogit"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+
+  # S3-compatible storage. The minio/minio image is no longer published;
+  # Chainguard's is the same server.
+  s3:
+    image: cgr.dev/chainguard/minio:latest@sha256:c47b1779bfd12cdf5a4fcd3bd50671b8d66465fdae45271babc2fb467958b712
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ogit-showcase
+      MINIO_ROOT_PASSWORD: ogit-showcase-secret
+    ports:
+      - "9001:9001"   # the MinIO console, to look at the bucket
+    volumes:
+      - s3-data:/data
+
+  # Creates the bucket (oGit doesn't), then exits.
+  s3-init:
+    image: amazon/aws-cli:2.27.50
+    depends_on: [s3]
+    environment:
+      AWS_ACCESS_KEY_ID: ogit-showcase
+      AWS_SECRET_ACCESS_KEY: ogit-showcase-secret
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until aws --endpoint-url http://s3:9000 s3api head-bucket --bucket ogit 2>/dev/null \
+          || aws --endpoint-url http://s3:9000 s3api create-bucket --bucket ogit >/dev/null; do
+          echo "waiting for S3"; sleep 2
+        done
+        echo "bucket ogit ready"
+
+  ogit:
+    image: ghcr.io/svnix-solutions/ogit:${OGIT_TAG:-latest}
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      s3-init: {condition: service_completed_successfully}
+    ports:
+      - "8080:8080"   # web UI, API and git over HTTP
+      - "2222:2222"   # git over SSH
+    environment: *ogit-environment
+    volumes:
+      - ./config-example.yaml:/config/config.yaml:ro
+      - ogit-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]   # Fiber listens on IPv4; localhost may be ::1
+      interval: 3s
+      retries: 40
+
+  # Creates the demo user and repository once, and prints how to sign in.
+  seed:
+    image: ghcr.io/svnix-solutions/ogit:${OGIT_TAG:-latest}
+    build: .
+    depends_on:
+      ogit: {condition: service_healthy}
+    entrypoint: ["/bin/sh", "/seed.sh"]
+    environment: *ogit-environment
+    volumes:
+      - ./config-example.yaml:/config/config.yaml:ro
+      - ./docker/seed.sh:/seed.sh:ro
+      - ogit-data:/data
+
+volumes:
+  db-data:
+  s3-data:
+  ogit-data:

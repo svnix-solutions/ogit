@@ -62,11 +62,14 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    # The steps above check that the UI and the binary build; the image
+    # builds both again, from source, in Docker (see Dockerfile).
     - name: Build and push
       uses: docker/build-push-action@v5
       with:
         context: .
         file: ./Dockerfile
+        build-args: VERSION=${{ steps.version.outputs.full }}
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}

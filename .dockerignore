@@ -1,0 +1,11 @@
+.git
+**/node_modules
+web/dist/*
+!web/dist/.gitkeep
+docs/.vitepress/cache
+docs/.vitepress/dist
+tmp
+bin
+repositories
+*.sqlite*
+config.yaml

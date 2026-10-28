@@ -26,6 +26,18 @@ storage (local filesystem or any S3-compatible object store).
 
 The documentation is at **https://svnix-solutions.github.io/ogit/** (sources in [`docs/`](docs/)).
 
+## Try it
+
+```bash
+git clone https://github.com/svnix-solutions/ogit.git && cd ogit
+docker compose up -d --build     # oGit with PostgreSQL, S3 (MinIO) and Redis
+docker compose logs seed         # sign-in details for the demo user
+```
+
+Then open `http://localhost:8080`. The
+[guide](https://svnix-solutions.github.io/ogit/guides/try-it) explains what's
+running and what to try. It is a showcase with public keys, not a production setup.
+
 ## Quick start
 
 Building needs Go (see `go.mod`) and a C toolchain, because the SQLite driver

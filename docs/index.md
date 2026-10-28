@@ -7,6 +7,9 @@ hero:
   tagline: Repositories, pull requests, issues, wikis, Actions, packages and more, in one binary with local or S3 storage.
   actions:
     - theme: brand
+      text: Try it
+      link: /guides/try-it
+    - theme: alt
       text: Install oGit
       link: /admin/install
     - theme: alt
