@@ -12,10 +12,49 @@ export default defineConfig({
   srcExclude: ["README.md"],
   themeConfig: {
     nav: [
+      { text: "Using oGit", link: "/user/", activeMatch: "/user/" },
       { text: "Administration", link: "/admin/", activeMatch: "/admin/" },
       { text: "Guides", link: "/guides/", activeMatch: "/guides/" },
     ],
     sidebar: {
+      "/user/": [
+        {
+          text: "Using oGit",
+          items: [
+            { text: "Overview", link: "/user/" },
+            { text: "Your account", link: "/user/account" },
+            { text: "Git over HTTP and SSH", link: "/user/git" },
+          ],
+        },
+        {
+          text: "Repositories",
+          items: [
+            { text: "Repositories", link: "/user/repositories" },
+            { text: "Groups", link: "/user/groups" },
+            { text: "Forks", link: "/user/forks" },
+            { text: "Mirroring and imports", link: "/user/mirroring" },
+            { text: "Git LFS", link: "/user/lfs" },
+          ],
+        },
+        {
+          text: "Collaboration",
+          items: [
+            { text: "Pull requests", link: "/user/pull-requests" },
+            { text: "Branch protection", link: "/user/branch-protection" },
+            { text: "Issues", link: "/user/issues" },
+            { text: "Wikis", link: "/user/wikis" },
+            { text: "Notifications", link: "/user/notifications" },
+          ],
+        },
+        {
+          text: "Shipping",
+          items: [
+            { text: "Actions", link: "/user/actions" },
+            { text: "Releases", link: "/user/releases" },
+            { text: "Packages", link: "/user/packages" },
+          ],
+        },
+      ],
       "/admin/": [
         {
           text: "Running oGit",
@@ -56,6 +95,9 @@ export default defineConfig({
             { text: "Run oGit with Docker and PostgreSQL", link: "/guides/docker-postgres" },
             { text: "Sign in with Keycloak", link: "/guides/sso-keycloak" },
             { text: "Back up and restore", link: "/guides/backup-restore" },
+            { text: "Migrate from GitHub", link: "/guides/migrate-from-github" },
+            { text: "Run Actions on your own runner", link: "/guides/run-actions" },
+            { text: "Publish a container image", link: "/guides/publish-a-container" },
           ],
         },
       ],

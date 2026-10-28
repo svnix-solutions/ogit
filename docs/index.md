@@ -10,6 +10,9 @@ hero:
       text: Try it
       link: /guides/try-it
     - theme: alt
+      text: Using oGit
+      link: /user/
+    - theme: alt
       text: Install oGit
       link: /admin/install
     - theme: alt
