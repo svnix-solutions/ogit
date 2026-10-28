@@ -283,6 +283,9 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.LFSApp = &application.LFSApp{Config: deps.Config, Logger: deps.Logger, Auth: deps.AuthApp, Repositories: deps.RepoApp,
 		Storage: deps.Storage, Locks: persistence.NewLFSLockPers(deps.Database.Db)}
 	deps.BrowseApp.LFS = deps.LFSApp
+	deps.WikiApp = &application.WikiApp{Logger: deps.Logger, Repositories: deps.RepoApp, Storage: deps.Storage, Users: userPers,
+		Webhooks: deps.WebhookApp, Notifications: deps.NotificationApp}
+	deps.WebhookApp.Wikis = deps.WikiApp
 	deps.ActionsApp = &application.ActionsApp{Config: deps.Config, Logger: deps.Logger, Pers: persistence.NewActionsPers(deps.Database.Db),
 		Repositories: deps.RepoApp, Groups: deps.GroupApp.GroupPers, GroupApp: deps.GroupApp, Admin: deps.AdminApp, Webhooks: deps.WebhookApp, Box: deps.TwoFactorApp.Box, Statuses: deps.StatusApp}
 	deps.WebhookApp.Actions = deps.ActionsApp

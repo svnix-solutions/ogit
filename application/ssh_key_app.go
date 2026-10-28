@@ -323,8 +323,9 @@ func (c *AuthApp) AuthorizeSSHAs(id *SSHIdentity, repoPath, operation string) (*
 		return nil, Pusher{}, fmt.Errorf("invalid git operation: %s", operation)
 	}
 
-	repo, err := c.RepositoryApp.GetRepository(nil, &repoPath)
-	if err != nil {
+	path, wiki := domain.SplitWikiPath(repoPath)
+	repo, err := c.RepositoryApp.GetRepository(nil, &path)
+	if err != nil || (wiki && repo.WikiAccess == domain.WikiOff) {
 		return nil, Pusher{}, ErrGitNotFound
 	}
 
@@ -334,6 +335,12 @@ func (c *AuthApp) AuthorizeSSHAs(id *SSHIdentity, repoPath, operation string) (*
 			return nil, Pusher{}, err
 		} else if must {
 			return nil, Pusher{}, ErrGitTwoFactorRequired
+		}
+		if wiki {
+			if err := c.wikiGitAccess(repo, *id.Key.UserId, write); err != nil {
+				return nil, Pusher{}, err
+			}
+			break
 		}
 		only, err := c.userGitAccess(repo, *id.Key.UserId, write)
 		if err != nil {
@@ -352,6 +359,14 @@ func (c *AuthApp) AuthorizeSSHAs(id *SSHIdentity, repoPath, operation string) (*
 	}
 	if write && repo.IsArchived {
 		return nil, Pusher{}, ErrGitArchived
+	}
+	if write && repo.IsMirror {
+		return nil, Pusher{}, ErrGitMirror
+	}
+	if wiki {
+		if repo, err = c.RepositoryApp.wikiFor(repo, write); err != nil {
+			return nil, Pusher{}, err
+		}
 	}
 
 	return repo, pusher, nil

@@ -7,6 +7,7 @@ const (
 	ThreadIssue       = "issue"
 	ThreadPullRequest = "pull_request"
 	ThreadRelease     = "release"
+	ThreadWiki        = "wiki" // one thread per wiki (its id is the repository's)
 )
 
 // Reasons, as GitHub names them.

@@ -208,3 +208,9 @@ func Describe(err error) string {
 	}
 	return fmt.Sprint(err)
 }
+
+// WikiURL is the wiki of the repository at raw, as forges name it:
+// <url>.wiki.git (https://host/o/r(.git) and git@host:o/r(.git) alike).
+func WikiURL(raw string) string {
+	return strings.TrimSuffix(strings.TrimRight(raw, "/"), ".git") + ".wiki.git"
+}

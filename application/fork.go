@@ -18,6 +18,7 @@ import (
 //     no access to it (the forker owns it);
 //   - forks start with issues off, as on GitHub;
 //   - the forks of a repository are listed to those who can read each one;
+//   - the wiki is copied with the repository (unless it is off);
 //   - "sync" fast-forwards a fork's branch to the original's (writers of the
 //     fork, if they can still read the original); a branch that has its own
 //     commits is not touched (ErrDiverged).
@@ -41,7 +42,20 @@ func (c *RepositoryApp) Fork(id, path *string, actorId, namespace, name string) 
 		name = src.Name
 	}
 	tmpl := &domain.Repository{Name: name, Description: src.Description, IsPrivate: src.IsPrivate, DefaultBranch: src.DefaultBranch, ForkOfId: &src.Id}
-	fork, err := c.create(namespace, actorId, tmpl, func(repo *domain.Repository) error { return c.copyRepository(src, repo) })
+	fork, err := c.create(namespace, actorId, tmpl, func(repo *domain.Repository) error {
+		if err := c.copyRepository(src, repo); err != nil {
+			return err
+		}
+		// The wiki too, unless it is off (hidden); its LFS objects are
+		// read from the original's (LFSApp.sources).
+		if src.WikiAccess != domain.WikiOff && c.StorageConfig.RepositoryExists(domain.WikiOf(src).StorageKey) {
+			if err := c.copyRepository(domain.WikiOf(src), domain.WikiOf(repo)); err != nil {
+				_ = c.StorageConfig.DeleteRepository(domain.WikiOf(repo).StorageKey)
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}

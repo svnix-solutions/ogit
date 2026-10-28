@@ -134,6 +134,12 @@ func s3Targets(cfg config.Config, slug string, all bool) (*s3.S3Storage, []domai
 		}
 		targets = append(targets, *repo)
 	}
+	// Wikis are repositories of their own (<key>.wiki).
+	for _, repo := range targets {
+		if wiki := domain.WikiOf(&repo); s3store.RepositoryExists(wiki.StorageKey) {
+			targets = append(targets, *wiki)
+		}
+	}
 	return s3store, targets, nil
 }
 
@@ -150,12 +156,12 @@ func repack(cfg config.Config, slug string, all bool, out io.Writer) error {
 	for _, repo := range targets {
 		n, err := s3store.Repack(repo.StorageKey)
 		if err != nil {
-			return fmt.Errorf("repack %s: %w", repo.FullPath(), err)
+			return fmt.Errorf("repack %s: %w", repo.GitPath(), err)
 		}
 		if n == 0 {
-			_, _ = fmt.Fprintf(out, "%s: already packed\n", repo.FullPath())
+			_, _ = fmt.Fprintf(out, "%s: already packed\n", repo.GitPath())
 		} else {
-			_, _ = fmt.Fprintf(out, "%s: packed %d loose objects\n", repo.FullPath(), n)
+			_, _ = fmt.Fprintf(out, "%s: packed %d loose objects\n", repo.GitPath(), n)
 		}
 	}
 	return nil
@@ -179,8 +185,8 @@ func gc(cfg config.Config, slug string, all bool, grace time.Duration, out io.Wr
 		res, err := s3store.GC(repo.StorageKey, grace)
 		if err != nil {
 			// Keep going: one broken repository must not block the others.
-			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.FullPath(), err)
-			failed = append(failed, repo.FullPath())
+			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.GitPath(), err)
+			failed = append(failed, repo.GitPath())
 			continue
 		}
 		var done []string
@@ -196,7 +202,7 @@ func gc(cfg config.Config, slug string, all bool, grace time.Duration, out io.Wr
 		if len(done) == 0 {
 			done = append(done, "nothing to do")
 		}
-		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.FullPath(), strings.Join(done, ", "))
+		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.GitPath(), strings.Join(done, ", "))
 	}
 	if len(failed) > 0 {
 		return fmt.Errorf("gc failed for %s", strings.Join(failed, ", "))
@@ -221,8 +227,8 @@ func prune(cfg config.Config, slug string, all bool, expire, grace time.Duration
 	for _, repo := range targets {
 		res, err := s3store.Prune(repo.StorageKey, expire, grace, dryRun)
 		if err != nil {
-			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.FullPath(), err)
-			failed = append(failed, repo.FullPath())
+			_, _ = fmt.Fprintf(out, "%s: %v\n", repo.GitPath(), err)
+			failed = append(failed, repo.GitPath())
 			continue
 		}
 		var done []string
@@ -241,7 +247,7 @@ func prune(cfg config.Config, slug string, all bool, expire, grace time.Duration
 		if len(done) == 0 {
 			done = append(done, "nothing to prune")
 		}
-		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.FullPath(), strings.Join(done, ", "))
+		_, _ = fmt.Fprintf(out, "%s: %s\n", repo.GitPath(), strings.Join(done, ", "))
 	}
 	if len(failed) > 0 {
 		return fmt.Errorf("prune failed for %s", strings.Join(failed, ", "))

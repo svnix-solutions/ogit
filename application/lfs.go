@@ -120,6 +120,7 @@ type lfsToken struct {
 	Name    string `json:"n,omitempty"`
 	Write   bool   `json:"w,omitempty"`
 	Limited bool   `json:"l,omitempty"`
+	Wiki    bool   `json:"k,omitempty"` // the repository's wiki
 	Expiry  int64  `json:"e"`
 }
 
@@ -132,7 +133,7 @@ func (c *LFSApp) tokenMAC(payload []byte) []byte {
 
 // Token mints a short-lived token for acc's repository and operation.
 func (c *LFSApp) Token(acc *LFSAccess) (string, time.Duration) {
-	payload, _ := json.Marshal(lfsToken{Repo: acc.Repo.Id, User: acc.UserId, Name: acc.Name, Write: acc.Write, Limited: acc.Limited, Expiry: time.Now().Add(lfsTokenLifetime).Unix()})
+	payload, _ := json.Marshal(lfsToken{Repo: acc.Repo.Id, User: acc.UserId, Name: acc.Name, Write: acc.Write, Limited: acc.Limited, Wiki: acc.Repo.Wiki, Expiry: time.Now().Add(lfsTokenLifetime).Unix()})
 	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(c.tokenMAC(payload)), lfsTokenLifetime
 }
 
@@ -149,8 +150,9 @@ func (c *LFSApp) AuthorizeToken(repoPath, token string, write bool) (*LFSAccess,
 	if json.Unmarshal(payload, &t) != nil || time.Now().Unix() > t.Expiry {
 		return nil, ErrLFSBadToken
 	}
-	repo, err := c.Repositories.GetRepository(nil, &repoPath)
-	if err != nil || repo.Id != t.Repo {
+	path, wiki := domain.SplitWikiPath(repoPath)
+	repo, err := c.Repositories.GetRepository(nil, &path)
+	if err != nil || repo.Id != t.Repo || wiki != t.Wiki || (wiki && repo.WikiAccess == domain.WikiOff) {
 		return nil, ErrGitNotFound
 	}
 	if write && !t.Write {
@@ -170,11 +172,21 @@ func (c *LFSApp) AuthorizeToken(repoPath, token string, write bool) (*LFSAccess,
 		if u, err := c.Repositories.UserPers.GetById(t.User); err != nil || !u.Active {
 			return nil, ErrLFSBadToken
 		}
-		if _, err := c.Auth.userGitAccess(repo, t.User, t.Write); err != nil {
+		if wiki {
+			err = c.Auth.wikiGitAccess(repo, t.User, t.Write)
+		} else {
+			_, err = c.Auth.userGitAccess(repo, t.User, t.Write)
+		}
+		if err != nil {
 			return nil, err
 		}
 	case t.Name == "" && repo.IsPrivate:
 		return nil, ErrGitNotFound
+	}
+	if wiki {
+		if repo, err = c.Repositories.wikiFor(repo, t.Write); err != nil {
+			return nil, err
+		}
 	}
 	return &LFSAccess{Repo: repo, UserId: t.User, Name: t.Name, Write: t.Write, Limited: t.Limited}, nil
 }
@@ -192,7 +204,11 @@ func (c *LFSApp) sources(acc *LFSAccess) []*domain.Repository {
 		if ok, err := c.Repositories.CanUserAccess(orig.Id, acc.UserId, "read"); err != nil || !ok {
 			break
 		}
-		out = append(out, orig)
+		if acc.Repo.Wiki { // a wiki's fork reads the original's wiki
+			out = append(out, domain.WikiOf(orig))
+		} else {
+			out = append(out, orig)
+		}
 		repo = orig
 	}
 	return out

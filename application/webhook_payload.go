@@ -250,6 +250,10 @@ func (c *WebhookApp) Pushed(repo *domain.Repository, pusher Pusher, objects stor
 		return
 	}
 	c.PushMirrors.Pushed(repo)
+	if repo.Wiki { // gollum events, no push events or workflows
+		c.Wikis.Pushed(repo, pusher, objects, updates)
+		return
+	}
 	c.Actions.Pushed(repo, pusher, objects, updates)
 	hooks, err := c.hooksFor(repo)
 	if err != nil {

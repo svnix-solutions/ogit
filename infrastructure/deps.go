@@ -26,6 +26,7 @@ type Deps struct {
 	AuthApp         *application.AuthApp
 	RepoApp         *application.RepositoryApp
 	BrowseApp       *application.BrowseApp
+	WikiApp         *application.WikiApp
 	PullApp         *application.PullRequestApp
 	Limits          *ratelimit.Guard
 	GitApp          *application.GitApp

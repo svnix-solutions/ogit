@@ -109,7 +109,7 @@ func (c *PullRequestApp) headTip(st storer.Storer, repo *domain.Repository, pr *
 // SourcePushed brings the pull requests whose source is a pushed branch of
 // fork up to date in their targets, and sends their synchronize events.
 func (c *PullRequestApp) SourcePushed(fork *domain.Repository, pusher Pusher, updates []RefUpdate) {
-	if c == nil || len(updates) == 0 {
+	if c == nil || len(updates) == 0 || fork.Wiki {
 		return
 	}
 	prs, err := c.Pulls.OpenFrom(fork.Id)

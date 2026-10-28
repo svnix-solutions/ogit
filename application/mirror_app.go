@@ -443,14 +443,67 @@ func (c *MirrorApp) fetch(ctx context.Context, repo *domain.Repository, m *domai
 		}
 	}
 	if m.LFS && len(res.Updated) > 0 {
-		return changed, c.fetchLFS(ctx, repo, m, st, res, cred)
+		if err := c.fetchLFS(ctx, repo, m.URL, st, res, cred); err != nil {
+			return changed, err
+		}
+	}
+	if c.fetchWiki(ctx, repo, m, cred) {
+		changed = true
 	}
 	return changed, nil
 }
 
+// fetchWiki fetches the remote's wiki (<url>.wiki.git) into the
+// repository's, if the remote has one: best effort, a remote without a
+// wiki is the common case. It reports whether refs moved.
+func (c *MirrorApp) fetchWiki(ctx context.Context, repo *domain.Repository, m *domain.Mirror, cred mirror.Credentials) bool {
+	logger := c.Logger.With().Str("component", "application.mirror").Str("repository", repo.FullPath()).Logger()
+	wiki := domain.WikiOf(repo)
+	created := false
+	if !c.Storage.RepositoryExists(wiki.StorageKey) {
+		if err := c.Storage.InitRepository(wiki.StorageKey); err != nil {
+			logger.Warn().Err(err).Msg("failed to create the wiki")
+			return false
+		}
+		created = true
+	}
+	var res *mirror.Result
+	err := func() error {
+		url := mirror.WikiURL(m.URL)
+		remote, err := c.Dialer.Remote(ctx, url, cred)
+		if err != nil {
+			return err
+		}
+		st, err := c.Storage.GetStorer(wiki.StorageKey)
+		if err != nil {
+			return err
+		}
+		if res, err = mirror.Fetch(ctx, st, remote, mirror.FetchOptions{Prune: m.Mirror}); err != nil {
+			return err
+		}
+		if res.DefaultBranch != "" {
+			_ = st.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName(res.DefaultBranch)))
+		}
+		if m.LFS && len(res.Updated) > 0 {
+			return c.fetchLFS(ctx, wiki, url, st, res, cred)
+		}
+		return nil
+	}()
+	if err != nil || (created && len(res.Updated) == 0) {
+		if created {
+			_ = c.Storage.DeleteRepository(wiki.StorageKey)
+		}
+		if err != nil {
+			logger.Debug().Err(err).Msg("no wiki fetched")
+		}
+		return false
+	}
+	return len(res.Updated)+len(res.Deleted) > 0
+}
+
 // fetchLFS fetches the LFS objects the updated refs' tips point to that
 // the repository lacks.
-func (c *MirrorApp) fetchLFS(ctx context.Context, repo *domain.Repository, m *domain.Mirror, st storer.Storer, res *mirror.Result, cred mirror.Credentials) error {
+func (c *MirrorApp) fetchLFS(ctx context.Context, repo *domain.Repository, url string, st storer.Storer, res *mirror.Result, cred mirror.Credentials) error {
 	var tips []plumbing.Hash
 	for _, name := range res.Updated {
 		if ref, err := st.Reference(plumbing.ReferenceName(name)); err == nil {
@@ -470,7 +523,7 @@ func (c *MirrorApp) fetchLFS(ctx context.Context, repo *domain.Repository, m *do
 	if len(missing) == 0 {
 		return nil
 	}
-	server, err := c.Dialer.LFSServer(ctx, m.URL, cred, "download")
+	server, err := c.Dialer.LFSServer(ctx, url, cred, "download")
 	if err != nil {
 		return err
 	}

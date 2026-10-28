@@ -19,6 +19,7 @@ import (
 	ssohttp "github.com/labbs/ogit/interfaces/http/v1/sso"
 	"github.com/labbs/ogit/interfaces/http/v1/statuses"
 	"github.com/labbs/ogit/interfaces/http/v1/user"
+	"github.com/labbs/ogit/interfaces/http/v1/wiki"
 )
 
 func SetupRouterV1(deps infrastructure.Deps) {
@@ -89,6 +90,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	sshkey.Setup(sshkey.Controller{Logger: deps.Logger, SSHKeyApp: deps.SSHKeyApp, TwoFactor: deps.TwoFactorApp}, userGrp, repoGrp, adminGrp)
 
 	browse.Setup(browse.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, BrowseApp: deps.BrowseApp}, repoGrp)
+
+	wiki.Setup(wiki.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Wikis: deps.WikiApp}, repoGrp, deps.Http.Fiber)
 
 	statuses.Setup(statuses.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Limits: deps.Limits, Statuses: deps.StatusApp}, repoGrp)
 
