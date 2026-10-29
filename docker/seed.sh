@@ -44,6 +44,11 @@ if [ -z "$TOKEN" ]; then
   post /repository/demo%2Fshowcase/wiki/pages '{"name":"Home","content":"# Showcase wiki\n\nThis wiki lives in its own git repository, `demo/showcase.wiki.git`.\n\n- [[Getting Started]] (a page that does not exist yet: click it to create it)\n- Edit this page, then look at its history."}' "$TOKEN" >/dev/null
 fi
 
+# A fresh runner registration token on every start (they work once, for an
+# hour); the runner service uses it the first time it registers.
+post /repository/demo%2Fshowcase/actions/runners/registration-token '{}' "$TOKEN" \
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' > /data/runner-token.tmp && mv /data/runner-token.tmp /data/runner-token
+
 cat <<EOF
 
   oGit is ready: http://localhost:8080
@@ -52,6 +57,7 @@ cat <<EOF
   (kept in the ogit-data volume; "docker compose down -v" forgets it)
 
   demo is a site admin; the admin page asks for two-factor authentication first.
+  Actions: push a workflow in .ogit/workflows/ to demo/showcase; the runner service runs it.
   Clone:  git clone http://localhost:8080/demo/showcase.git
           git clone ssh://git@localhost:2222/demo/showcase.git   (add an SSH key in your settings)
   Storage: MinIO console at http://localhost:9001 (ogit-showcase / ogit-showcase-secret)

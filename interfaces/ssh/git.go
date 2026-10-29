@@ -26,6 +26,9 @@ func serveUploadPack(ctx context.Context, srv transport.Transport, ep *transport
 	if err != nil {
 		return err
 	}
+	if err := helpergit.AdvertiseUploadPack(adv); err != nil {
+		return err
+	}
 	if err := adv.Encode(out); err != nil {
 		return err
 	}

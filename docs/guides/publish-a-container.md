@@ -46,9 +46,10 @@ jobs:
       - name: Build and push
         env:
           REGISTRY: git.example.com
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}   # the job's token: not an environment variable unless passed like this
         run: |
           IMAGE="$REGISTRY/$GITHUB_REPOSITORY:${GITHUB_REF_NAME#v}"
-          echo "$GITHUB_TOKEN" | docker login "$REGISTRY" -u x --password-stdin
+          echo "$TOKEN" | docker login "$REGISTRY" -u x --password-stdin
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 ```

@@ -37,7 +37,7 @@ type State struct {
 }
 
 func NewInstance(version string) *cli.Command {
-	var file, url, token, name, network, workdir, dockerHost string
+	var file, url, token, name, network, workdir, dockerHost, jobURL string
 	var labels []string
 	fileFlag := &cli.StringFlag{Name: "file", Value: ".runner", Usage: "the runner's state file (holds its token)", Destination: &file}
 	return &cli.Command{
@@ -81,6 +81,7 @@ func NewInstance(version string) *cli.Command {
 					&cli.StringFlag{Name: "network", Usage: "Docker network for job containers; they must reach the server's URL", Destination: &network},
 					&cli.StringFlag{Name: "workdir", Usage: "where runs and the action cache live (default: a directory next to the state file)", Destination: &workdir},
 					&cli.StringFlag{Name: "docker-host", Usage: "the Docker socket (default: DOCKER_HOST or the usual socket)", Destination: &dockerHost},
+					&cli.StringFlag{Name: "job-url", Usage: "where job containers reach the server, if not its public URL (e.g. http://ogit:8080 on a Docker network)", Destination: &jobURL},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					data, err := os.ReadFile(file)
@@ -101,7 +102,7 @@ func NewInstance(version string) *cli.Command {
 					ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 					defer stop()
 					return Loop(ctx, &actrunner.Client{URL: st.URL, Token: st.Token}, names, version,
-						actrunner.Options{Platforms: platforms, WorkDir: workdir, ContainerNetwork: network, DockerHost: dockerHost},
+						actrunner.Options{Platforms: platforms, WorkDir: workdir, ContainerNetwork: network, DockerHost: dockerHost, JobURL: jobURL},
 						cmd.Root().Writer)
 				},
 			},

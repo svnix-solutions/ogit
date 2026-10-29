@@ -101,10 +101,9 @@ func (c Controller) twirp(h func(*fiber.Ctx, *domain.ActionRun, request) error) 
 }
 
 func (c Controller) serverURL(ctx *fiber.Ctx) string {
-	if u := strings.TrimSuffix(c.Config.Server.PublicURL, "/"); u != "" {
-		return u
-	}
-	return ctx.BaseURL()
+	// Jobs may reach the server on an internal address (ogit runner run
+	// --job-url): links follow the address of the request.
+	return c.Config.LinkBase(ctx.BaseURL())
 }
 
 func (c Controller) create(ctx *fiber.Ctx, run *domain.ActionRun, req request) error {

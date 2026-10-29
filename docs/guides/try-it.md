@@ -1,6 +1,6 @@
 # Try oGit with Docker Compose
 
-The repository's `docker-compose.yaml` starts a complete oGit on your machine: PostgreSQL, S3 storage (MinIO), Redis, oGit itself, and a demo user with a repository to look at. You need Docker with Compose and git.
+The repository's `docker-compose.yaml` starts a complete oGit on your machine: PostgreSQL, S3 storage (MinIO), Redis, oGit itself, an Actions runner, and a demo user with a repository to look at. You need Docker with Compose and git.
 
 ```bash
 git clone https://github.com/svnix-solutions/ogit.git && cd ogit
@@ -23,9 +23,12 @@ The keys and passwords in `docker-compose.yaml` are public. To run oGit for real
 | `redis` | Redis: rate limit counters and the S3 pack cache | |
 | `s3` | MinIO, the S3 storage; its console shows the `ogit` bucket | 9001 |
 | `s3-init` | creates the bucket, then exits | |
-| `seed` | creates the demo user and repository once, then exits | |
+| `seed` | creates the demo user and repository once (and a runner registration token on every start), then exits | |
+| `runner` | runs `demo/showcase`'s Actions workflows in Docker, through your machine's Docker | |
 
 oGit reads `config-example.yaml`, the documented defaults (SQLite and local storage). The `x-ogit-environment` block in `docker-compose.yaml` sets what differs as environment variables, which override the file. See [Configuration](/admin/configuration).
+
+The public URL is `http://localhost:8080`. Inside Docker, `localhost` is each container itself, so the runner's jobs reach the server on the Compose network instead, at `http://ogit:8080`: the runner is started with `--job-url http://ogit:8080`.
 
 The image is `ghcr.io/svnix-solutions/ogit:${OGIT_TAG:-latest}`. `--build` builds it from the checkout with the repository's `Dockerfile`. To use a released image instead, run `OGIT_TAG=<version> docker compose up -d` without `--build`.
 
@@ -42,6 +45,21 @@ The image is `ghcr.io/svnix-solutions/ogit:${OGIT_TAG:-latest}`. `--build` build
 
 - **Over SSH:** add your public key in **Settings → SSH keys**, then `git clone ssh://git@localhost:2222/demo/showcase.git`.
 - **Pull requests:** push a branch and open a pull request from the repository's **Pull requests** tab.
+- **Actions:** add a workflow to `demo/showcase` and push it:
+
+  ```yaml
+  # .ogit/workflows/ci.yaml
+  name: CI
+  on: [push]
+  jobs:
+    hello:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - run: ls && echo "Hello from $GITHUB_REPOSITORY"
+  ```
+
+  The repository's **Actions** tab shows the run and its log. The runner uses your machine's Docker, so only run workflows you trust.
 - **Admin:** `demo` is a site admin. The admin page asks for two-factor authentication first; any authenticator app works.
 - **Storage:** sign in to the MinIO console at http://localhost:9001 (`ogit-showcase` / `ogit-showcase-secret`) and open the `ogit` bucket. Each repository is under `repositories/<id>.git`, its wiki under `<id>.wiki.git`.
 

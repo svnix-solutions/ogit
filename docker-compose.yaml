@@ -1,5 +1,5 @@
 # A complete oGit to try on your machine: oGit with PostgreSQL, S3 storage
-# (MinIO) and Redis, plus a demo user and repository.
+# (MinIO) and Redis, an Actions runner, and a demo user and repository.
 #
 #   docker compose up --build      # builds oGit from source the first time
 #   docker compose logs seed       # the demo user's password
@@ -19,7 +19,8 @@ name: ogit
 
 # oGit's settings, shared by the server and the seed job.
 x-ogit-environment: &ogit-environment
-  # Where people reach it: used in links, webhooks, SSO callbacks and passkeys.
+  # Where people reach it: used in links, passkeys, LFS over SSH, emails and
+  # SSO. The runner's jobs reach it at http://ogit:8080 instead (its --job-url).
   HTTP_PUBLIC_URL: http://localhost:8080
   # Showcase keys, at least 32 bytes each. Make your own with openssl rand -hex 32.
   SESSION_SECRET_KEY: showcase-only-session-key-change-me-0123456789
@@ -127,7 +128,26 @@ services:
       - ./docker/seed.sh:/seed.sh:ro
       - ogit-data:/data
 
+  # Runs Actions workflows of demo/showcase in Docker, with the host's
+  # Docker: give it to repositories you trust only. Registered with a token
+  # the seed job leaves in ogit-data.
+  runner:
+    image: ghcr.io/svnix-solutions/ogit:${OGIT_TAG:-latest}
+    build: .
+    restart: unless-stopped
+    depends_on:
+      seed: {condition: service_completed_successfully}
+    entrypoint: ["/bin/sh", "/runner.sh"]
+    environment:
+      RUNNER_NETWORK: ogit_default   # job containers join it to reach http://ogit:8080
+    volumes:
+      - ./docker/runner.sh:/runner.sh:ro
+      - ogit-data:/seed:ro
+      - runner-data:/runner
+      - /var/run/docker.sock:/var/run/docker.sock
+
 volumes:
   db-data:
   s3-data:
   ogit-data:
+  runner-data:

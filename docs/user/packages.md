@@ -21,7 +21,15 @@ docker pull git.example.com/me/app:1.0
 
 The registry is on your server's host name. Docker only talks plain HTTP to `localhost`, `127.0.0.0/8` or registries listed in `insecure-registries`, so use HTTPS. Layers are shared between the images of a namespace. In a group's sub-group, images are `org/team/app`.
 
-From Actions: `echo "$GITHUB_TOKEN" | docker login git.example.com -u x --password-stdin`. The [container guide](/guides/publish-a-container) has a complete workflow.
+From Actions, log in with the job's token, passed to the step as an environment variable:
+
+```yaml
+- env:
+    TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  run: echo "$TOKEN" | docker login git.example.com -u x --password-stdin
+```
+
+The [container guide](/guides/publish-a-container) has a complete workflow.
 
 ## npm
 

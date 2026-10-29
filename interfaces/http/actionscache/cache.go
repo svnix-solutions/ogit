@@ -74,10 +74,9 @@ func (c Controller) authorized(h func(*fiber.Ctx, *domain.ActionRun) error) fibe
 }
 
 func (c Controller) serverURL(ctx *fiber.Ctx) string {
-	if u := strings.TrimSuffix(c.Config.Server.PublicURL, "/"); u != "" {
-		return u
-	}
-	return ctx.BaseURL()
+	// Jobs may reach the server on an internal address (ogit runner run
+	// --job-url): links follow the address of the request.
+	return c.Config.LinkBase(ctx.BaseURL())
 }
 
 // lookup: GET cache?keys=<key>,<restore keys>&version= (204 on a miss).

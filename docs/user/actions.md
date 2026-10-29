@@ -50,7 +50,7 @@ Maintainers add runners in **Settings → Runners**, group owners on the group's
 
 ## `GITHUB_TOKEN`
 
-Each job gets a token valid while its run runs, for its repository only:
+Each job gets a token valid while its run runs, for its repository only. As on GitHub, it's <span v-pre>`${{ secrets.GITHUB_TOKEN }}`</span> (or <span v-pre>`${{ github.token }}`</span>), not an environment variable: pass it to a step with `env:` when a command needs it. Actions such as `actions/checkout` get it by themselves.
 
 - it reads the repository (`actions/checkout` works as is);
 - with `permissions: contents: write`, it pushes;
