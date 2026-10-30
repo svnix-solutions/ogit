@@ -19,7 +19,7 @@ import (
 // repository, the other reads its packs from Redis, not S3.
 func TestS3RedisCacheSharedBetweenServers(t *testing.T) {
 	ctx := context.Background()
-	redisCtr, err := tcredis.Run(ctx, "redis:7-alpine")
+	redisCtr, err := tcredis.Run(ctx, "redis:7-alpine@sha256:6ba19c50b56777f5c11c58eff8ddb69d0d5f27ba131cffb63f180ccfd43c66af")
 	testcontainers.CleanupContainer(t, redisCtr)
 	require.NoError(t, err)
 	redisURL, err := redisCtr.ConnectionString(ctx)

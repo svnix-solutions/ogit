@@ -41,7 +41,7 @@ func usePostgres(t *testing.T, cfg *config.Config) {
 	// The container is shared by all tests and removed by the testcontainers
 	// reaper when the test binary exits.
 	pgOnce.Do(func() {
-		ctr, err := postgres.Run(context.Background(), "postgres:17-alpine",
+		ctr, err := postgres.Run(context.Background(), "postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b",
 			postgres.WithDatabase("ogit"), postgres.WithUsername("ogit"), postgres.WithPassword("ogit"),
 			postgres.BasicWaitStrategies())
 		if err != nil {

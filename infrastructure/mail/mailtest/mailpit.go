@@ -15,7 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const mailpitImage = "axllent/mailpit:v1.27.10"
+const mailpitImage = "axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a"
 
 // Mailpit is a running Mailpit container: SMTP on Host:SMTPPort (no TLS, no
 // auth) and its HTTP API at APIURL.

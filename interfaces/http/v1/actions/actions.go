@@ -33,6 +33,11 @@ type Runner struct {
 	Online     bool       `json:"online"` // reported in the last minute
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	CreatedAt  time.Time  `json:"created_at"`
+	// Ephemeral: takes one run, and is deleted when it ends.
+	Ephemeral bool `json:"ephemeral"`
+	// RegistrationTokenId: the reusable token that registered it; such
+	// runners are deleted after a day offline.
+	RegistrationTokenId *string `json:"registration_token_id"`
 }
 
 type RunnersResponse struct {
@@ -40,11 +45,42 @@ type RunnersResponse struct {
 }
 
 type RegistrationTokenResponse struct {
-	Token     string    `json:"token"` // shown once
-	ExpiresAt time.Time `json:"expires_at"`
+	Token     string     `json:"token"` // shown once
+	Id        string     `json:"id"`
+	Reusable  bool       `json:"reusable"`
+	ExpiresAt *time.Time `json:"expires_at"` // null: a reusable token that never expires
+}
+
+// RegistrationTokenOptions: an empty body (or none) makes a one-time token.
+type RegistrationTokenOptions struct {
+	Reusable  bool       `json:"reusable"`
+	Name      string     `json:"name"`
+	ExpiresAt *time.Time `json:"expires_at"` // reusable tokens only; null: never
+}
+
+// RegistrationToken is a reusable registration token (never its value).
+type RegistrationToken struct {
+	Id         string     `json:"id"`
+	Name       string     `json:"name"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+	Runners    int64      `json:"runners"` // registered with it and still there
+}
+
+type RegistrationTokensResponse struct {
+	Tokens []RegistrationToken `json:"tokens"`
 }
 
 type SiteRequest struct{}
+
+type SiteTokenRequest struct {
+	RegistrationTokenOptions
+}
+
+type SiteTokenIdRequest struct {
+	TokenId string `path:"token_id" json:"-" validate:"required"`
+}
 
 type SiteRunnerRequest struct {
 	RunnerId string `path:"runner_id" json:"-" validate:"required"`
@@ -54,6 +90,16 @@ type GroupRequest struct {
 	Identifier string `path:"identifier" json:"-" validate:"required"`
 }
 
+type GroupTokenRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	RegistrationTokenOptions
+}
+
+type GroupTokenIdRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	TokenId    string `path:"token_id" json:"-" validate:"required"`
+}
+
 type GroupRunnerRequest struct {
 	Identifier string `path:"identifier" json:"-" validate:"required"`
 	RunnerId   string `path:"runner_id" json:"-" validate:"required"`
@@ -61,6 +107,16 @@ type GroupRunnerRequest struct {
 
 type RepoRequest struct {
 	Identifier string `path:"identifier" json:"-" validate:"required"`
+}
+
+type RepoTokenRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	RegistrationTokenOptions
+}
+
+type RepoTokenIdRequest struct {
+	Identifier string `path:"identifier" json:"-" validate:"required"`
+	TokenId    string `path:"token_id" json:"-" validate:"required"`
 }
 
 type RepoRunnerRequest struct {
@@ -145,15 +201,24 @@ func Setup(c Controller, grp, repoGrp *fiberoapi.OApiGroup, app *fiber.App) {
 	public := func(summary, id, desc string) fiberoapi.OpenAPIOptions {
 		return fiberoapi.OpenAPIOptions{Summary: summary, OperationID: id, Tags: tags, Security: "disabled", Description: desc + " No session needed for public repositories."}
 	}
-	reg := " The token registers one runner (`ogit runner register`) within an hour and is shown once."
+	reg := " The token (shown once) registers one runner (`ogit runner register`) within an hour; with `reusable`, any number of runners until" +
+		" `expires_at` (null: never) or until revoked."
+	tokens := " Reusable registration tokens, unexpired, with how many of the runners each registered are still there."
+	revoke := " Runners it registered stay."
 	fiberoapi.Get(grp, "/admin/runners", c.SiteRunners, private("List shared runners", "actions.site.runners", "Site admins. Shared runners take runs from every repository."))
 	fiberoapi.Post(grp, "/admin/runners/registration-token", c.SiteToken, private("Create a shared runner registration token", "actions.site.token", "Site admins."+reg))
+	fiberoapi.Get(grp, "/admin/runners/registration-tokens", c.SiteTokens, private("List shared runner registration tokens", "actions.site.tokens", "Site admins."+tokens))
+	fiberoapi.Delete(grp, "/admin/runners/registration-tokens/:token_id", c.SiteRevoke, private("Revoke a shared runner registration token", "actions.site.revoke", "Site admins."+revoke))
 	fiberoapi.Delete(grp, "/admin/runners/:runner_id", c.SiteDelete, private("Delete a shared runner", "actions.site.delete", "Site admins."))
 	fiberoapi.Get(grp, "/group/:identifier/runners", c.GroupRunners, private("List group runners", "actions.group.runners", "The group owner. Group runners take runs from the group's repositories."))
 	fiberoapi.Post(grp, "/group/:identifier/runners/registration-token", c.GroupToken, private("Create a group runner registration token", "actions.group.token", "The group owner."+reg))
+	fiberoapi.Get(grp, "/group/:identifier/runners/registration-tokens", c.GroupTokens, private("List group runner registration tokens", "actions.group.tokens", "The group owner."+tokens))
+	fiberoapi.Delete(grp, "/group/:identifier/runners/registration-tokens/:token_id", c.GroupRevoke, private("Revoke a group runner registration token", "actions.group.revoke", "The group owner."+revoke))
 	fiberoapi.Delete(grp, "/group/:identifier/runners/:runner_id", c.GroupDelete, private("Delete a group runner", "actions.group.delete", "The group owner."))
 	fiberoapi.Get(repoGrp, "/:identifier/actions/runners", c.RepoRunners, private("List repository runners", "actions.repo.runners", "Maintainers and owners."))
 	fiberoapi.Post(repoGrp, "/:identifier/actions/runners/registration-token", c.RepoToken, private("Create a repository runner registration token", "actions.repo.token", "Maintainers and owners."+reg))
+	fiberoapi.Get(repoGrp, "/:identifier/actions/runners/registration-tokens", c.RepoTokens, private("List repository runner registration tokens", "actions.repo.tokens", "Maintainers and owners."+tokens))
+	fiberoapi.Delete(repoGrp, "/:identifier/actions/runners/registration-tokens/:token_id", c.RepoRevoke, private("Revoke a repository runner registration token", "actions.repo.revoke", "Maintainers and owners."+revoke))
 	fiberoapi.Delete(repoGrp, "/:identifier/actions/runners/:runner_id", c.RepoDelete, private("Delete a repository runner", "actions.repo.delete", "Maintainers and owners."))
 
 	fiberoapi.Get(repoGrp, "/:identifier/actions/runs", c.Runs, public("List workflow runs", "actions.runs", "Newest first; ?page=&per_page= (at most 100)."))
@@ -187,7 +252,8 @@ func toRunner(r domain.ActionRunner) Runner {
 		labels = strings.Split(r.Labels, ",")
 	}
 	return Runner{Id: r.Id, Name: r.Name, Scope: r.ScopeType, Labels: labels, Version: r.Version, LastSeenAt: r.LastSeenAt,
-		Online: r.LastSeenAt != nil && time.Since(*r.LastSeenAt) < time.Minute, CreatedAt: r.CreatedAt}
+		Online: r.LastSeenAt != nil && time.Since(*r.LastSeenAt) < time.Minute, CreatedAt: r.CreatedAt,
+		Ephemeral: r.Ephemeral, RegistrationTokenId: r.RegistrationTokenId}
 }
 
 func (c Controller) list(ctx *fiber.Ctx, scope func(string) (application.RunnerScope, error)) (*RunnersResponse, *fiberoapi.ErrorResponse) {
@@ -210,7 +276,7 @@ func (c Controller) list(ctx *fiber.Ctx, scope func(string) (application.RunnerS
 	return resp, nil
 }
 
-func (c Controller) token(ctx *fiber.Ctx, scope func(string) (application.RunnerScope, error)) (*RegistrationTokenResponse, *fiberoapi.ErrorResponse) {
+func (c Controller) token(ctx *fiber.Ctx, o RegistrationTokenOptions, scope func(string) (application.RunnerScope, error)) (*RegistrationTokenResponse, *fiberoapi.ErrorResponse) {
 	user, e := authed(ctx)
 	if e != nil {
 		return nil, e
@@ -219,11 +285,47 @@ func (c Controller) token(ctx *fiber.Ctx, scope func(string) (application.Runner
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
-	token, expires, err := c.Actions.RegistrationToken(user, s)
+	t, raw, err := c.Actions.RegistrationToken(user, s, application.RegistrationOptions{Reusable: o.Reusable, Name: o.Name, ExpiresAt: o.ExpiresAt})
 	if err != nil {
 		return nil, apierror.From(err, c.Logger)
 	}
-	return &RegistrationTokenResponse{Token: token, ExpiresAt: expires}, nil
+	return &RegistrationTokenResponse{Token: raw, Id: t.Id, Reusable: t.Reusable, ExpiresAt: t.ExpiresAt}, nil
+}
+
+func (c Controller) tokens(ctx *fiber.Ctx, scope func(string) (application.RunnerScope, error)) (*RegistrationTokensResponse, *fiberoapi.ErrorResponse) {
+	user, e := authed(ctx)
+	if e != nil {
+		return nil, e
+	}
+	s, err := scope(user)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	list, counts, err := c.Actions.RegistrationTokens(user, s)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	resp := &RegistrationTokensResponse{Tokens: make([]RegistrationToken, 0, len(list))}
+	for _, t := range list {
+		resp.Tokens = append(resp.Tokens, RegistrationToken{Id: t.Id, Name: t.Name, ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt,
+			CreatedAt: t.CreatedAt, Runners: counts[t.Id]})
+	}
+	return resp, nil
+}
+
+func (c Controller) revoke(ctx *fiber.Ctx, tokenId string, scope func(string) (application.RunnerScope, error)) (*MessageResponse, *fiberoapi.ErrorResponse) {
+	user, e := authed(ctx)
+	if e != nil {
+		return nil, e
+	}
+	s, err := scope(user)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	if err := c.Actions.RevokeRegistrationToken(user, s, tokenId); err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	return &MessageResponse{Message: "registration token revoked"}, nil
 }
 
 func (c Controller) delete(ctx *fiber.Ctx, runnerId string, scope func(string) (application.RunnerScope, error)) (*MessageResponse, *fiberoapi.ErrorResponse) {
@@ -260,8 +362,16 @@ func (c Controller) SiteRunners(ctx *fiber.Ctx, _ SiteRequest) (*RunnersResponse
 	return c.list(ctx, site)
 }
 
-func (c Controller) SiteToken(ctx *fiber.Ctx, _ SiteRequest) (*RegistrationTokenResponse, *fiberoapi.ErrorResponse) {
-	return c.token(ctx, site)
+func (c Controller) SiteToken(ctx *fiber.Ctx, req SiteTokenRequest) (*RegistrationTokenResponse, *fiberoapi.ErrorResponse) {
+	return c.token(ctx, req.RegistrationTokenOptions, site)
+}
+
+func (c Controller) SiteTokens(ctx *fiber.Ctx, _ SiteRequest) (*RegistrationTokensResponse, *fiberoapi.ErrorResponse) {
+	return c.tokens(ctx, site)
+}
+
+func (c Controller) SiteRevoke(ctx *fiber.Ctx, req SiteTokenIdRequest) (*MessageResponse, *fiberoapi.ErrorResponse) {
+	return c.revoke(ctx, req.TokenId, site)
 }
 
 func (c Controller) SiteDelete(ctx *fiber.Ctx, req SiteRunnerRequest) (*MessageResponse, *fiberoapi.ErrorResponse) {
@@ -272,8 +382,16 @@ func (c Controller) GroupRunners(ctx *fiber.Ctx, req GroupRequest) (*RunnersResp
 	return c.list(ctx, c.group(req.Identifier))
 }
 
-func (c Controller) GroupToken(ctx *fiber.Ctx, req GroupRequest) (*RegistrationTokenResponse, *fiberoapi.ErrorResponse) {
-	return c.token(ctx, c.group(req.Identifier))
+func (c Controller) GroupToken(ctx *fiber.Ctx, req GroupTokenRequest) (*RegistrationTokenResponse, *fiberoapi.ErrorResponse) {
+	return c.token(ctx, req.RegistrationTokenOptions, c.group(req.Identifier))
+}
+
+func (c Controller) GroupTokens(ctx *fiber.Ctx, req GroupRequest) (*RegistrationTokensResponse, *fiberoapi.ErrorResponse) {
+	return c.tokens(ctx, c.group(req.Identifier))
+}
+
+func (c Controller) GroupRevoke(ctx *fiber.Ctx, req GroupTokenIdRequest) (*MessageResponse, *fiberoapi.ErrorResponse) {
+	return c.revoke(ctx, req.TokenId, c.group(req.Identifier))
 }
 
 func (c Controller) GroupDelete(ctx *fiber.Ctx, req GroupRunnerRequest) (*MessageResponse, *fiberoapi.ErrorResponse) {
@@ -284,8 +402,16 @@ func (c Controller) RepoRunners(ctx *fiber.Ctx, req RepoRequest) (*RunnersRespon
 	return c.list(ctx, c.repo(req.Identifier))
 }
 
-func (c Controller) RepoToken(ctx *fiber.Ctx, req RepoRequest) (*RegistrationTokenResponse, *fiberoapi.ErrorResponse) {
-	return c.token(ctx, c.repo(req.Identifier))
+func (c Controller) RepoToken(ctx *fiber.Ctx, req RepoTokenRequest) (*RegistrationTokenResponse, *fiberoapi.ErrorResponse) {
+	return c.token(ctx, req.RegistrationTokenOptions, c.repo(req.Identifier))
+}
+
+func (c Controller) RepoTokens(ctx *fiber.Ctx, req RepoRequest) (*RegistrationTokensResponse, *fiberoapi.ErrorResponse) {
+	return c.tokens(ctx, c.repo(req.Identifier))
+}
+
+func (c Controller) RepoRevoke(ctx *fiber.Ctx, req RepoTokenIdRequest) (*MessageResponse, *fiberoapi.ErrorResponse) {
+	return c.revoke(ctx, req.TokenId, c.repo(req.Identifier))
 }
 
 func (c Controller) RepoDelete(ctx *fiber.Ctx, req RepoRunnerRequest) (*MessageResponse, *fiberoapi.ErrorResponse) {

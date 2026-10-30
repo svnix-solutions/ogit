@@ -235,3 +235,56 @@ func checkReleaseAssetsMigration(t *testing.T, ctx context.Context, db *gorm.DB)
 	assert.False(t, db.Migrator().HasColumn("repository_release", "api_id"))
 	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", assets))
 }
+
+// Registration tokens and runners survive the runner scaling migration,
+// both ways; reusable tokens (which may never expire) go on the way down.
+func TestRunnerScalingMigration(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "ogit.sqlite")), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	goose.SetBaseFS(migrationFiles)
+	require.NoError(t, goose.SetDialect("sqlite3"))
+	checkRunnerScalingMigration(t, context.WithValue(context.Background(), "dbDialect", "sqlite"), db)
+}
+
+func checkRunnerScalingMigration(t *testing.T, ctx context.Context, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	const before, scaling = 20261113100000, 20261114100000
+	const token, runner, user = "55555555-5555-4555-8555-555555555551", "55555555-5555-4555-8555-555555555552", "11111111-1111-4111-8111-111111111111"
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", before))
+	require.NoError(t, db.Exec(`INSERT INTO action_registration_token (id, scope_type, token_hash, created_by, expires_at)
+		VALUES (?, 'site', 'h1', ?, '2030-01-01 00:00:00')`, token, user).Error)
+	require.NoError(t, db.Exec(`INSERT INTO action_runner (id, name, scope_type, token_hash) VALUES (?, 'r', 'site', 'h2')`, runner).Error)
+
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", scaling))
+	type tokenRow struct {
+		Id       string
+		Reusable bool
+		Name     string
+	}
+	var tokens []tokenRow
+	require.NoError(t, db.Raw(`SELECT id, reusable, name FROM action_registration_token`).Scan(&tokens).Error)
+	assert.Equal(t, []tokenRow{{Id: token}}, tokens, "existing tokens stay one-time")
+	var ephemeral, spent bool
+	require.NoError(t, db.Raw(`SELECT ephemeral, spent FROM action_runner`).Row().Scan(&ephemeral, &spent))
+	assert.False(t, ephemeral)
+	assert.False(t, spent)
+	require.NoError(t, db.Exec(`INSERT INTO action_registration_token (id, scope_type, token_hash, created_by, reusable)
+		VALUES ('55555555-5555-4555-8555-555555555553', 'site', 'h3', ?, TRUE)`, user).Error, "reusable tokens may never expire")
+	require.NoError(t, db.Exec(`UPDATE action_runner SET registration_token_id = '55555555-5555-4555-8555-555555555553', ephemeral = TRUE`).Error)
+
+	require.NoError(t, goose.DownToContext(ctx, sqlDB, "files", before))
+	var ids []string
+	require.NoError(t, db.Raw(`SELECT id FROM action_registration_token`).Scan(&ids).Error)
+	assert.Equal(t, []string{token}, ids, "reusable tokens go")
+	assert.False(t, db.Migrator().HasColumn("action_runner", "ephemeral"))
+	var runners int64
+	require.NoError(t, db.Raw(`SELECT COUNT(*) FROM action_runner`).Scan(&runners).Error)
+	assert.EqualValues(t, 1, runners)
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", scaling))
+}

@@ -40,6 +40,12 @@ Runners take queued runs from their scope: one repository, a group's repositorie
 
 Maintainers add runners in **Settings → Runners**, group owners on the group's page, and admins on the admin page.
 
+- A **registration token** works once, within the hour, unless it's **reusable**: then it registers any number of runners until it expires (optional) or is revoked. Revoking keeps the runners it registered.
+- **Ephemeral** runners (`ogit runner register --ephemeral`) take one run and are deleted when it ends.
+- Runners that are ephemeral or registered with a reusable token are removed after a day offline (never while running a run); others stay, shown offline.
+
+The [runner guide](/guides/run-actions#many-runners) has examples.
+
 ## Secrets and variables
 
 **Settings → Secrets** and **Variables** (maintainers), the same on a group's page (its owner) and the admin page:
@@ -80,7 +86,8 @@ It shows the latest finished run of that workflow on the default branch (`?branc
 
 | | |
 |---|---|
-| `POST /api/v1/repository/<owner>%2F<repo>/actions/runners/registration-token` | a runner registration token (maintainers); groups: `/api/v1/group/<name>/runners/registration-token`; shared: `/api/v1/admin/runners/registration-token` |
+| `POST /api/v1/repository/<owner>%2F<repo>/actions/runners/registration-token` | a runner registration token (maintainers): one-time, or `{"reusable": true, "name", "expires_at"}` (`expires_at` optional); groups: `/api/v1/group/<name>/runners/registration-token`; shared: `/api/v1/admin/runners/registration-token` |
+| `GET .../runners/registration-tokens`, `DELETE .../runners/registration-tokens/<id>` | the scope's reusable tokens (with how many runners each registered), and revoking one |
 | `GET /api/v1/repository/<owner>%2F<repo>/actions/runs` | runs, with `?workflow=&branch=&event=&status=&pull=` |
 | `GET /api/v1/repository/<owner>%2F<repo>/actions/runs/<n>`, `.../runs/<n>/logs?from=` | a run with its jobs, and its log (incremental) |
 | `POST .../runs/<n>/cancel`, `.../rerun`, `.../approve` | writers; approve a waiting fork run (maintainers) |

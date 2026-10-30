@@ -23,8 +23,8 @@ The keys and passwords in `docker-compose.yaml` are public. To run oGit for real
 | `redis` | Redis: rate limit counters and the S3 pack cache | |
 | `s3` | MinIO, the S3 storage; its console shows the `ogit` bucket | 9001 |
 | `s3-init` | creates the bucket, then exits | |
-| `seed` | creates the demo user and repository once (and a runner registration token on every start), then exits | |
-| `runner` | runs `demo/showcase`'s Actions workflows in Docker, through your machine's Docker | |
+| `seed` | creates the demo user and repository, and a reusable runner registration token, once, then exits | |
+| `runner` | runs `demo/showcase`'s Actions workflows in Docker, through your machine's Docker; `docker compose up -d --scale runner=3` for three | |
 
 oGit reads `config-example.yaml`, the documented defaults (SQLite and local storage). The `x-ogit-environment` block in `docker-compose.yaml` sets what differs as environment variables, which override the file. See [Configuration](/admin/configuration).
 

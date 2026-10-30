@@ -97,6 +97,8 @@ var mapping = []struct {
 	{application.ErrRunnerNotFound, fiber.StatusNotFound, "RUNNER_NOT_FOUND"},
 	{application.ErrRunNotFound, fiber.StatusNotFound, "RUN_NOT_FOUND"},
 	{application.ErrRunnerScope, fiber.StatusBadRequest, "INVALID_SCOPE"},
+	{application.ErrInvalidRegistration, fiber.StatusBadRequest, "INVALID_REGISTRATION_TOKEN"},
+	{application.ErrRegistrationTokenNotFound, fiber.StatusNotFound, "REGISTRATION_TOKEN_NOT_FOUND"},
 	{application.ErrSecretsUnavailable, fiber.StatusConflict, "SECRETS_UNAVAILABLE"},
 	{application.ErrInvalidSecretName, fiber.StatusBadRequest, "INVALID_NAME"},
 	{application.ErrSecretTooLarge, fiber.StatusRequestEntityTooLarge, "TOO_LARGE"},

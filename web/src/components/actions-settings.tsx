@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Server, Trash2 } from "lucide-react";
+import { KeyRound, Server, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { CopyField } from "@/components/copy-field";
 import { ErrorText, Section } from "@/components/section";
@@ -17,12 +17,25 @@ import { formatDate } from "@/lib/queries";
 // site. The API paths differ per scope; the pages are the same.
 
 export type ActionsPaths = {
-  runners: string; // GET list, POST <runners>/registration-token, DELETE <runners>/<id>
+  runners: string; // GET list, POST <runners>/registration-token, GET <runners>/registration-tokens, DELETE <runners>/<id>
   secrets: string; // GET list, PUT/DELETE <secrets>/<NAME>
   variables: string;
 };
 
-type Runner = { id: string; name: string; scope: string; labels: string[]; version: string; online: boolean; last_seen_at: string | null };
+type Runner = {
+  id: string;
+  name: string;
+  scope: string;
+  labels: string[];
+  version: string;
+  online: boolean;
+  last_seen_at: string | null;
+  ephemeral?: boolean;
+  registration_token_id?: string | null;
+};
+type NewToken = { token: string; id: string; reusable: boolean; expires_at: string | null };
+// A reusable registration token (never its value).
+type RegistrationToken = { id: string; name: string; expires_at: string | null; last_used_at: string | null; created_at: string; runners: number };
 type Secret = { name: string; updated_at: string };
 type Variable = { name: string; value: string; updated_at: string };
 
@@ -39,16 +52,36 @@ export function ActionsSettings({ paths, scope }: { paths: ActionsPaths; scope: 
 function Runners({ path, scope }: { path: string; scope: string }) {
   const qc = useQueryClient();
   const key = ["runners", path];
+  const tokensKey = ["registration-tokens", path];
   const runners = useQuery({ queryKey: key, queryFn: async () => (await api<{ runners: Runner[] }>("GET", path)).runners });
-  const [token, setToken] = useState<{ token: string; expires_at: string } | null>(null);
+  const tokens = useQuery({ queryKey: tokensKey, queryFn: async () => (await api<{ tokens: RegistrationToken[] }>("GET", `${path}/registration-tokens`)).tokens });
+  const [token, setToken] = useState<NewToken | null>(null);
+  const [reusable, setReusable] = useState(false);
+  const [name, setName] = useState("");
+  const [expires, setExpires] = useState("");
   const create = useMutation({
-    mutationFn: () => api<{ token: string; expires_at: string }>("POST", `${path}/registration-token`, {}),
-    onSuccess: setToken,
+    mutationFn: () =>
+      api<NewToken>(
+        "POST",
+        `${path}/registration-token`,
+        reusable ? { reusable: true, name: name.trim(), expires_at: expires ? new Date(`${expires}T23:59:59`).toISOString() : undefined } : {},
+      ),
+    onSuccess: (t) => {
+      setToken(t);
+      setName("");
+      setExpires("");
+      if (t.reusable) qc.invalidateQueries({ queryKey: tokensKey });
+    },
   });
   const remove = useMutation({
     mutationFn: (id: string) => api("DELETE", `${path}/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   });
+  const revoke = useMutation({
+    mutationFn: (id: string) => api("DELETE", `${path}/registration-tokens/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: tokensKey }),
+  });
+  const tokenNames = new Map((tokens.data ?? []).map((t) => [t.id, t.name || "unnamed token"]));
   const url = window.location.origin;
   return (
     <Section
@@ -74,10 +107,16 @@ function Runners({ path, scope }: { path: string; scope: string }) {
                   </span>
                 </p>
                 <p className="flex flex-wrap gap-1 pt-0.5">
+                  {r.ephemeral && <Badge title="Takes one run, and is deleted when it ends">ephemeral</Badge>}
                   {r.labels.map((l) => (
                     <Badge key={l}>{l}</Badge>
                   ))}
                 </p>
+                {r.registration_token_id && (
+                  <p className="pt-0.5 text-xs text-muted-foreground">
+                    Registered with {tokenNames.get(r.registration_token_id) ?? "a revoked token"}: removed after a day offline.
+                  </p>
+                )}
               </div>
               <span className="text-xs text-muted-foreground">
                 {r.version && `${r.version} · `}last seen {formatDate(r.last_seen_at)}
@@ -96,20 +135,82 @@ function Runners({ path, scope }: { path: string; scope: string }) {
           ))}
         </ul>
       )}
+      {tokens.data && tokens.data.length > 0 && (
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">Reusable registration tokens</h3>
+          <ErrorText error={revoke.error} />
+          <ul className="divide-y text-sm">
+            {tokens.data.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-center gap-3 py-2">
+                <KeyRound className="h-4 w-4 text-muted-foreground" />
+                <span className="min-w-0 flex-1 font-medium">{t.name || "Unnamed"}</span>
+                <span className="text-xs text-muted-foreground">
+                  {t.runners === 1 ? "1 runner" : `${t.runners} runners`} · {t.last_used_at ? `used ${formatDate(t.last_used_at)}` : "never used"} ·{" "}
+                  {t.expires_at ? `expires ${formatDate(t.expires_at)}` : "never expires"}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Revoke token ${t.name || "Unnamed"}`}
+                  onClick={() => {
+                    if (window.confirm(`Revoke ${t.name || "this token"}? It stops registering runners; those it registered stay.`)) revoke.mutate(t.id);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {token && (
         <Alert>
-          <p className="mb-2 text-sm font-medium">Register a runner within the hour (the token works once):</p>
+          <p className="mb-2 text-sm font-medium">
+            {token.reusable
+              ? `Register any number of runners with this token, ${token.expires_at ? `until ${formatDate(token.expires_at)}` : "until you revoke it"}. It is shown once:`
+              : "Register a runner within the hour (the token works once):"}
+          </p>
           <CopyField value={`ogit runner register --url ${url} --token ${token.token}`} label="Registration command" />
           <p className="mt-2 text-xs text-muted-foreground">
             Then start it with <code>ogit runner run</code> on a machine with Docker. Labels map runs-on names to images:{" "}
-            <code>--labels ubuntu-latest:docker://node:20-bookworm</code> (the default).
+            <code>--labels ubuntu-latest:docker://node:20-bookworm</code> (the default). With <code>--ephemeral</code>, the runner takes one run and is
+            deleted when it ends.
           </p>
         </Alert>
       )}
       <ErrorText error={create.error} />
-      <Button variant="outline" onClick={() => create.mutate()} disabled={create.isPending}>
-        New registration token
-      </Button>
+      <form
+        className="space-y-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          create.mutate();
+        }}
+      >
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={reusable} onChange={(e) => setReusable(e.target.checked)} />
+          <span>
+            Reusable
+            <span className="block text-xs text-muted-foreground">
+              Registers any number of runners, for autoscaling or replicas. Its runners are removed after a day offline.
+            </span>
+          </span>
+        </label>
+        {reusable && (
+          <div className="flex flex-wrap gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="registration-token-name">Name (optional)</Label>
+              <Input id="registration-token-name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} placeholder="ci-pool" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="registration-token-expires">Expires (optional)</Label>
+              <Input id="registration-token-expires" type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
+            </div>
+          </div>
+        )}
+        <Button type="submit" variant="outline" disabled={create.isPending}>
+          New registration token
+        </Button>
+      </form>
     </Section>
   );
 }

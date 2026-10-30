@@ -44,10 +44,15 @@ if [ -z "$TOKEN" ]; then
   post /repository/demo%2Fshowcase/wiki/pages '{"name":"Home","content":"# Showcase wiki\n\nThis wiki lives in its own git repository, `demo/showcase.wiki.git`.\n\n- [[Getting Started]] (a page that does not exist yet: click it to create it)\n- Edit this page, then look at its history."}' "$TOKEN" >/dev/null
 fi
 
-# A fresh runner registration token on every start (they work once, for an
-# hour); the runner service uses it the first time it registers.
-post /repository/demo%2Fshowcase/actions/runners/registration-token '{}' "$TOKEN" \
-  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' > /data/runner-token.tmp && mv /data/runner-token.tmp /data/runner-token
+# One reusable runner registration token, kept in the volume: every runner
+# replica registers itself with it.
+if [ ! -s /data/runner-registration-token ]; then
+  say "creating a reusable runner registration token"
+  post /repository/demo%2Fshowcase/actions/runners/registration-token '{"reusable":true,"name":"showcase runners"}' "$TOKEN" \
+    | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' > /data/runner-registration-token.tmp
+  mv /data/runner-registration-token.tmp /data/runner-registration-token
+fi
+rm -f /data/runner-token # one-time tokens of earlier versions
 
 cat <<EOF
 
@@ -58,6 +63,7 @@ cat <<EOF
 
   demo is a site admin; the admin page asks for two-factor authentication first.
   Actions: push a workflow in .ogit/workflows/ to demo/showcase; the runner service runs it.
+           More runners: docker compose up -d --scale runner=3
   Clone:  git clone http://localhost:8080/demo/showcase.git
           git clone ssh://git@localhost:2222/demo/showcase.git   (add an SSH key in your settings)
   Storage: MinIO console at http://localhost:9001 (ogit-showcase / ogit-showcase-secret)

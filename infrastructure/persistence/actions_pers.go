@@ -22,8 +22,12 @@ func (p *actionsPers) CreateRegistrationToken(t *domain.ActionRegistrationToken)
 func (p *actionsPers) TakeRegistrationToken(hash string, now time.Time) (*domain.ActionRegistrationToken, error) {
 	var t domain.ActionRegistrationToken
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("token_hash = ? AND expires_at > ?", hash, now).First(&t).Error; err != nil {
+		if err := tx.Where("token_hash = ? AND (expires_at IS NULL OR expires_at > ?)", hash, now).First(&t).Error; err != nil {
 			return err
+		}
+		if t.Reusable {
+			t.LastUsedAt = &now
+			return tx.Model(&domain.ActionRegistrationToken{}).Where("id = ?", t.Id).Update("last_used_at", now).Error
 		}
 		// Only the request that deletes it may use it.
 		res := tx.Where("id = ?", t.Id).Delete(&domain.ActionRegistrationToken{})
@@ -39,6 +43,55 @@ func (p *actionsPers) TakeRegistrationToken(hash string, now time.Time) (*domain
 		return nil, err
 	}
 	return &t, nil
+}
+
+func (p *actionsPers) ReusableTokens(scopeType string, scopeId *string, now time.Time) ([]domain.ActionRegistrationToken, map[string]int64, error) {
+	q := p.db.Where("scope_type = ? AND reusable AND (expires_at IS NULL OR expires_at > ?)", scopeType, now)
+	if scopeId != nil {
+		q = q.Where("scope_id = ?", *scopeId)
+	}
+	var out []domain.ActionRegistrationToken
+	if err := q.Order("created_at").Find(&out).Error; err != nil {
+		return nil, nil, err
+	}
+	counts := map[string]int64{}
+	if len(out) == 0 {
+		return out, counts, nil
+	}
+	ids := make([]string, len(out))
+	for i := range out {
+		ids[i] = out[i].Id
+	}
+	var rows []struct {
+		RegistrationTokenId string
+		N                   int64
+	}
+	err := p.db.Model(&domain.ActionRunner{}).Select("registration_token_id, COUNT(*) AS n").
+		Where("registration_token_id IN ?", ids).Group("registration_token_id").Scan(&rows).Error
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, r := range rows {
+		counts[r.RegistrationTokenId] = r.N
+	}
+	return out, counts, nil
+}
+
+func (p *actionsPers) GetRegistrationToken(id string) (*domain.ActionRegistrationToken, error) {
+	var t domain.ActionRegistrationToken
+	if err := p.db.Where("id = ?", id).First(&t).Error; err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (p *actionsPers) DeleteRegistrationToken(id string) error {
+	return p.db.Where("id = ?", id).Delete(&domain.ActionRegistrationToken{}).Error
+}
+
+func (p *actionsPers) DeleteExpiredRegistrationTokens(now time.Time) (int64, error) {
+	res := p.db.Where("expires_at IS NOT NULL AND expires_at <= ?", now).Delete(&domain.ActionRegistrationToken{})
+	return res.RowsAffected, res.Error
 }
 
 func (p *actionsPers) CreateRunner(r *domain.ActionRunner) error {
@@ -74,6 +127,29 @@ func (p *actionsPers) GetRunner(id string) (*domain.ActionRunner, error) {
 
 func (p *actionsPers) DeleteRunner(id string) error {
 	return p.db.Where("id = ?", id).Delete(&domain.ActionRunner{}).Error
+}
+
+func (p *actionsPers) SpendRunner(id string) (bool, error) {
+	res := p.db.Model(&domain.ActionRunner{}).Where("id = ? AND ephemeral AND NOT spent", id).Update("spent", true)
+	return res.RowsAffected == 1, res.Error
+}
+
+func (p *actionsPers) UnspendRunner(id string) error {
+	return p.db.Model(&domain.ActionRunner{}).Where("id = ?", id).Update("spent", false).Error
+}
+
+// runningRun matches the action_runner rows running a run.
+func runningRun(db *gorm.DB) *gorm.DB {
+	return db.Model(&domain.ActionRun{}).Select("1").
+		Where("action_run.runner_id = action_runner.id AND action_run.status = ?", domain.RunRunning)
+}
+
+func (p *actionsPers) DeleteDoneRunners(spentBefore, unseenBefore time.Time) (int64, error) {
+	res := p.db.Where("NOT EXISTS (?)", runningRun(p.db)).
+		Where("(ephemeral AND spent AND last_seen_at < ?) OR ((ephemeral OR registration_token_id IS NOT NULL) AND (last_seen_at IS NULL OR last_seen_at < ?))",
+			spentBefore, unseenBefore).
+		Delete(&domain.ActionRunner{})
+	return res.RowsAffected, res.Error
 }
 
 func (p *actionsPers) TouchRunner(id, labels, version string, at time.Time) error {
@@ -188,10 +264,29 @@ func (p *actionsPers) RunByTokenHash(hash string) (*domain.ActionRun, error) {
 }
 
 func (p *actionsPers) RequeueUnacknowledged(before time.Time) (int64, error) {
-	res := p.db.Model(&domain.ActionRun{}).
-		Where("status = ? AND heartbeat_at = started_at AND started_at < ?", domain.RunRunning, before).
-		Updates(map[string]any{"status": domain.RunQueued, "runner_id": nil, "token_hash": "", "started_at": nil, "heartbeat_at": nil})
-	return res.RowsAffected, res.Error
+	var n int64
+	err := p.db.Transaction(func(tx *gorm.DB) error {
+		unacknowledged := func() *gorm.DB {
+			return tx.Model(&domain.ActionRun{}).
+				Where("status = ? AND heartbeat_at = started_at AND started_at < ?", domain.RunRunning, before)
+		}
+		var runnerIds []string
+		if err := unacknowledged().Where("runner_id IS NOT NULL").Distinct().Pluck("runner_id", &runnerIds).Error; err != nil {
+			return err
+		}
+		res := unacknowledged().
+			Updates(map[string]any{"status": domain.RunQueued, "runner_id": nil, "token_hash": "", "started_at": nil, "heartbeat_at": nil})
+		if res.Error != nil {
+			return res.Error
+		}
+		n = res.RowsAffected
+		if len(runnerIds) == 0 {
+			return nil
+		}
+		return tx.Model(&domain.ActionRunner{}).Where("id IN ? AND ephemeral AND NOT EXISTS (?)", runnerIds, runningRun(tx)).
+			Update("spent", false).Error
+	})
+	return n, err
 }
 
 func (p *actionsPers) StaleRuns(before time.Time) ([]domain.ActionRun, error) {

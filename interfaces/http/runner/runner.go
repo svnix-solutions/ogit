@@ -71,6 +71,8 @@ type registerRequest struct {
 	Name    string   `json:"name"`
 	Labels  []string `json:"labels"`
 	Version string   `json:"version"`
+	// Ephemeral: the runner takes one run, and is deleted when it ends.
+	Ephemeral bool `json:"ephemeral"`
 }
 
 func (c Controller) Register(ctx *fiber.Ctx) error {
@@ -83,7 +85,7 @@ func (c Controller) Register(ctx *fiber.Ctx) error {
 		ctx.Set(fiber.HeaderRetryAfter, ratelimit.RetryAfter(r))
 		return fail(ctx, fiber.StatusTooManyRequests, "too many failed attempts")
 	}
-	r, token, err := c.Actions.Register(req.Token, req.Name, req.Labels, req.Version)
+	r, token, err := c.Actions.Register(req.Token, req.Name, req.Labels, req.Version, req.Ephemeral)
 	if errors.Is(err, application.ErrRegistrationToken) {
 		c.Limits.LoginFailed(ctx.UserContext(), ip, "")
 		return fail(ctx, fiber.StatusUnauthorized, err.Error())
@@ -91,7 +93,7 @@ func (c Controller) Register(ctx *fiber.Ctx) error {
 		c.Logger.Error().Err(err).Str("component", "http.runner").Msg("runner registration failed")
 		return fail(ctx, fiber.StatusInternalServerError, "internal error")
 	}
-	return ctx.JSON(fiber.Map{"id": r.Id, "name": r.Name, "token": token, "scope": r.ScopeType})
+	return ctx.JSON(fiber.Map{"id": r.Id, "name": r.Name, "token": token, "scope": r.ScopeType, "ephemeral": r.Ephemeral})
 }
 
 type fetchRequest struct {
