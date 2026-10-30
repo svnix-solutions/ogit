@@ -25,11 +25,20 @@ import (
 //     (branches, tags and their -ignore lists) match the pushed ref;
 //   - a run is one workflow for one event; one runner takes it whole and
 //     runs it with act (jobs, needs, matrix), in Docker;
-//   - runners register with a one-time registration token (an hour) from
-//     their scope: site admins (every repository), group owners (the
-//     group's repositories) or repository maintainers (that repository).
-//     A runner takes queued runs from its scope whose runs-on labels it
-//     has, oldest first; a run is claimed once (conditional UPDATE);
+//   - runners register with a registration token from their scope: site
+//     admins (every repository), group owners (the group's repositories)
+//     or repository maintainers (that repository). A token works once,
+//     within an hour, unless it is reusable: then it registers any number
+//     of runners until it expires (optional) or is revoked; revoking keeps
+//     the runners it registered. A runner takes queued runs from its scope
+//     whose runs-on labels it has, oldest first; a run is claimed once
+//     (conditional UPDATE);
+//   - an ephemeral runner takes one run (SpendRunner, a conditional
+//     UPDATE, before the claim) and is deleted when that run ends; if the
+//     run goes back to the queue (never acknowledged), it may take another;
+//     runners that are ephemeral or registered with a reusable token are
+//     deleted after a day unseen (never while running a run); others stay,
+//     shown offline;
 //   - each run gets a job token (GITHUB_TOKEN), valid while it runs, for
 //     its repository only: it reads it, pushes with `permissions:
 //     contents: write` and posts statuses with `statuses: write` (never
@@ -40,20 +49,25 @@ import (
 //   - writers cancel runs; readers see runs, jobs and logs.
 
 var (
-	ErrRunnerNotFound    = errors.New("runner not found")
-	ErrRunNotFound       = errors.New("run not found")
-	ErrRegistrationToken = errors.New("invalid or expired registration token")
-	ErrRunnerToken       = errors.New("invalid runner token")
-	ErrRunNotRunning     = errors.New("the run is not running on this runner")
-	ErrRunnerScope       = errors.New("scope must be site, group or repository")
-	ErrRunNotDone        = errors.New("the run hasn't finished")
+	ErrRunnerNotFound            = errors.New("runner not found")
+	ErrRunNotFound               = errors.New("run not found")
+	ErrRegistrationToken         = errors.New("invalid or expired registration token")
+	ErrRunnerToken               = errors.New("invalid runner token")
+	ErrRunNotRunning             = errors.New("the run is not running on this runner")
+	ErrRunnerScope               = errors.New("scope must be site, group or repository")
+	ErrRunNotDone                = errors.New("the run hasn't finished")
+	ErrInvalidRegistration       = errors.New("a registration token's name is at most 100 characters, and only reusable tokens take an expiry, in the future")
+	ErrRegistrationTokenNotFound = errors.New("registration token not found")
 )
 
 const (
 	registrationTokenLifetime = time.Hour
-	runnerHeartbeatTimeout    = 10 * time.Minute
-	maxLogChunk               = 1 << 20
-	jobTokenPrefix            = "ogitj_"
+	// pooledRunnerTimeout: runners that are ephemeral or registered with a
+	// reusable token are deleted once unseen for this long.
+	pooledRunnerTimeout    = 24 * time.Hour
+	runnerHeartbeatTimeout = 10 * time.Minute
+	maxLogChunk            = 1 << 20
+	jobTokenPrefix         = "ogitj_"
 )
 
 type ActionsApp struct {
@@ -191,38 +205,91 @@ func (c *ActionsApp) CanManage(actorId string, scope RunnerScope) error {
 	return ErrRunnerScope
 }
 
-// RegistrationToken creates a one-time token that registers a runner in
-// scope.
-func (c *ActionsApp) RegistrationToken(actorId string, scope RunnerScope) (string, time.Time, error) {
+// RegistrationOptions: a one-time token by default.
+type RegistrationOptions struct {
+	Reusable  bool
+	Name      string
+	ExpiresAt *time.Time // reusable tokens only; nil: never
+}
+
+// RegistrationToken creates a token that registers runners in scope.
+func (c *ActionsApp) RegistrationToken(actorId string, scope RunnerScope, o RegistrationOptions) (*domain.ActionRegistrationToken, string, error) {
 	if err := c.CanManage(actorId, scope); err != nil {
-		return "", time.Time{}, err
+		return nil, "", err
+	}
+	now := c.now().UTC()
+	name := strings.TrimSpace(o.Name)
+	if len(name) > 100 || (o.ExpiresAt != nil && (!o.Reusable || !o.ExpiresAt.After(now))) {
+		return nil, "", ErrInvalidRegistration
+	}
+	expires := o.ExpiresAt
+	if expires != nil {
+		e := expires.UTC()
+		expires = &e
+	}
+	if !o.Reusable {
+		e := now.Add(registrationTokenLifetime)
+		expires = &e
 	}
 	raw := randomToken("ogitreg_")
-	t := &domain.ActionRegistrationToken{ScopeType: scope.Type, ScopeId: scope.Id, TokenHash: HashToken(raw), CreatedBy: actorId,
-		ExpiresAt: c.now().Add(registrationTokenLifetime), CreatedAt: c.now()}
+	t := &domain.ActionRegistrationToken{ScopeType: scope.Type, ScopeId: scope.Id, Name: name, Reusable: o.Reusable,
+		TokenHash: HashToken(raw), CreatedBy: actorId, ExpiresAt: expires, CreatedAt: now}
 	if err := c.Pers.CreateRegistrationToken(t); err != nil {
-		return "", time.Time{}, err
+		return nil, "", err
 	}
-	return raw, t.ExpiresAt, nil
+	if o.Reusable {
+		c.Logger.Info().Str("component", "audit").Str("registration_token_id", t.Id).Str("scope", t.ScopeType).Str("by", actorId).Msg("reusable runner registration token created")
+	}
+	return t, raw, nil
+}
+
+// RegistrationTokens lists a scope's reusable registration tokens, with
+// how many of the runners each registered are still there.
+func (c *ActionsApp) RegistrationTokens(actorId string, scope RunnerScope) ([]domain.ActionRegistrationToken, map[string]int64, error) {
+	if err := c.CanManage(actorId, scope); err != nil {
+		return nil, nil, err
+	}
+	return c.Pers.ReusableTokens(scope.Type, scope.Id, c.now().UTC())
+}
+
+// RevokeRegistrationToken deletes a reusable token of scope; the runners
+// it registered stay.
+func (c *ActionsApp) RevokeRegistrationToken(actorId string, scope RunnerScope, id string) error {
+	if err := c.CanManage(actorId, scope); err != nil {
+		return err
+	}
+	t, err := c.Pers.GetRegistrationToken(id)
+	if err != nil || !t.Reusable || !sameScope(t.ScopeType, t.ScopeId, scope) {
+		return ErrRegistrationTokenNotFound
+	}
+	c.Logger.Info().Str("component", "audit").Str("registration_token_id", t.Id).Str("by", actorId).Msg("runner registration token revoked")
+	return c.Pers.DeleteRegistrationToken(id)
+}
+
+func sameScope(scopeType string, scopeId *string, scope RunnerScope) bool {
+	return scopeType == scope.Type && (scope.Id == nil || (scopeId != nil && *scopeId == *scope.Id))
 }
 
 // Register turns a registration token into a runner and its token.
-func (c *ActionsApp) Register(registrationToken, name string, labels []string, version string) (*domain.ActionRunner, string, error) {
-	t, err := c.Pers.TakeRegistrationToken(HashToken(registrationToken), c.now())
+func (c *ActionsApp) Register(registrationToken, name string, labels []string, version string, ephemeral bool) (*domain.ActionRunner, string, error) {
+	now := c.now().UTC()
+	t, err := c.Pers.TakeRegistrationToken(HashToken(registrationToken), now)
 	if err != nil {
 		return nil, "", ErrRegistrationToken
 	}
 	raw := randomToken("ogitr_")
-	now := c.now()
 	r := &domain.ActionRunner{Name: strings.TrimSpace(name), ScopeType: t.ScopeType, ScopeId: t.ScopeId, Labels: cleanLabels(labels),
-		TokenHash: HashToken(raw), Version: version, LastSeenAt: &now, CreatedAt: now}
+		TokenHash: HashToken(raw), Version: version, LastSeenAt: &now, CreatedAt: now, Ephemeral: ephemeral}
+	if t.Reusable {
+		r.RegistrationTokenId = &t.Id
+	}
 	if r.Name == "" {
 		r.Name = "runner"
 	}
 	if err := c.Pers.CreateRunner(r); err != nil {
 		return nil, "", err
 	}
-	c.Logger.Info().Str("component", "audit").Str("runner_id", r.Id).Str("scope", r.ScopeType).Msg("runner registered")
+	c.Logger.Info().Str("component", "audit").Str("runner_id", r.Id).Str("scope", r.ScopeType).Bool("ephemeral", ephemeral).Msg("runner registered")
 	return r, raw, nil
 }
 
@@ -258,7 +325,7 @@ func (c *ActionsApp) DeleteRunner(actorId string, scope RunnerScope, id string) 
 		return err
 	}
 	r, err := c.Pers.GetRunner(id)
-	if err != nil || r.ScopeType != scope.Type || (scope.Id != nil && (r.ScopeId == nil || *r.ScopeId != *scope.Id)) {
+	if err != nil || !sameScope(r.ScopeType, r.ScopeId, scope) {
 		return ErrRunnerNotFound
 	}
 	c.Logger.Info().Str("component", "audit").Str("runner_id", r.Id).Str("by", actorId).Msg("runner deleted")
@@ -339,7 +406,7 @@ func (c *ActionsApp) FetchTask(r *domain.ActionRunner, labels []string, version,
 	if labels != nil {
 		r.Labels = cleanLabels(labels)
 	}
-	_ = c.Pers.TouchRunner(r.Id, r.Labels, version, c.now())
+	_ = c.Pers.TouchRunner(r.Id, r.Labels, version, c.now().UTC())
 	ids, err := c.scopeRepositories(r)
 	if err != nil {
 		return nil, err
@@ -349,10 +416,27 @@ func (c *ActionsApp) FetchTask(r *domain.ActionRunner, labels []string, version,
 		return nil, err
 	}
 	have := splitLabels(r.Labels)
+	spent := false
+	if r.Ephemeral {
+		// Spend the runner before claiming, so that concurrent fetches can't
+		// both claim a run; give it back if none is claimed.
+		defer func() {
+			if spent {
+				_ = c.Pers.UnspendRunner(r.Id)
+			}
+		}()
+	}
 	for i := range runs {
 		run := &runs[i]
 		if !hasLabels(have, splitLabels(run.Labels)) {
 			continue
+		}
+		if r.Ephemeral && !spent {
+			ok, err := c.Pers.SpendRunner(r.Id)
+			if err != nil || !ok {
+				return nil, err // it has taken its run
+			}
+			spent = true
 		}
 		token := randomToken(jobTokenPrefix)
 		ok, err := c.Pers.ClaimRun(run.Id, r.Id, HashToken(token), c.now())
@@ -362,6 +446,7 @@ func (c *ActionsApp) FetchTask(r *domain.ActionRunner, labels []string, version,
 		if !ok {
 			continue // another runner took it
 		}
+		spent = false // claimed: keep it spent
 		repo, err := c.Repositories.GetRepository(&run.RepositoryId, nil)
 		if err != nil {
 			return nil, err
@@ -450,6 +535,12 @@ func (c *ActionsApp) UpdateState(r *domain.ActionRunner, runId string, u StateUp
 	}
 	if domain.RunDone(run.Status) {
 		c.closeStatuses(run)
+		if r.Ephemeral {
+			c.Logger.Info().Str("component", "audit").Str("runner_id", r.Id).Msg("ephemeral runner done: deleted")
+			if err := c.Pers.DeleteRunner(r.Id); err != nil {
+				c.Logger.Error().Err(err).Str("component", "application.actions").Str("runner_id", r.Id).Msg("failed to delete an ephemeral runner")
+			}
+		}
 	}
 	return run.CancelAsked, nil
 }
@@ -758,6 +849,26 @@ func (c *ActionsApp) FailStale() int {
 	return len(runs)
 }
 
+// SweepRunners deletes ephemeral runners whose run is over (their run
+// failed stale or went back to the queue), runners that are ephemeral or
+// registered with a reusable token and unseen for a day, and expired
+// registration tokens. It returns how many runners it deleted.
+func (c *ActionsApp) SweepRunners() int {
+	now := c.now().UTC()
+	// A spent runner is deleted only once unseen for longer than a fetch
+	// takes: it is spent just before its run is claimed.
+	n, err := c.Pers.DeleteDoneRunners(now.Add(-unacknowledgedTimeout), now.Add(-pooledRunnerTimeout))
+	if err != nil {
+		c.Logger.Error().Err(err).Str("component", "application.actions").Msg("failed to delete done runners")
+	} else if n > 0 {
+		c.Logger.Info().Str("component", "audit").Int64("count", n).Msg("ephemeral and offline runners deleted")
+	}
+	if _, err := c.Pers.DeleteExpiredRegistrationTokens(now); err != nil {
+		c.Logger.Error().Err(err).Str("component", "application.actions").Msg("failed to delete expired registration tokens")
+	}
+	return int(n)
+}
+
 // Run fails stale runs every interval until ctx ends.
 func (c *ActionsApp) Watch(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
@@ -770,6 +881,7 @@ func (c *ActionsApp) Watch(ctx context.Context, interval time.Duration) {
 			c.Requeue()
 			c.FailStale()
 			c.RunSchedules()
+			c.SweepRunners()
 			c.SweepArtifacts()
 			c.SweepCaches()
 		}

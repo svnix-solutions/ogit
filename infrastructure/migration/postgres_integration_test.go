@@ -18,7 +18,7 @@ import (
 // owner_id needs casts that SQLite does not exercise.
 func TestPostgresMigrationNamespaces(t *testing.T) {
 	ctx := context.Background()
-	ctr, err := postgres.Run(ctx, "postgres:17-alpine",
+	ctr, err := postgres.Run(ctx, "postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b",
 		postgres.WithDatabase("ogit"), postgres.WithUsername("ogit"), postgres.WithPassword("ogit"),
 		postgres.BasicWaitStrategies())
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestPostgresMigrationNamespaces(t *testing.T) {
 
 func TestPostgresMigrationReleaseAssets(t *testing.T) {
 	ctx := context.Background()
-	ctr, err := postgres.Run(ctx, "postgres:17-alpine",
+	ctr, err := postgres.Run(ctx, "postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b",
 		postgres.WithDatabase("ogit"), postgres.WithUsername("ogit"), postgres.WithPassword("ogit"),
 		postgres.BasicWaitStrategies())
 	require.NoError(t, err)
@@ -90,4 +90,5 @@ func TestPostgresMigrationReleaseAssets(t *testing.T) {
 	goose.SetBaseFS(migrationFiles)
 	require.NoError(t, goose.SetDialect("postgres"))
 	checkReleaseAssetsMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
+	checkRunnerScalingMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
 }

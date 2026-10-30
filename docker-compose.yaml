@@ -143,11 +143,9 @@ services:
     volumes:
       - ./docker/runner.sh:/runner.sh:ro
       - ogit-data:/seed:ro
-      - runner-data:/runner
       - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   db-data:
   s3-data:
   ogit-data:
-  runner-data:

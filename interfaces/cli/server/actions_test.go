@@ -36,7 +36,7 @@ func (s *testServer) registerRunner(t *testing.T, as user, tokenPath, name strin
 	status, body := s.post(t, tokenPath, as.session, map[string]any{})
 	require.Equal(t, http.StatusOK, status, "%v", body)
 	c := &actrunner.Client{URL: s.url}
-	reg, err := c.Register(context.Background(), body["token"].(string), name, labels, "test")
+	reg, err := c.Register(context.Background(), body["token"].(string), name, labels, "test", false)
 	require.NoError(t, err)
 	return &actrunner.Client{URL: s.url, Token: reg.Token}
 }
@@ -79,11 +79,11 @@ func TestActionsRunnerRegistration(t *testing.T) {
 		status, body := srv.post(t, tokenPath, f.owner.session, map[string]any{})
 		require.Equal(t, http.StatusOK, status)
 		c := &actrunner.Client{URL: srv.url}
-		_, err := c.Register(context.Background(), body["token"].(string), "one", []string{"ubuntu-latest"}, "test")
+		_, err := c.Register(context.Background(), body["token"].(string), "one", []string{"ubuntu-latest"}, "test", false)
 		require.NoError(t, err)
-		_, err = c.Register(context.Background(), body["token"].(string), "two", nil, "test")
+		_, err = c.Register(context.Background(), body["token"].(string), "two", nil, "test", false)
 		assert.Error(t, err, "a registration token works once")
-		_, err = c.Register(context.Background(), "ogitreg_nope", "three", nil, "test")
+		_, err = c.Register(context.Background(), "ogitreg_nope", "three", nil, "test", false)
 		assert.Error(t, err)
 	})
 
@@ -92,7 +92,7 @@ func TestActionsRunnerRegistration(t *testing.T) {
 		require.Equal(t, http.StatusOK, status)
 		srv.deps.ActionsApp.Now = func() time.Time { return time.Now().Add(2 * time.Hour) }
 		defer func() { srv.deps.ActionsApp.Now = nil }()
-		_, err := (&actrunner.Client{URL: srv.url}).Register(context.Background(), body["token"].(string), "late", nil, "test")
+		_, err := (&actrunner.Client{URL: srv.url}).Register(context.Background(), body["token"].(string), "late", nil, "test", false)
 		assert.Error(t, err)
 	})
 

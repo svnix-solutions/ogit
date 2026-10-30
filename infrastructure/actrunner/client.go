@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -70,16 +71,22 @@ func (c *Client) json(ctx context.Context, path string, in, out any) (int, error
 
 // Registration is the server's answer to a registration.
 type Registration struct {
-	Id    string `json:"id"`
-	Name  string `json:"name"`
-	Token string `json:"token"`
-	Scope string `json:"scope"`
+	Id        string `json:"id"`
+	Name      string `json:"name"`
+	Token     string `json:"token"`
+	Scope     string `json:"scope"`
+	Ephemeral bool   `json:"ephemeral"`
 }
 
-// Register turns a registration token into a runner token.
-func (c *Client) Register(ctx context.Context, registrationToken, name string, labels []string, version string) (*Registration, error) {
+// ErrUnregistered: the server doesn't know the runner's token (it was
+// deleted, or removed after a day offline).
+var ErrUnregistered = errors.New("the server no longer knows this runner (deleted, or removed after a day offline): register it again")
+
+// Register turns a registration token into a runner token. An ephemeral
+// runner takes one run.
+func (c *Client) Register(ctx context.Context, registrationToken, name string, labels []string, version string, ephemeral bool) (*Registration, error) {
 	var r Registration
-	_, err := c.json(ctx, "/register", map[string]any{"token": registrationToken, "name": name, "labels": labels, "version": version}, &r)
+	_, err := c.json(ctx, "/register", map[string]any{"token": registrationToken, "name": name, "labels": labels, "version": version, "ephemeral": ephemeral}, &r)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +97,9 @@ func (c *Client) Register(ctx context.Context, registrationToken, name string, l
 func (c *Client) Fetch(ctx context.Context, labels []string, version string, wait time.Duration) (*application.Task, error) {
 	var t application.Task
 	status, err := c.json(ctx, "/fetch", map[string]any{"labels": labels, "version": version, "wait": int(wait.Seconds())}, &t)
+	if status == http.StatusUnauthorized {
+		return nil, ErrUnregistered
+	}
 	if err != nil || status == http.StatusNoContent {
 		return nil, err
 	}

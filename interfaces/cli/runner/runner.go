@@ -34,11 +34,14 @@ type State struct {
 	Name   string   `json:"name"`
 	Token  string   `json:"token"`
 	Labels []string `json:"labels"`
+	// Ephemeral: the runner takes one run; `run` exits after it.
+	Ephemeral bool `json:"ephemeral,omitempty"`
 }
 
 func NewInstance(version string) *cli.Command {
 	var file, url, token, name, network, workdir, dockerHost, jobURL string
 	var labels []string
+	var ephemeral bool
 	fileFlag := &cli.StringFlag{Name: "file", Value: ".runner", Usage: "the runner's state file (holds its token)", Destination: &file}
 	return &cli.Command{
 		Name:  "runner",
@@ -53,6 +56,7 @@ func NewInstance(version string) *cli.Command {
 					&cli.StringFlag{Name: "token", Usage: "the registration token", Required: true, Destination: &token},
 					&cli.StringFlag{Name: "name", Usage: "the runner's name (default: the host name)", Destination: &name},
 					&cli.StringSliceFlag{Name: "labels", Usage: "runs-on labels, as name:docker://image", Value: DefaultLabels, Destination: &labels},
+					&cli.BoolFlag{Name: "ephemeral", Usage: "take one run, then unregister (the server deletes the runner when its run ends)", Destination: &ephemeral},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if name == "" {
@@ -60,16 +64,20 @@ func NewInstance(version string) *cli.Command {
 					}
 					names, _ := actrunner.ParseLabels(labels)
 					client := &actrunner.Client{URL: url}
-					reg, err := client.Register(ctx, token, name, names, version)
+					reg, err := client.Register(ctx, token, name, names, version, ephemeral)
 					if err != nil {
 						return err
 					}
-					st := State{URL: strings.TrimSuffix(url, "/"), Id: reg.Id, Name: reg.Name, Token: reg.Token, Labels: labels}
+					st := State{URL: strings.TrimSuffix(url, "/"), Id: reg.Id, Name: reg.Name, Token: reg.Token, Labels: labels, Ephemeral: reg.Ephemeral}
 					data, _ := json.MarshalIndent(st, "", "  ")
 					if err := os.WriteFile(file, data, 0o600); err != nil {
 						return err
 					}
-					fmt.Fprintf(cmd.Root().Writer, "Registered %s (%s runner). Its token is in %s; start it with `ogit runner run`.\n", reg.Name, reg.Scope, file)
+					kind := reg.Scope
+					if reg.Ephemeral {
+						kind = "ephemeral " + kind
+					}
+					fmt.Fprintf(cmd.Root().Writer, "Registered %s (%s runner). Its token is in %s; start it with `ogit runner run`.\n", reg.Name, kind, file)
 					return nil
 				},
 			},
@@ -103,15 +111,16 @@ func NewInstance(version string) *cli.Command {
 					defer stop()
 					return Loop(ctx, &actrunner.Client{URL: st.URL, Token: st.Token}, names, version,
 						actrunner.Options{Platforms: platforms, WorkDir: workdir, ContainerNetwork: network, DockerHost: dockerHost, JobURL: jobURL},
-						cmd.Root().Writer)
+						st.Ephemeral, cmd.Root().Writer)
 				},
 			},
 		},
 	}
 }
 
-// Loop fetches and runs tasks until ctx ends.
-func Loop(ctx context.Context, client *actrunner.Client, labels []string, version string, opts actrunner.Options, out interface{ Write([]byte) (int, error) }) error {
+// Loop fetches and runs tasks until ctx ends, or after one run when once
+// (ephemeral runners). It fails when the server no longer knows the runner.
+func Loop(ctx context.Context, client *actrunner.Client, labels []string, version string, opts actrunner.Options, once bool, out interface{ Write([]byte) (int, error) }) error {
 	fmt.Fprintf(out, "Waiting for runs (labels: %s)\n", strings.Join(labels, ", "))
 	backoff := time.Second
 	for ctx.Err() == nil {
@@ -119,6 +128,9 @@ func Loop(ctx context.Context, client *actrunner.Client, labels []string, versio
 		if err != nil {
 			if errors.Is(ctx.Err(), context.Canceled) {
 				break
+			}
+			if errors.Is(err, actrunner.ErrUnregistered) {
+				return err
 			}
 			fmt.Fprintf(out, "fetching runs failed: %v (retrying in %s)\n", err, backoff)
 			select {
@@ -135,6 +147,10 @@ func Loop(ctx context.Context, client *actrunner.Client, labels []string, versio
 		fmt.Fprintf(out, "Run #%d of %s (%s on %s)\n", task.Number, task.Repository, task.WorkflowPath, task.Ref)
 		status := actrunner.Execute(ctx, client, task, opts)
 		fmt.Fprintf(out, "Run #%d of %s: %s\n", task.Number, task.Repository, status)
+		if once {
+			fmt.Fprintln(out, "Ephemeral runner: done")
+			return nil
+		}
 	}
 	return nil
 }

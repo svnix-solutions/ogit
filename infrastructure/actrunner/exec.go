@@ -59,8 +59,9 @@ type reporter struct {
 	client *Client
 	runId  string
 	cancel context.CancelFunc
-	// prefix is "<workflow name>/", which act puts before job names.
-	prefix string
+	// prefix is "<workflow name>/", which act puts before job names;
+	// suffix is uniqueJobNames' (stripped from names and messages).
+	prefix, suffix string
 
 	mu        sync.Mutex
 	buf       bytes.Buffer
@@ -78,12 +79,21 @@ func (r *reporter) Write(p []byte) (int, error) {
 // Levels and Fire make reporter a logrus hook for job states.
 func (r *reporter) Levels() []logrus.Level { return logrus.AllLevels }
 
+// jobName is a job's name as act logs it, without the workflow's name and
+// uniqueJobNames' suffix.
+func jobName(raw, prefix, suffix string) string {
+	if suffix != "" {
+		raw = strings.Replace(raw, suffix, "", 1)
+	}
+	return strings.TrimPrefix(raw, prefix)
+}
+
 func (r *reporter) Fire(e *logrus.Entry) error {
 	name, _ := e.Data["job"].(string)
 	if name == "" {
 		return nil
 	}
-	name = strings.TrimPrefix(name, r.prefix)
+	name = jobName(name, r.prefix, r.suffix)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if result, ok := e.Data["jobResult"].(string); ok {
@@ -131,7 +141,7 @@ func (r *reporter) flush(ctx context.Context, status string) error {
 }
 
 // logFormatter writes "[job] message" lines, and steps' output as is.
-type logFormatter struct{ prefix string }
+type logFormatter struct{ prefix, suffix string }
 
 func (f logFormatter) Format(e *logrus.Entry) ([]byte, error) {
 	msg := e.Message
@@ -143,8 +153,11 @@ func (f logFormatter) Format(e *logrus.Entry) ([]byte, error) {
 	}
 	job, _ := e.Data["job"].(string)
 	line := strings.TrimRight(msg, "\n")
+	if f.suffix != "" {
+		line = strings.ReplaceAll(line, f.suffix, "") // act's own messages name the job
+	}
 	if job != "" {
-		line = "[" + strings.TrimPrefix(job, f.prefix) + "] " + line
+		line = "[" + jobName(job, f.prefix, f.suffix) + "] " + line
 	}
 	return []byte(line + "\n"), nil
 }
@@ -154,7 +167,7 @@ func (r *reporter) WithJobLogger() *logrus.Logger {
 	l := logrus.New()
 	l.SetOutput(r)
 	l.SetLevel(logrus.InfoLevel)
-	l.SetFormatter(logFormatter{prefix: r.prefix})
+	l.SetFormatter(logFormatter{prefix: r.prefix, suffix: r.suffix})
 	l.AddHook(r)
 	return l
 }
@@ -238,8 +251,10 @@ func run(ctx context.Context, rep *reporter, task *application.Task, opts Option
 	if plan == nil || len(plan.Stages) == 0 || len(plan.Stages[0].Runs) == 0 {
 		return errors.New("the workflow has no job for this event")
 	}
+	suffix := " ~" + task.RunId
+	uniqueJobNames(plan, suffix)
 	rep.mu.Lock()
-	rep.prefix = plan.Stages[0].Runs[0].Workflow.Name + "/"
+	rep.prefix, rep.suffix = plan.Stages[0].Runs[0].Workflow.Name+"/", suffix
 	rep.mu.Unlock()
 
 	owner, _, _ := strings.Cut(task.Repository, "/")
@@ -301,6 +316,29 @@ func run(ctx context.Context, rep *reporter, task *application.Task, opts Option
 }
 
 // runID is GITHUB_RUN_ID: the run's numeric API id (clients parse it).
+// uniqueJobNames makes the run's job containers its own: act names them
+// after the workflow's and the job's display names only, so runners
+// sharing a Docker daemon would take (and clean up) each other's containers
+// when they run the same job at once. Workflows never see display names
+// (github.job is the job's id), and the reporter strips the suffix.
+func uniqueJobNames(plan *model.Plan, suffix string) {
+	seen := map[*model.Workflow]bool{}
+	for _, stage := range plan.Stages {
+		for _, run := range stage.Runs {
+			if seen[run.Workflow] {
+				continue
+			}
+			seen[run.Workflow] = true
+			for id, job := range run.Workflow.Jobs {
+				if job.Name == "" {
+					job.Name = id
+				}
+				job.Name += suffix
+			}
+		}
+	}
+}
+
 func runID(task *application.Task) string {
 	if task.RunApiId > 0 {
 		return fmt.Sprint(task.RunApiId)

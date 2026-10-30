@@ -35,20 +35,31 @@ type ActionRunner struct {
 	Version    string
 	LastSeenAt *time.Time
 	CreatedAt  time.Time
+	// Ephemeral runners take one run; they are deleted when it ends.
+	Ephemeral bool
+	// Spent: the ephemeral runner has taken its run.
+	Spent bool `json:"-"`
+	// RegistrationTokenId: the reusable token that registered the runner
+	// (nil for one-time tokens), kept after the token is revoked.
+	RegistrationTokenId *string
 }
 
 func (ActionRunner) TableName() string { return "action_runner" }
 
-// ActionRegistrationToken registers one runner in a scope (used once,
-// expires).
+// ActionRegistrationToken registers runners in a scope: one, within an
+// hour, or any number until it expires (ExpiresAt nil: never) or is
+// revoked when Reusable.
 type ActionRegistrationToken struct {
-	Id        string `gorm:"primaryKey"`
-	ScopeType string
-	ScopeId   *string
-	TokenHash string
-	CreatedBy string
-	ExpiresAt time.Time
-	CreatedAt time.Time
+	Id         string `gorm:"primaryKey"`
+	ScopeType  string
+	ScopeId    *string
+	Name       string
+	Reusable   bool
+	TokenHash  string
+	CreatedBy  string
+	ExpiresAt  *time.Time
+	LastUsedAt *time.Time
+	CreatedAt  time.Time
 }
 
 func (ActionRegistrationToken) TableName() string { return "action_registration_token" }
@@ -276,9 +287,17 @@ type ActionsPers interface {
 	HasMergedPull(repositoryId, userId string) (bool, error)
 
 	CreateRegistrationToken(t *ActionRegistrationToken) error
-	// TakeRegistrationToken deletes and returns the unexpired token with
-	// that hash (one use).
+	// TakeRegistrationToken returns the unexpired token with that hash:
+	// a one-time token is deleted (only one caller gets it), a reusable
+	// one records the use.
 	TakeRegistrationToken(hash string, now time.Time) (*ActionRegistrationToken, error)
+	// ReusableTokens lists a scope's unexpired reusable tokens, with how
+	// many runners each registered (still registered).
+	ReusableTokens(scopeType string, scopeId *string, now time.Time) ([]ActionRegistrationToken, map[string]int64, error)
+	GetRegistrationToken(id string) (*ActionRegistrationToken, error)
+	DeleteRegistrationToken(id string) error
+	// DeleteExpiredRegistrationTokens deletes tokens that expired before now.
+	DeleteExpiredRegistrationTokens(now time.Time) (int64, error)
 
 	CreateRunner(r *ActionRunner) error
 	RunnerByTokenHash(hash string) (*ActionRunner, error)
@@ -286,6 +305,16 @@ type ActionsPers interface {
 	GetRunner(id string) (*ActionRunner, error)
 	DeleteRunner(id string) error
 	TouchRunner(id, labels, version string, at time.Time) error
+	// SpendRunner marks an ephemeral runner as having taken its run, if it
+	// hadn't (false otherwise); UnspendRunner undoes it when no run was
+	// claimed after all.
+	SpendRunner(id string) (bool, error)
+	UnspendRunner(id string) error
+	// DeleteDoneRunners deletes runners without a running run that are
+	// either spent ephemeral runners unseen since spentBefore, or
+	// ephemeral or registered with a reusable token and unseen since
+	// unseenBefore; it returns their count.
+	DeleteDoneRunners(spentBefore, unseenBefore time.Time) (int64, error)
 
 	// CreateRun numbers the run (repository.last_run_number) and inserts it.
 	CreateRun(r *ActionRun) error
@@ -304,7 +333,8 @@ type ActionsPers interface {
 	UpdateRun(r *ActionRun, fields ...string) error
 	RunByTokenHash(hash string) (*ActionRun, error)
 	// RequeueUnacknowledged puts back in the queue the runs claimed before
-	// before whose runner never reported (heartbeat still at the claim).
+	// before whose runner never reported (heartbeat still at the claim);
+	// their ephemeral runners, which never got them, are unspent.
 	RequeueUnacknowledged(before time.Time) (int64, error)
 	// StaleRuns lists running runs whose heartbeat is older than before.
 	StaleRuns(before time.Time) ([]ActionRun, error)

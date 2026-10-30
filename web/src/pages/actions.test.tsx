@@ -149,7 +149,8 @@ describe("actions", () => {
       "/repository/r1/tokens": { tokens: [] },
       "/repository/r1/hooks": { hooks: [] },
       "/repository/r1/actions/runners": { runners: [{ id: "x1", name: "builder", scope: "repository", labels: ["ubuntu-latest"], version: "1.0", online: true, last_seen_at: "2026-01-02T00:00:00Z" }] },
-      "POST /repository/r1/actions/runners/registration-token": { token: "ogitreg_abc", expires_at: "2026-01-02T01:00:00Z" },
+      "POST /repository/r1/actions/runners/registration-token": { token: "ogitreg_abc", id: "t0", reusable: false, expires_at: "2026-01-02T01:00:00Z" },
+      "/repository/r1/actions/runners/registration-tokens": { tokens: [] },
       "/repository/r1/actions/secrets": { secrets: [{ name: "DEPLOY_KEY", updated_at: "2026-01-02T00:00:00Z" }] },
       "PUT /repository/r1/actions/secrets/NPM_TOKEN": { name: "NPM_TOKEN" },
       "/repository/r1/actions/variables": { variables: [{ name: "REGION", value: "eu", updated_at: "2026-01-02T00:00:00Z" }] },
@@ -178,6 +179,59 @@ describe("actions", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     await userEvent.click(screen.getByRole("button", { name: "Delete cache deps-linux-abc" }));
     await waitFor(() => expect(sent(fetch, "DELETE", "/repository/r1/actions/caches/5")).toHaveLength(1));
+  });
+
+  it("makes and revokes reusable registration tokens, and shows ephemeral and pooled runners", async () => {
+    const settings = {
+      "/repository/r1/members": { members: [] },
+      "/repository/r1/protection": { rules: [] },
+      "/repository/r1/protected-tags": { rules: [] },
+      "/repository/r1/labels": { labels: [] },
+      "/repository/r1/ssh-keys": { keys: [] },
+      "/repository/r1/tokens": { tokens: [] },
+      "/repository/r1/hooks": { hooks: [] },
+      "/repository/r1/actions/secrets": { secrets: [] },
+      "/repository/r1/actions/variables": { variables: [] },
+      "/repository/r1/actions/caches": { caches: [], total_size: 0, limit: 10 << 20 },
+    };
+    const fetch = fakeAPI({
+      ...base("maintainer"),
+      ...settings,
+      "/repository/r1/actions/runners": {
+        runners: [
+          { id: "x1", name: "pool-a", scope: "repository", labels: [], version: "", online: false, last_seen_at: null, ephemeral: false, registration_token_id: "t1" },
+          { id: "x2", name: "one-shot", scope: "repository", labels: [], version: "", online: true, last_seen_at: null, ephemeral: true, registration_token_id: "gone" },
+        ],
+      },
+      "/repository/r1/actions/runners/registration-tokens": {
+        tokens: [{ id: "t1", name: "ci-pool", expires_at: null, last_used_at: "2026-01-02T00:00:00Z", created_at: "2026-01-01T00:00:00Z", runners: 2 }],
+      },
+      "POST /repository/r1/actions/runners/registration-token": { token: "ogitreg_many", id: "t2", reusable: true, expires_at: "2026-12-31T23:59:59Z" },
+      "DELETE /repository/r1/actions/runners/registration-tokens/t1": { message: "registration token revoked" },
+    });
+    renderRoutes(routes, "/acme/app/settings");
+    expect(await screen.findByText("ci-pool")).toBeInTheDocument();
+    expect(screen.getByText(/2 runners · used .* · never expires/)).toBeInTheDocument();
+    expect(screen.getByText("Registered with ci-pool: removed after a day offline.")).toBeInTheDocument();
+    expect(screen.getByText("Registered with a revoked token: removed after a day offline.")).toBeInTheDocument();
+    expect(screen.getByText("ephemeral")).toBeInTheDocument();
+
+    const runners = screen.getByRole("heading", { name: "Runners" }).parentElement!.parentElement!;
+    expect(within(runners).queryByLabelText("Name (optional)")).not.toBeInTheDocument();
+    await userEvent.click(within(runners).getByRole("checkbox", { name: /Reusable/ }));
+    await userEvent.type(within(runners).getByLabelText("Name (optional)"), "autoscaler");
+    await userEvent.type(within(runners).getByLabelText("Expires (optional)"), "2026-12-31");
+    await userEvent.click(within(runners).getByRole("button", { name: "New registration token" }));
+    await waitFor(() => expect(sent(fetch, "POST", "/repository/r1/actions/runners/registration-token")).toHaveLength(1));
+    const [body] = sent(fetch, "POST", "/repository/r1/actions/runners/registration-token") as { reusable: boolean; name: string; expires_at: string }[];
+    expect(body).toMatchObject({ reusable: true, name: "autoscaler" });
+    expect(new Date(body.expires_at).getFullYear()).toBe(2026);
+    expect(await screen.findByDisplayValue(/--token ogitreg_many/)).toBeInTheDocument();
+    expect(screen.getByText(/Register any number of runners with this token, until/)).toBeInTheDocument();
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "Revoke token ci-pool" }));
+    await waitFor(() => expect(sent(fetch, "DELETE", "/repository/r1/actions/runners/registration-tokens/t1")).toHaveLength(1));
   });
 
   it("lists a run's artifacts with downloads, and deletes them for writers", async () => {
