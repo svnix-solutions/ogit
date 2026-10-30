@@ -15,7 +15,7 @@ import (
 
 func TestRedisCache(t *testing.T) {
 	ctx := context.Background()
-	ctr, err := tcredis.Run(ctx, "redis:7-alpine")
+	ctr, err := tcredis.Run(ctx, "redis:7-alpine@sha256:6ba19c50b56777f5c11c58eff8ddb69d0d5f27ba131cffb63f180ccfd43c66af")
 	testcontainers.CleanupContainer(t, ctr)
 	require.NoError(t, err)
 	url, err := ctr.ConnectionString(ctx)
