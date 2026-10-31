@@ -11,7 +11,7 @@ permissions:
 jobs:
   web:
     name: Web UI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
     - name: Checkout
@@ -34,7 +34,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
     - name: Checkout
@@ -76,7 +76,7 @@ jobs:
       run: CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static" -X "main.version=${{ steps.version.outputs.full }}"' -o bin/app cmd/cmd.go
   integration:
     name: Integration (MinIO, Mailpit, Postgres)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
     - name: Checkout
