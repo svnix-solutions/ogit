@@ -27,7 +27,7 @@ env:
 jobs:
   check:
     name: Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
     - uses: actions/checkout@v4
 
@@ -133,7 +133,7 @@ jobs:
     name: Publish the image
     if: github.ref_type == 'tag'
     needs: [check, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -175,7 +175,7 @@ jobs:
     name: Publish the release
     if: github.ref_type == 'tag'
     needs: [merge]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
