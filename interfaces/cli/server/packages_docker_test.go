@@ -69,7 +69,12 @@ func TestDockerRegistry(t *testing.T) {
 
 	status, body := srv.get(t, "/api/v1/packages/alice/container/hello", alice.session)
 	require.Equal(t, http.StatusOK, status, "%v", body)
-	versions := body["versions"].([]any)
-	require.Len(t, versions, 1)
-	assert.Equal(t, []any{"v1"}, versions[0].(map[string]any)["tags"])
+	// Newer Docker pushes an index and its manifests, which stay untagged
+	// versions; older Docker pushes one manifest. Either way one tag.
+	var tags []any
+	for _, v := range body["versions"].([]any) {
+		versionTags, _ := v.(map[string]any)["tags"].([]any)
+		tags = append(tags, versionTags...)
+	}
+	assert.Equal(t, []any{"v1"}, tags)
 }
