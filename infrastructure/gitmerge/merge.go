@@ -1,10 +1,10 @@
 // Package gitmerge merges branches for pull requests, without a git binary
 // and on any storer (local or S3).
 //
-// Merges are file-level: a path conflicts when both sides changed it (to
-// different results) since the merge base. Edits to different lines of the
-// same file are a conflict too; the author merges locally then. New objects
-// are built in memory and written to the repository as one pack only when
+// A path changed on one side since the merge base takes that side. One
+// changed on both is merged line by line (lines.go): it conflicts when the
+// same lines changed, and always when it's binary, over MaxLineMergeSize or
+// deleted on one side. Renames are not followed. New objects are built in memory and written to the repository as one pack only when
 // the whole merge succeeded, so a failed merge leaves nothing behind.
 package gitmerge
 
@@ -36,8 +36,23 @@ var (
 	ErrRebaseMerges   = errors.New("rebase can't replay merge commits; use merge or squash")
 )
 
-// ConflictError lists the paths changed on both sides.
-type ConflictError struct{ Paths []string }
+// ConflictError lists the paths that can't be merged, sorted.
+type ConflictError struct {
+	Paths []string
+	Files []ConflictFile
+}
+
+func newConflictError(files map[string]*ConflictFile) *ConflictError {
+	e := &ConflictError{}
+	for path := range files {
+		e.Paths = append(e.Paths, path)
+	}
+	sort.Strings(e.Paths)
+	for _, path := range e.Paths {
+		e.Files = append(e.Files, *files[path])
+	}
+	return e
+}
 
 func (e *ConflictError) Error() string {
 	return "conflicts in " + strings.Join(e.Paths, ", ")
@@ -123,10 +138,19 @@ func Merge(st storer.EncodedObjectStorer, req Request) (*Result, error) {
 	}
 }
 
-// Check reports the conflicts merging head into base would have (none means
-// it can be merged with any method but rebase, which may still conflict
+// Check reports the paths merging head into base would conflict in (none
+// means it can be merged with any method but rebase, which may still conflict
 // commit by commit).
 func Check(st storer.EncodedObjectStorer, base, head *object.Commit) (conflicts []string, upToDate bool, err error) {
+	files, upToDate, err := Conflicts(st, base, head)
+	for _, f := range files {
+		conflicts = append(conflicts, f.Path)
+	}
+	return conflicts, upToDate, err
+}
+
+// Conflicts is Check with the details of each path.
+func Conflicts(st storer.EncodedObjectStorer, base, head *object.Commit) (files []ConflictFile, upToDate bool, err error) {
 	bases, err := head.MergeBase(base)
 	if err != nil {
 		return nil, false, err
@@ -142,7 +166,7 @@ func Check(st storer.EncodedObjectStorer, base, head *object.Commit) (conflicts 
 	_, err = w.mergeTrees(mergeBase, base, head)
 	var conflict *ConflictError
 	if errors.As(err, &conflict) {
-		return conflict.Paths, false, nil
+		return conflict.Files, false, nil
 	}
 	return nil, false, err
 }
@@ -254,7 +278,7 @@ func (w *writer) mergeTrees(base, ours, theirs *object.Commit) (plumbing.Hash, e
 	}
 
 	result := map[string]entry{}
-	var conflicts []string
+	conflicts := map[string]*ConflictFile{}
 	paths := map[string]bool{}
 	for _, m := range []map[string]entry{b, o, t} {
 		for p := range m {
@@ -271,8 +295,15 @@ func (w *writer) mergeTrees(base, ours, theirs *object.Commit) (plumbing.Hash, e
 			oe, inO = te, inT
 		case inB == inT && be == te: // only ours changed it
 		default:
-			conflicts = append(conflicts, p)
-			continue
+			merged, conflict, err := w.mergeFile(p, be, inB, oe, inO, te, inT)
+			if err != nil {
+				return plumbing.ZeroHash, err
+			}
+			if conflict != nil {
+				conflicts[p] = conflict
+				continue
+			}
+			oe = *merged
 		}
 		if inO {
 			result[p] = oe
@@ -282,13 +313,12 @@ func (w *writer) mergeTrees(base, ours, theirs *object.Commit) (plumbing.Hash, e
 	for p := range result {
 		for dir := parentDir(p); dir != ""; dir = parentDir(dir) {
 			if _, ok := result[dir]; ok {
-				conflicts = append(conflicts, dir)
+				conflicts[dir] = &ConflictFile{Path: dir, Reason: ConflictType}
 			}
 		}
 	}
 	if len(conflicts) > 0 {
-		sort.Strings(conflicts)
-		return plumbing.ZeroHash, &ConflictError{Paths: dedupe(conflicts)}
+		return plumbing.ZeroHash, newConflictError(conflicts)
 	}
 	return w.buildTree(result)
 }
@@ -371,14 +401,4 @@ func parentDir(p string) string {
 		return p[:i]
 	}
 	return ""
-}
-
-func dedupe(s []string) []string {
-	out := s[:0]
-	for i, v := range s {
-		if i == 0 || v != s[i-1] {
-			out = append(out, v)
-		}
-	}
-	return out
 }
