@@ -117,6 +117,26 @@ type MergeRequest struct {
 	DeleteBranch bool   `json:"delete_branch"`
 }
 
+// ConflictHunk is one conflicting range: the lines of each branch, and the
+// line number each starts at.
+type ConflictHunk struct {
+	TargetLine int    `json:"target_line"`
+	SourceLine int    `json:"source_line"`
+	Target     string `json:"target"`
+	Source     string `json:"source"`
+}
+
+type ConflictFile struct {
+	Path      string         `json:"path"`
+	Reason    string         `json:"reason"`
+	Hunks     []ConflictHunk `json:"hunks"`
+	Truncated bool           `json:"truncated"` // some lines or hunks are left out
+}
+
+type ConflictsResponse struct {
+	Files []ConflictFile `json:"files"`
+}
+
 type Detail struct {
 	Summary
 	Body          string   `json:"body"`
@@ -180,6 +200,7 @@ func Setup(c Controller, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Post(repoGrp, "/:identifier/pulls/:number/merge", c.Merge, private("Merge a pull request", "pulls.merge", "Maintainers and owners. method: merge, squash or rebase. Refused for drafts, conflicts, archived repositories, or if the target branch moves meanwhile."))
 	setupReviews(c, repoGrp)
 	setupAssignees(c, repoGrp)
+	fiberoapi.Get(repoGrp, "/:identifier/pulls/:number/conflicts", c.Conflicts, public("Conflicting changes", "pulls.conflicts", "Each conflicting file of an open pull request with why it conflicts (content, binary, too_large, deleted, added, type) and, for content, the conflicting lines of both sides. Empty when nothing conflicts."))
 	fiberoapi.Get(repoGrp, "/:identifier/pulls/:number/compare", c.Compare, public("Commits and diff", "pulls.compare", "The source's commits since the merge base and the diff, as for compare; recorded tips once merged or closed."))
 }
 
@@ -373,6 +394,26 @@ func (c Controller) Preview(ctx *fiber.Ctx, req PreviewRequest) (*gitbrowse.Comp
 		return nil, apierror.From(err, c.Logger)
 	}
 	return cmp, nil
+}
+
+func (c Controller) Conflicts(ctx *fiber.Ctx, req NumberRequest) (*ConflictsResponse, *fiberoapi.ErrorResponse) {
+	id, path := repoid.Split(req.Identifier)
+	n, errResp := number(req.Number)
+	if errResp != nil {
+		return nil, errResp
+	}
+	files, err := c.Pulls.Conflicts(id, path, c.userId(ctx), n)
+	if err != nil {
+		return nil, apierror.From(err, c.Logger)
+	}
+	resp := &ConflictsResponse{Files: make([]ConflictFile, len(files))}
+	for i, f := range files {
+		resp.Files[i] = ConflictFile{Path: f.Path, Reason: f.Reason, Hunks: make([]ConflictHunk, len(f.Hunks)), Truncated: f.Truncated}
+		for j, h := range f.Hunks {
+			resp.Files[i].Hunks[j] = ConflictHunk{TargetLine: h.OursLine, SourceLine: h.TheirsLine, Target: h.Ours, Source: h.Theirs}
+		}
+	}
+	return resp, nil
 }
 
 func (c Controller) Compare(ctx *fiber.Ctx, req NumberRequest) (*gitbrowse.Comparison, *fiberoapi.ErrorResponse) {

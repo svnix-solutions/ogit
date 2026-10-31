@@ -178,13 +178,14 @@ func TestConflicts(t *testing.T) {
 	for name, tc := range map[string]struct {
 		main, topic map[string]string
 		conflicts   []string
+		reason      string
 	}{
-		"both_edit":            {map[string]string{"a.txt": "main\n"}, map[string]string{"a.txt": "topic\n"}, []string{"a.txt"}},
-		"same_edit":            {map[string]string{"a.txt": "same\n"}, map[string]string{"a.txt": "same\n"}, nil},
-		"edit_vs_delete":       {map[string]string{"gone.txt": "edited\n"}, map[string]string{"gone.txt": ""}, []string{"gone.txt"}},
-		"both_delete":          {map[string]string{"gone.txt": ""}, map[string]string{"gone.txt": ""}, nil},
-		"both_add_differently": {map[string]string{"new.txt": "1\n"}, map[string]string{"new.txt": "2\n"}, []string{"new.txt"}},
-		"file_vs_directory":    {map[string]string{"x": "file\n"}, map[string]string{"x/y": "in a dir\n"}, []string{"x"}},
+		"both_edit":            {map[string]string{"a.txt": "main\n"}, map[string]string{"a.txt": "topic\n"}, []string{"a.txt"}, ConflictContent},
+		"same_edit":            {map[string]string{"a.txt": "same\n"}, map[string]string{"a.txt": "same\n"}, nil, ""},
+		"edit_vs_delete":       {map[string]string{"gone.txt": "edited\n"}, map[string]string{"gone.txt": ""}, []string{"gone.txt"}, ConflictDeleted},
+		"both_delete":          {map[string]string{"gone.txt": ""}, map[string]string{"gone.txt": ""}, nil, ""},
+		"both_add_differently": {map[string]string{"new.txt": "1\n"}, map[string]string{"new.txt": "2\n"}, []string{"new.txt"}, ConflictAdded},
+		"file_vs_directory":    {map[string]string{"x": "file\n"}, map[string]string{"x/y": "in a dir\n"}, []string{"x"}, ConflictType},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r, base, head := setup(t, tc.main, tc.topic)
@@ -199,6 +200,7 @@ func TestConflicts(t *testing.T) {
 			} else {
 				require.True(t, errors.As(err, &conflict), "%v", err)
 				assert.Equal(t, tc.conflicts, conflict.Paths)
+				assert.Equal(t, tc.reason, conflict.Files[0].Reason)
 			}
 		})
 	}

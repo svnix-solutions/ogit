@@ -199,10 +199,21 @@ describe("pull requests", () => {
       "/instance": instance, "/user/profile": me("maint"), "/repository/acme%2Fapp": repo("maintainer"),
       "/repository/acme%2Fapp/pulls/7": pull({ mergeable: false, conflicts: ["go.mod", "main.go"] }),
       "/repository/acme%2Fapp/pulls/7/activity": { reviews: [], comments: [] },
+      "/repository/acme%2Fapp/pulls/7/conflicts": {
+        files: [
+          { path: "go.mod", reason: "binary", hunks: [], truncated: false },
+          { path: "main.go", reason: "content", truncated: true, hunks: [{ target_line: 3, source_line: 5, target: "from target\n", source: "" }] },
+        ],
+      },
       "/repository/acme%2Fapp/labels": { labels: [] },
     });
     renderRoutes(routes, "/acme/app/pulls/7");
     expect(await screen.findByText(/Conflicts in go.mod, main.go/)).toBeInTheDocument();
+    expect(await screen.findByText("Binary file changed on both branches.")).toBeInTheDocument();
+    expect(screen.getByText("from target")).toBeInTheDocument();
+    expect(screen.getByText("(no lines)")).toBeInTheDocument();
+    expect(screen.getByText(/line 3/)).toBeInTheDocument();
+    expect(screen.getByText("Some conflicting lines aren't shown.")).toBeInTheDocument();
   });
 });
 

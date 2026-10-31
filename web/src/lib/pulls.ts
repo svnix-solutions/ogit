@@ -44,6 +44,12 @@ export type Pull = PullSummary & {
   milestone?: MilestoneRef;
   allow_maintainer_edits: boolean;
 };
+export type ConflictFile = {
+  path: string;
+  reason: "content" | "binary" | "too_large" | "deleted" | "added" | "type";
+  hunks: { target_line: number; source_line: number; target: string; source: string }[];
+  truncated: boolean;
+};
 export type PullComment = {
   id: string;
   author: string;
@@ -82,6 +88,13 @@ export function usePullActivity(fullPath: string, n: number) {
   return useQuery({
     queryKey: ["pull-activity", fullPath, n],
     queryFn: () => api<{ reviews: PullReview[]; comments: PullComment[] }>("GET", `${pullsBase(fullPath)}/${n}/activity`),
+  });
+}
+
+export function usePullConflicts(fullPath: string, n: number, head: string) {
+  return useQuery({
+    queryKey: ["pull-conflicts", fullPath, n, head],
+    queryFn: () => api<{ files: ConflictFile[] }>("GET", `${pullsBase(fullPath)}/${n}/conflicts`),
   });
 }
 
