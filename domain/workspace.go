@@ -33,8 +33,8 @@ type Workspace struct {
 	TokenExpiresAt *time.Time
 	Failure        string // why it last stopped by itself
 	LastUsedAt     time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 func (Workspace) TableName() string { return "workspace" }
