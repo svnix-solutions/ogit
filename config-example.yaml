@@ -91,6 +91,9 @@ workspaces:
   idle_timeout: 30m    # stopped after this long idle
   retention: 336h      # deleted after this long unused (14 days)
   max_running: 1       # per user
+  max_total: 5         # per user, stopped ones included (0: no limit)
+  pids: 1024           # processes of a workspace
+  # image: name@sha256:...  # pinned by digest; default: code-server
 
 sso:
   # Group sync (per provider): groups_claim (default "groups"; a dotted path

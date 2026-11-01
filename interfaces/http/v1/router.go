@@ -101,7 +101,7 @@ func SetupRouterV1(deps infrastructure.Deps) {
 	releases.Setup(releaseCtrl, repoGrp)
 	releases.SetupFiles(releaseCtrl, deps.Http.Fiber)
 
-	workspaces.Setup(workspaces.Controller{Logger: deps.Logger, Workspaces: deps.WorkspaceApp}, userGrp, repoGrp)
+	workspaces.Setup(workspaces.Controller{Logger: deps.Logger, Workspaces: deps.WorkspaceApp}, userGrp, repoGrp, adminGrp)
 
 	milestones.Setup(milestones.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Milestones: deps.MilestoneApp}, repoGrp)
 

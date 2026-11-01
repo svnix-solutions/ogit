@@ -98,6 +98,8 @@ func runServer(cfg config.Config) error {
 	go deps.WebhookApp.Run(context.Background(), 2*time.Second)
 	// Runs whose runner stopped reporting fail.
 	go deps.ActionsApp.Watch(context.Background(), time.Minute)
+	// Workspaces on lost agents, and of users who lost access.
+	go deps.WorkspaceApp.Watch(context.Background(), time.Minute)
 	// Unused container blobs and abandoned uploads.
 	go deps.PackagesApp.Run(context.Background(), time.Hour)
 	// Pull mirrors and imports, on every server (each sync is claimed once).
@@ -155,7 +157,11 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	if cfg.Security.EncryptionKey == "" {
 		logger.Warn().Str("event", "config.security.no_encryption_key").Msg("security.encryption_key is not set: two-factor authentication with an authenticator app is unavailable")
 	}
-	if err = config.CheckWorkspaceDomain(cfg.Workspaces.Domain, cfg.Server.PublicURL); err != nil {
+	err = config.CheckWorkspaceDomain(cfg.Workspaces.Domain, cfg.Server.PublicURL)
+	if err == nil && cfg.Workspaces.Domain != "" {
+		err = config.CheckWorkspaceImage(cfg.Workspaces.Image)
+	}
+	if err != nil {
 		logger.Error().Err(err).Str("event", "http.runserver.config.workspaces").Msg("Invalid workspaces configuration")
 		return deps, err
 	}
@@ -257,7 +263,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.PullApp.Assignees, deps.PullApp.Milestones, deps.PullApp.Issues = assignees, milestones, deps.IssueApp
 	deps.PullApp.Reviewers = persistence.NewRequestedReviewerPers(deps.Database.Db)
 	deps.MilestoneApp = &application.MilestoneApp{Logger: deps.Logger, Repositories: deps.RepoApp, Milestones: milestones, Webhooks: deps.WebhookApp}
-	deps.WorkspaceApp = &application.WorkspaceApp{Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Workspaces: persistence.NewWorkspacePers(deps.Database.Db)}
+	deps.WorkspaceApp = &application.WorkspaceApp{Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Workspaces: persistence.NewWorkspacePers(deps.Database.Db), Users: deps.UserApp.UserPres}
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.TokenApp.MustEnroll = deps.TwoFactorApp.MustEnroll
 	deps.RepoApp.TwoFactorEnabled = deps.TwoFactorApp.Satisfied
@@ -279,6 +285,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.AuthApp.ForkEdits = deps.PullApp.EditableBranches
 	deps.AuthApp.TwoFactor = deps.TwoFactorApp
 	deps.AdminApp.TwoFactor = deps.TwoFactorApp
+	deps.WorkspaceApp.Admin = deps.AdminApp
 	deps.RepoTokenApp = &application.RepositoryTokenApp{Repositories: deps.RepoApp, Tokens: deps.TokenApp}
 	deps.ReleaseApp = &application.ReleaseApp{
 		Logger: deps.Logger, Repositories: deps.RepoApp, Releases: persistence.NewReleasePers(deps.Database.Db),
@@ -298,6 +305,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.TokenApp.JobToken = deps.ActionsApp.JobToken
 	deps.TokenApp.JobTokenHash = deps.ActionsApp.JobTokenByHash
 	deps.AuthApp.Actions = deps.ActionsApp
+	deps.AuthApp.Workspaces = deps.WorkspaceApp
 	deps.PackagesApp = &application.PackagesApp{Config: deps.Config, Logger: deps.Logger, Pers: packagesPers,
 		Repositories: deps.RepoApp, Storage: deps.Storage, Tokens: deps.TokenApp}
 	deps.GoProxyApp = &application.GoProxyApp{Config: deps.Config}

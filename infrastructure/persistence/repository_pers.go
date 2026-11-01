@@ -114,6 +114,9 @@ func (r *repositoryPers) Purge(id string) error {
 		if err := tx.Where("repository_id = ?", id).Delete(&domain.ActionSchedule{}).Error; err != nil {
 			return err
 		}
+		if err := queueCleanups(tx, "repository_id = ?", id); err != nil {
+			return err
+		}
 		for _, model := range []any{&domain.Workspace{}, &domain.ReleaseAsset{}, &domain.Release{}, &domain.ProtectedTag{}, &domain.Notification{}, &domain.RepositoryWatch{}, &domain.LFSLock{}, &domain.ActionArtifact{}, &domain.ActionCache{}, &domain.ActionRun{}} {
 			if err := tx.Where("repository_id = ?", id).Delete(model).Error; err != nil {
 				return err

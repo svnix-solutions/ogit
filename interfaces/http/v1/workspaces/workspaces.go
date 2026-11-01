@@ -22,7 +22,8 @@ type Workspace struct {
 	Id         string    `json:"id"`
 	Repository string    `json:"repository"` // empty when the caller can't read it any more
 	Branch     string    `json:"branch"`
-	State      string    `json:"state"` // stopped, starting, running or stopping
+	State      string    `json:"state"`             // stopped, starting, running or stopping
+	Failure    string    `json:"failure,omitempty"` // why it last stopped by itself
 	LastUsedAt time.Time `json:"last_used_at"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -50,7 +51,7 @@ type MessageResponse struct {
 	Message string `json:"message"`
 }
 
-func Setup(c Controller, userGrp, repoGrp *fiberoapi.OApiGroup) {
+func Setup(c Controller, userGrp, repoGrp, adminGrp *fiberoapi.OApiGroup) {
 	tags := []string{"Workspaces"}
 	options := func(summary, id, desc string) fiberoapi.OpenAPIOptions {
 		return fiberoapi.OpenAPIOptions{Summary: summary, OperationID: id, Tags: tags, Description: desc}
@@ -62,10 +63,11 @@ func Setup(c Controller, userGrp, repoGrp *fiberoapi.OApiGroup) {
 	fiberoapi.Delete(userGrp, "/workspaces/:workspace_id", c.Delete, options("Delete a workspace", "workspaces.delete", "Yours only, once stopped."))
 	fiberoapi.Get(repoGrp, "/:identifier/workspaces", c.ListRepository, options("List your workspaces on a repository", "workspaces.repository", "Yours only."))
 	fiberoapi.Post(repoGrp, "/:identifier/workspaces", c.Create, options("Create a workspace", "workspaces.create", "Developers and up. branch: the default branch when empty. It starts stopped."))
+	setupAdmin(c, adminGrp, options)
 }
 
 func toWorkspace(v application.WorkspaceView) Workspace {
-	return Workspace{Id: v.Id, Repository: v.Repository, Branch: v.Branch, State: string(v.State), LastUsedAt: v.LastUsedAt, CreatedAt: v.CreatedAt}
+	return Workspace{Id: v.Id, Repository: v.Repository, Branch: v.Branch, State: string(v.State), Failure: v.Failure, LastUsedAt: v.LastUsedAt, CreatedAt: v.CreatedAt}
 }
 
 func toList(views []application.WorkspaceView) *ListResponse {

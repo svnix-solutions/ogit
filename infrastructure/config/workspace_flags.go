@@ -82,7 +82,48 @@ func WorkspaceFlags(cfg *Config) []cli.Flag {
 				altsrcyaml.YAML("workspaces.max_running", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
 			),
 		},
+		&cli.IntFlag{
+			Name:        "workspaces.max_total",
+			Usage:       "Workspaces one user may have, stopped ones included (0: no limit)",
+			Value:       5,
+			Destination: &cfg.Workspaces.MaxTotal,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("WORKSPACES_MAX_TOTAL"),
+				altsrcyaml.YAML("workspaces.max_total", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+		&cli.IntFlag{
+			Name:        "workspaces.pids",
+			Usage:       "Processes of a workspace",
+			Value:       1024,
+			Destination: &cfg.Workspaces.Pids,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("WORKSPACES_PIDS"),
+				altsrcyaml.YAML("workspaces.pids", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
+		&cli.StringFlag{
+			Name:        "workspaces.image",
+			Usage:       "Image of workspaces, pinned by digest (name@sha256:...)",
+			Value:       DefaultWorkspaceImage,
+			Destination: &cfg.Workspaces.Image,
+			Sources: cli.NewValueSourceChain(
+				cli.EnvVar("WORKSPACES_IMAGE"),
+				altsrcyaml.YAML("workspaces.image", altsrc.NewStringPtrSourcer(&cfg.ConfigFile)),
+			),
+		},
 	}
+}
+
+// DefaultWorkspaceImage is code-server 4.144.0, by digest.
+const DefaultWorkspaceImage = "codercom/code-server@sha256:b9e8056bb74bd0c4f90284c7559eddeccd38400cfedc28e64c9d3ca50fef1f83"
+
+// CheckWorkspaceImage refuses an image a retag could change.
+func CheckWorkspaceImage(image string) error {
+	if !strings.Contains(image, "@sha256:") {
+		return fmt.Errorf("workspaces.image must be pinned by digest (name@sha256:...)")
+	}
+	return nil
 }
 
 // CheckWorkspaceDomain refuses a workspaces.domain that isn't a bare host

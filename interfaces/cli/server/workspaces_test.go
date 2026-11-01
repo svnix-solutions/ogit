@@ -14,7 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withWorkspaces(cfg *config.Config) { cfg.Workspaces.Domain = "workspaces.test" }
+func withWorkspaces(cfg *config.Config) {
+	cfg.Workspaces.Domain = "workspaces.test"
+	cfg.Workspaces.Image = config.DefaultWorkspaceImage
+}
 
 func createWorkspace(t *testing.T, f *pullFixture, as user, branch string) string {
 	t.Helper()
