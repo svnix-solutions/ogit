@@ -91,4 +91,5 @@ func TestPostgresMigrationReleaseAssets(t *testing.T) {
 	require.NoError(t, goose.SetDialect("postgres"))
 	checkReleaseAssetsMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
 	checkRunnerScalingMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
+	checkWorkspacesMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
 }

@@ -39,6 +39,18 @@ type Config struct {
 		DefaultInterval time.Duration
 	}
 
+	// Workspaces: per-user containers on workspace agents. Off until Domain
+	// is set; the limits apply to each workspace, MaxRunning to each user.
+	Workspaces struct {
+		Domain      string
+		CPUs        int
+		MemoryGB    int
+		DiskGB      int
+		IdleTimeout time.Duration
+		Retention   time.Duration
+		MaxRunning  int
+	}
+
 	// Security: EncryptionKey encrypts secrets stored in the database
 	// (helpers/secretbox).
 	Security struct {

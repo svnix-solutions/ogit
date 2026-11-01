@@ -67,6 +67,7 @@ export default defineConfig({
             { text: "Database", link: "/admin/database" },
             { text: "Storage", link: "/admin/storage" },
             { text: "Behind a reverse proxy", link: "/admin/reverse-proxy" },
+            { text: "Workspaces", link: "/admin/workspaces" },
           ],
         },
         {

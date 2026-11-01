@@ -80,6 +80,18 @@ mirrors:
   min_interval: 10m    # shortest sync interval of a mirror
   default_interval: 8h # interval of new mirrors
 
+workspaces:
+  # Per-user development containers. Off until domain is set: each workspace
+  # is served at <id>.<domain>, which needs wildcard DNS and TLS. It must
+  # differ from http.public_url's host.
+  domain: ""
+  cpus: 2
+  memory_gb: 4
+  disk_gb: 10
+  idle_timeout: 30m    # stopped after this long idle
+  retention: 336h      # deleted after this long unused (14 days)
+  max_running: 1       # per user
+
 sso:
   # Group sync (per provider): groups_claim (default "groups"; a dotted path
   # such as realm_access.roles works), admin_group (members are site
