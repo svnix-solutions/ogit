@@ -482,6 +482,32 @@ func (c *PullRequestApp) Compare(id, path *string, userId string, number int) (*
 	return gitbrowse.Compare(base, head, gitbrowse.DefaultLimits)
 }
 
+// Conflicts details what keeps an open pull request from merging: empty once
+// it's closed, merged or has no conflicts.
+func (c *PullRequestApp) Conflicts(id, path *string, userId string, number int) ([]gitmerge.ConflictFile, error) {
+	view, err := c.Get(id, path, userId, number)
+	if err != nil {
+		return nil, err
+	}
+	if len(view.Conflicts) == 0 {
+		return nil, nil
+	}
+	st, err := c.Repositories.StorageConfig.GetStorer(view.Repository.StorageKey)
+	if err != nil {
+		return nil, err
+	}
+	base, err := gitbrowse.GetCommit(st, view.BaseCommit)
+	if err != nil {
+		return nil, err
+	}
+	head, err := gitbrowse.GetCommit(st, view.HeadCommit)
+	if err != nil {
+		return nil, err
+	}
+	files, _, err := gitmerge.Conflicts(st, base, head)
+	return files, err
+}
+
 // PullRequestUpdate holds the changes for Update; nil fields are kept.
 type PullRequestUpdate struct {
 	Title *string

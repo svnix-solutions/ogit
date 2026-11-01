@@ -23,7 +23,7 @@ import { useForks } from "@/components/forks";
 import { useProfile } from "@/lib/auth";
 import { relativeTime, shortHash, summary, useCompare, useRefs, type Comparison } from "@/lib/browse";
 import { renderMarkdown } from "@/lib/markdown";
-import { pullsBase, useLabels, usePull, usePullActivity, usePullCompare, usePulls, type Pull, type PullSummary } from "@/lib/pulls";
+import { pullsBase, useLabels, usePull, usePullActivity, usePullCompare, usePullConflicts, usePulls, type ConflictFile, type Pull, type PullSummary } from "@/lib/pulls";
 import { cn } from "@/lib/utils";
 
 function StateIcon({ pr, className }: { pr: Pick<PullSummary, "state" | "draft">; className?: string }) {
@@ -478,7 +478,7 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
   const checks: { ok: boolean; text: string }[] = [];
   if (!pr.branches_exist) checks.push({ ok: false, text: "A branch of this pull request no longer exists." });
   else if (pr.mergeable === false && pr.conflicts.length === 0) checks.push({ ok: false, text: `${pr.target_branch} already has every commit of ${pr.source_branch}.` });
-  else if (pr.conflicts.length > 0) checks.push({ ok: false, text: `Conflicts in ${pr.conflicts.join(", ")}. Merge ${pr.target_branch} into ${pr.source_branch} locally and push.` });
+  else if (pr.conflicts.length > 0) checks.push({ ok: false, text: `Conflicts in ${pr.conflicts.join(", ")}. Merge ${pr.target_branch} into ${pr.source_branch} locally, resolve them and push.` });
   else checks.push({ ok: true, text: "No conflicts with the target branch." });
   checks.push({
     ok: pr.approved.length >= pr.required_approvals,
@@ -508,6 +508,7 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
           </li>
         ))}
       </ul>
+      {pr.conflicts.length > 0 && <Conflicts pr={pr} />}
       <Checks pr={pr} />
       <PullRuns number={pr.number} />
       {pr.protected_by && (
@@ -541,6 +542,51 @@ function MergeBox({ pr, onChange }: { pr: Pull; onChange: () => void }) {
       )}
       <ErrorText error={merge.error ?? ready.error} />
     </Card>
+  );
+}
+
+const conflictReasons: Record<Exclude<ConflictFile["reason"], "content">, string> = {
+  binary: "Binary file changed on both branches.",
+  too_large: "Too large to merge line by line (over 1 MiB).",
+  deleted: "Changed on one branch and deleted on the other.",
+  added: "Added on both branches with different content.",
+  type: "The file's type differs between the branches.",
+};
+
+// Conflicts shows the conflicting lines of each file, read-only.
+function Conflicts({ pr }: { pr: Pull }) {
+  const repo = useRepo();
+  const conflicts = usePullConflicts(repo.full_path, pr.number, pr.head_commit + pr.base_commit);
+  if (conflicts.error) return <ErrorText error={conflicts.error} />;
+  return (
+    <div className="space-y-2">
+      {conflicts.data?.files.map((file) => (
+        <details key={file.path} open className="rounded border text-sm">
+          <summary className="cursor-pointer px-2 py-1 font-mono text-xs">{file.path}</summary>
+          <div className="space-y-2 border-t p-2">
+            {file.reason !== "content" && <p className="text-muted-foreground">{conflictReasons[file.reason]}</p>}
+            {file.hunks.map((hunk, i) => (
+              <div key={i} className="grid gap-2 md:grid-cols-2">
+                <ConflictSide branch={pr.target_branch} line={hunk.target_line} text={hunk.target} />
+                <ConflictSide branch={pr.source_branch} line={hunk.source_line} text={hunk.source} />
+              </div>
+            ))}
+            {file.truncated && <p className="text-xs text-muted-foreground">Some conflicting lines aren't shown.</p>}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+function ConflictSide({ branch, line, text }: { branch: string; line: number; text: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">
+        {branch}, line {line}
+      </p>
+      <pre className="overflow-x-auto rounded bg-muted p-2 font-mono text-xs">{text || "(no lines)"}</pre>
+    </div>
   );
 }
 

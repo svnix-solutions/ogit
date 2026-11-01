@@ -40,12 +40,22 @@ curl -X POST $R/pulls/1/merge -H "Authorization: Bearer $SESSION" -H 'Content-Ty
 
 ### Conflicts
 
-The server merges file by file, without a git binary. When both branches changed the same file since they diverged, the pull request lists the conflicting files. Merge the target into your branch locally, resolve them, and push:
+The server merges line by line, for every merge method, without a git binary. Changes to different lines of a file merge by themselves, even when they're in the same file. A clean merge only means the lines don't clash, so use [required checks](./branch-protection) to test the result.
+
+These conflict, and the pull request lists them with the conflicting lines of each branch:
+
+- the same lines changed differently, or changes on adjacent lines;
+- a file changed on one branch and deleted on the other (renames aren't followed, so a renamed file counts as deleted), or added on both with different content;
+- binary files and files over 1 MiB that both branches changed.
+
+Merge the target into your branch locally, resolve them, and push:
 
 ```bash
 git fetch origin && git merge origin/main   # resolve, commit
 git push
 ```
+
+`GET /api/v1/repository/<owner>%2F<repo>/pulls/<n>/conflicts` returns the same details.
 
 The target branch only moves if nobody pushed to it during the merge. Merged and closed pull requests keep their diff, even after their branches move or are deleted.
 
