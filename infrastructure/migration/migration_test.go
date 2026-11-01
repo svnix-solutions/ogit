@@ -288,3 +288,31 @@ func checkRunnerScalingMigration(t *testing.T, ctx context.Context, db *gorm.DB)
 	assert.EqualValues(t, 1, runners)
 	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", scaling))
 }
+
+func TestWorkspacesMigration(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "ogit.sqlite")), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	goose.SetBaseFS(migrationFiles)
+	require.NoError(t, goose.SetDialect("sqlite3"))
+	checkWorkspacesMigration(t, context.WithValue(context.Background(), "dbDialect", "sqlite"), db)
+}
+
+func checkWorkspacesMigration(t *testing.T, ctx context.Context, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	const before, workspaces = 20261114100000, 20261115100000
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", before))
+	require.False(t, db.Migrator().HasTable("workspace"))
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", workspaces))
+	require.True(t, db.Migrator().HasTable("workspace"))
+	assert.Error(t, db.Exec(`INSERT INTO workspace (id, repository_id, user_id, branch, state, last_used_at)
+		VALUES ('66666666-6666-4666-8666-666666666661', '66666666-6666-4666-8666-666666666662', '66666666-6666-4666-8666-666666666663', 'main', 'lost', '2030-01-01 00:00:00')`).Error, "states are checked")
+	require.NoError(t, goose.DownToContext(ctx, sqlDB, "files", before))
+	assert.False(t, db.Migrator().HasTable("workspace"))
+	require.NoError(t, goose.UpContext(ctx, sqlDB, "files"))
+}

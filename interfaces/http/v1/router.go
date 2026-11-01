@@ -20,6 +20,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/v1/statuses"
 	"github.com/labbs/ogit/interfaces/http/v1/user"
 	"github.com/labbs/ogit/interfaces/http/v1/wiki"
+	"github.com/labbs/ogit/interfaces/http/v1/workspaces"
 )
 
 func SetupRouterV1(deps infrastructure.Deps) {
@@ -99,6 +100,8 @@ func SetupRouterV1(deps infrastructure.Deps) {
 		Releases: deps.ReleaseApp, PublicURL: deps.Config.Server.PublicURL}
 	releases.Setup(releaseCtrl, repoGrp)
 	releases.SetupFiles(releaseCtrl, deps.Http.Fiber)
+
+	workspaces.Setup(workspaces.Controller{Logger: deps.Logger, Workspaces: deps.WorkspaceApp}, userGrp, repoGrp)
 
 	milestones.Setup(milestones.Controller{Logger: deps.Logger, SessionApp: deps.SessionApp, TokenApp: deps.TokenApp, Milestones: deps.MilestoneApp}, repoGrp)
 

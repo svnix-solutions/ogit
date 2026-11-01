@@ -123,6 +123,7 @@ func (u *userPers) Purge(userId string) error {
 			{&domain.GroupMember{}, "user_id = ?"},
 			{&domain.RepositoryMember{}, "user_id = ?"},
 			{&domain.SSHKey{}, "user_id = ?"},
+			{&domain.Workspace{}, "user_id = ?"},
 			{&domain.User{}, "id = ?"},
 		} {
 			if err := tx.Where(q.where, userId).Delete(q.model).Error; err != nil {

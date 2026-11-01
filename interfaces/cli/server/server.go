@@ -65,6 +65,7 @@ func getFlags(cfg *config.Config) (list []cli.Flag) {
 	list = append(list, config.LFSFlags(cfg)...)
 	list = append(list, config.ActionsFlags(cfg)...)
 	list = append(list, config.PackagesFlags(cfg)...)
+	list = append(list, config.WorkspaceFlags(cfg)...)
 	return
 }
 
@@ -153,6 +154,10 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	}
 	if cfg.Security.EncryptionKey == "" {
 		logger.Warn().Str("event", "config.security.no_encryption_key").Msg("security.encryption_key is not set: two-factor authentication with an authenticator app is unavailable")
+	}
+	if err = config.CheckWorkspaceDomain(cfg.Workspaces.Domain, cfg.Server.PublicURL); err != nil {
+		logger.Error().Err(err).Str("event", "http.runserver.config.workspaces").Msg("Invalid workspaces configuration")
+		return deps, err
 	}
 	if err = cfg.ValidateEmailVerification(); err != nil {
 		logger.Error().Err(err).Str("event", "http.runserver.config.email_verification").Msg("Invalid email verification configuration")
@@ -252,6 +257,7 @@ func setupDeps(cfg config.Config) (infrastructure.Deps, error) {
 	deps.PullApp.Assignees, deps.PullApp.Milestones, deps.PullApp.Issues = assignees, milestones, deps.IssueApp
 	deps.PullApp.Reviewers = persistence.NewRequestedReviewerPers(deps.Database.Db)
 	deps.MilestoneApp = &application.MilestoneApp{Logger: deps.Logger, Repositories: deps.RepoApp, Milestones: milestones, Webhooks: deps.WebhookApp}
+	deps.WorkspaceApp = &application.WorkspaceApp{Config: deps.Config, Logger: deps.Logger, Repositories: deps.RepoApp, Workspaces: persistence.NewWorkspacePers(deps.Database.Db)}
 	deps.TokenApp = application.NewTokenApp(deps.Config, deps.Logger, tokenPers)
 	deps.TokenApp.MustEnroll = deps.TwoFactorApp.MustEnroll
 	deps.RepoApp.TwoFactorEnabled = deps.TwoFactorApp.Satisfied

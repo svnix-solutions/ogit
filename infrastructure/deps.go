@@ -39,6 +39,7 @@ type Deps struct {
 	StatusApp       *application.StatusApp
 	IssueApp        *application.IssueApp
 	MilestoneApp    *application.MilestoneApp
+	WorkspaceApp    *application.WorkspaceApp
 	RepoTokenApp    *application.RepositoryTokenApp
 	ReleaseApp      *application.ReleaseApp
 	TwoFactorApp    *application.TwoFactorApp
