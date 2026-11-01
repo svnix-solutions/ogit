@@ -104,7 +104,11 @@ var workspaceAlive = []domain.WorkspaceState{domain.WorkspaceStarting, domain.Wo
 var workspaceActive = []domain.WorkspaceState{domain.WorkspaceStarting, domain.WorkspaceRunning, domain.WorkspaceStopping}
 
 func (p *workspacePers) Stop(id string, now time.Time) error {
-	return p.db.Exec(`UPDATE workspace SET state = CASE WHEN agent_id IS NULL THEN ? ELSE ? END,
+	return stopWorkspace(p.db, id, now)
+}
+
+func stopWorkspace(db *gorm.DB, id string, now time.Time) error {
+	return db.Exec(`UPDATE workspace SET state = CASE WHEN agent_id IS NULL THEN ? ELSE ? END,
 		token_hash = NULL, token_expires_at = NULL, last_used_at = ?, updated_at = ?
 		WHERE id = ? AND state IN ?`,
 		domain.WorkspaceStopped, domain.WorkspaceStopping, now, now, id, workspaceAlive).Error
@@ -339,6 +343,25 @@ func (p *workspacePers) FailStuck(before time.Time, failure string, now time.Tim
 	res := p.db.Model(&domain.Workspace{}).Where("state = ? AND last_used_at < ?", domain.WorkspaceStarting, before).
 		Updates(map[string]any{"state": domain.WorkspaceStopped, "failure": failure, "token_hash": nil, "token_expires_at": nil})
 	return res.RowsAffected, res.Error
+}
+
+func (p *workspacePers) MarkAccessLost(id, failure string, now time.Time) (bool, error) {
+	marked := false
+	err := p.db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&domain.Workspace{}).Where("id = ? AND access_lost_at IS NULL", id).
+			Updates(map[string]any{"access_lost_at": now, "failure": failure})
+		if res.Error != nil || res.RowsAffected == 0 {
+			return res.Error
+		}
+		marked = true
+		return stopWorkspace(tx, id, now)
+	})
+	return marked, err
+}
+
+func (p *workspacePers) ClearAccessLost(id, failure string, now time.Time) error {
+	return p.db.Exec(`UPDATE workspace SET access_lost_at = NULL, failure = CASE WHEN failure = ? THEN '' ELSE failure END, updated_at = ?
+		WHERE id = ? AND access_lost_at IS NOT NULL`, failure, now, id).Error
 }
 
 func (p *workspacePers) DeleteExpiredAgentTokens(now time.Time) error {

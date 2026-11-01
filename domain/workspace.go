@@ -32,9 +32,11 @@ type Workspace struct {
 	TokenHash      *string
 	TokenExpiresAt *time.Time
 	Failure        string // why it last stopped by itself
-	LastUsedAt     time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// AccessLostAt is when its user was found to have lost access to it.
+	AccessLostAt *time.Time
+	LastUsedAt   time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 func (Workspace) TableName() string { return "workspace" }
@@ -141,6 +143,11 @@ type WorkspacePers interface {
 	FailLost(before time.Time, failure string, now time.Time) (int64, error)
 	// FailStuck stops workspaces starting since before.
 	FailStuck(before time.Time, failure string, now time.Time) (int64, error)
+	// MarkAccessLost stops the workspace, unless it's already marked. False
+	// means it was.
+	MarkAccessLost(id, failure string, now time.Time) (bool, error)
+	// ClearAccessLost forgets the mark, and the failure if it's that one.
+	ClearAccessLost(id, failure string, now time.Time) error
 	// DeleteExpiredAgentTokens removes tokens past their expiry.
 	DeleteExpiredAgentTokens(now time.Time) error
 }
