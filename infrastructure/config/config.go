@@ -49,6 +49,9 @@ type Config struct {
 		IdleTimeout time.Duration
 		Retention   time.Duration
 		MaxRunning  int
+		MaxTotal    int
+		Pids        int
+		Image       string
 	}
 
 	// Security: EncryptionKey encrypts secrets stored in the database

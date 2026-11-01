@@ -24,8 +24,16 @@ import (
 //   - stopping and deleting need no repository access, so a user who lost
 //     it can still clean up;
 //   - a user has at most workspaces.max_running active workspaces (any state
-//     but stopped), counted in one conditional update (TestWorkspaceLimit);
-//   - only stopped workspaces can be deleted;
+//     but stopped), counted in one conditional update (TestWorkspaceLimit),
+//     and at most workspaces.max_total in all;
+//   - only stopped workspaces can be deleted, by their user; admins stop and
+//     delete any (logged), and deleted workspaces' containers and volumes
+//     leave through workspace_cleanup;
+//   - a workspace stays on its agent, which holds its volume: starting one
+//     whose agent is offline is refused;
+//   - a workspace whose user was disabled or can't read the repository any
+//     more is deleted, clone included, by the sweep (workspace_agents.go has
+//     the agents' rules);
 //   - listing a workspace of a repository the user can no longer read hides
 //     the repository's path.
 
@@ -36,6 +44,8 @@ var (
 	ErrWorkspaceBranch    = errors.New("that branch doesn't exist")
 	ErrWorkspaceLimit     = errors.New("you have too many workspaces running; stop one first")
 	ErrWorkspaceActive    = errors.New("stop the workspace first")
+	ErrWorkspaceTotal     = errors.New("you have too many workspaces; delete one first")
+	ErrWorkspaceOffline   = errors.New("this workspace's agent is offline")
 )
 
 // Ids reach Postgres as UUIDs, which refuses anything else.
@@ -46,6 +56,8 @@ type WorkspaceApp struct {
 	Logger       zerolog.Logger
 	Repositories *RepositoryApp
 	Workspaces   domain.WorkspacePers
+	Users        domain.UserPers
+	Admin        *AdminApp
 }
 
 // WorkspaceView is a workspace with its repository's path, empty when the
@@ -123,8 +135,12 @@ func (c *WorkspaceApp) Create(id, path *string, userId, branch string) (*Workspa
 		return nil, ErrWorkspaceBranch
 	}
 	w := &domain.Workspace{RepositoryId: repo.Id, UserId: userId, Branch: branch, State: domain.WorkspaceStopped, LastUsedAt: time.Now().UTC()}
-	if err := c.Workspaces.Create(w); err != nil {
+	created, err := c.Workspaces.Create(w, c.Config.Workspaces.MaxTotal)
+	if err != nil {
 		return nil, err
+	}
+	if !created {
+		return nil, ErrWorkspaceTotal
 	}
 	view := WorkspaceView{Workspace: *w, Repository: repo.FullPath()}
 	return &view, nil
@@ -180,6 +196,15 @@ func (c *WorkspaceApp) Start(userId, id string) (*WorkspaceView, error) {
 	if w.State != domain.WorkspaceStopped {
 		return c.Get(userId, id)
 	}
+	if w.AgentId != nil {
+		agent, err := c.Workspaces.GetAgent(*w.AgentId)
+		if err != nil {
+			return nil, err
+		}
+		if time.Since(agent.LastSeenAt) > agentLostAfter {
+			return nil, ErrWorkspaceOffline
+		}
+	}
 	max := c.Config.Workspaces.MaxRunning
 	if max < 1 {
 		max = 1
@@ -203,7 +228,7 @@ func (c *WorkspaceApp) Stop(userId, id string) (*WorkspaceView, error) {
 	if _, err := c.get(userId, id); err != nil {
 		return nil, err
 	}
-	if err := c.Workspaces.Stop(userId, id, time.Now().UTC()); err != nil {
+	if err := c.Workspaces.Stop(id, time.Now().UTC()); err != nil {
 		return nil, err
 	}
 	return c.Get(userId, id)
@@ -213,7 +238,7 @@ func (c *WorkspaceApp) Delete(userId, id string) error {
 	if _, err := c.get(userId, id); err != nil {
 		return err
 	}
-	deleted, err := c.Workspaces.Delete(userId, id)
+	deleted, err := c.Workspaces.Delete(id, false)
 	if err != nil {
 		return err
 	}

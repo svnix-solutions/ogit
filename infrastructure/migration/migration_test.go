@@ -316,3 +316,31 @@ func checkWorkspacesMigration(t *testing.T, ctx context.Context, db *gorm.DB) {
 	assert.False(t, db.Migrator().HasTable("workspace"))
 	require.NoError(t, goose.UpContext(ctx, sqlDB, "files"))
 }
+
+func TestWorkspaceAgentsMigration(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "ogit.sqlite")), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	goose.SetBaseFS(migrationFiles)
+	require.NoError(t, goose.SetDialect("sqlite3"))
+	checkWorkspaceAgentsMigration(t, context.WithValue(context.Background(), "dbDialect", "sqlite"), db)
+}
+
+func checkWorkspaceAgentsMigration(t *testing.T, ctx context.Context, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	const before, agents = 20261115100000, 20261116100000
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", agents))
+	for _, table := range []string{"workspace_agent", "workspace_agent_token", "workspace_cleanup"} {
+		require.True(t, db.Migrator().HasTable(table), table)
+	}
+	require.True(t, db.Migrator().HasColumn("workspace", "agent_id"))
+	require.NoError(t, goose.DownToContext(ctx, sqlDB, "files", before))
+	assert.False(t, db.Migrator().HasTable("workspace_agent"))
+	assert.False(t, db.Migrator().HasColumn("workspace", "failure"))
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", agents))
+}

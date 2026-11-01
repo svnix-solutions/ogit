@@ -14,6 +14,7 @@ import (
 	"github.com/labbs/ogit/interfaces/http/runner"
 	v1 "github.com/labbs/ogit/interfaces/http/v1"
 	"github.com/labbs/ogit/interfaces/http/websession"
+	"github.com/labbs/ogit/interfaces/http/workspaceagent"
 	"github.com/labbs/ogit/web"
 )
 
@@ -69,6 +70,7 @@ func SetupRoutes(deps infrastructure.Deps) {
 
 	// The protocol of `ogit runner`.
 	runner.Setup(runner.Controller{Config: deps.Config, Logger: deps.Logger, Actions: deps.ActionsApp, Limits: deps.Limits}, deps.Http.Fiber)
+	workspaceagent.Setup(workspaceagent.Controller{Logger: deps.Logger, Workspaces: deps.WorkspaceApp, Limits: deps.Limits}, deps.Http.Fiber)
 
 	// The artifact service of actions/upload-artifact and download-artifact.
 	artifacts.Setup(artifacts.Controller{Config: deps.Config, Logger: deps.Logger, Actions: deps.ActionsApp}, deps.Http.Fiber)

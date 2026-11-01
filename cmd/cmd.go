@@ -11,6 +11,7 @@ import (
 	"github.com/labbs/ogit/interfaces/cli/runner"
 	"github.com/labbs/ogit/interfaces/cli/server"
 	"github.com/labbs/ogit/interfaces/cli/storage"
+	"github.com/labbs/ogit/interfaces/cli/workspaceagent"
 
 	"github.com/urfave/cli/v3"
 )
@@ -45,6 +46,7 @@ func main() {
 			admin.NewInstance(version),
 			storage.NewInstance(version),
 			runner.NewInstance(version),
+			workspaceagent.NewInstance(version),
 		},
 	}
 

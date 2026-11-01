@@ -96,6 +96,9 @@ func (u *userPers) Purge(userId string) error {
 		if err := tx.Model(&domain.RequestedReviewer{}).Where("requested_by_id = ?", userId).Update("requested_by_id", nil).Error; err != nil {
 			return err
 		}
+		if err := queueCleanups(tx, "user_id = ?", userId); err != nil {
+			return err
+		}
 		for _, table := range []string{"issue_assignee", "pull_request_assignee", "pull_request_reviewer"} {
 			if err := tx.Exec("DELETE FROM "+table+" WHERE user_id = ?", userId).Error; err != nil {
 				return err

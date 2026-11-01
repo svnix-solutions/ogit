@@ -66,6 +66,8 @@ type AuthApp struct {
 	ForkEdits func(fork *domain.Repository, userId string) []string
 	// Actions resolves job tokens (GITHUB_TOKEN) for git; nil: none.
 	Actions *ActionsApp
+	// Workspaces resolves workspace tokens for git; nil: none.
+	Workspaces *WorkspaceApp
 	// PasswordBlocked: password and passkey sign-in are off for user
 	// (only sign-in providers, application/sso_sync.go); nil: never.
 	PasswordBlocked func(user *domain.User) bool
@@ -260,6 +262,9 @@ func (c *AuthApp) AuthorizeGitAs(repoPath, operation string, creds *GitCredentia
 	if creds != nil && IsJobToken(creds.Token) {
 		return c.authorizeJobToken(repoPath, operation, creds.Token)
 	}
+	if creds != nil && c.Workspaces != nil && IsWorkspaceToken(creds.Token) {
+		return c.authorizeWorkspaceToken(repoPath, operation, creds.Token)
+	}
 	repo, authToken, only, err := c.authorizeGit(repoPath, operation, creds)
 	if err != nil || authToken == nil {
 		return repo, Pusher{}, err
@@ -268,6 +273,51 @@ func (c *AuthApp) AuthorizeGitAs(repoPath, operation string, creds *GitCredentia
 		return repo, Pusher{UserId: *authToken.UserId, Name: authToken.User.Username, OnlyBranches: only}, nil
 	}
 	return repo, Pusher{Name: "token " + authToken.Name}, nil
+}
+
+// authorizeWorkspaceToken: a workspace's token works for its repository
+// only, and is its user at this moment: what they lose, the token loses.
+func (c *AuthApp) authorizeWorkspaceToken(repoPath, operation, token string) (*domain.Repository, Pusher, error) {
+	w, err := c.Workspaces.TokenWorkspace(token)
+	if err != nil {
+		return nil, Pusher{}, ErrGitUnauthenticated
+	}
+	user, err := c.UserApp.GetById(w.UserId)
+	if err != nil || !user.Active {
+		return nil, Pusher{}, ErrGitUnauthenticated
+	}
+	path, wiki := domain.SplitWikiPath(repoPath)
+	repo, err := c.RepositoryApp.GetRepository(nil, &path)
+	if err != nil || repo.Id != w.RepositoryId || (wiki && repo.WikiAccess == domain.WikiOff) {
+		return nil, Pusher{}, ErrGitNotFound
+	}
+	if must, err := c.TwoFactor.MustEnroll(w.UserId); err != nil {
+		return nil, Pusher{}, err
+	} else if must {
+		return nil, Pusher{}, ErrGitTwoFactorRequired
+	}
+	write := operation != "git-upload-pack"
+	var only []string
+	if wiki {
+		err = c.wikiGitAccess(repo, w.UserId, write)
+	} else {
+		only, err = c.userGitAccess(repo, w.UserId, write)
+	}
+	if err != nil {
+		return nil, Pusher{}, err
+	}
+	if write && repo.IsArchived {
+		return nil, Pusher{}, ErrGitArchived
+	}
+	if write && repo.IsMirror {
+		return nil, Pusher{}, ErrGitMirror
+	}
+	if wiki {
+		if repo, err = c.RepositoryApp.wikiFor(repo, write); err != nil {
+			return nil, Pusher{}, err
+		}
+	}
+	return repo, Pusher{UserId: w.UserId, Name: user.Username, OnlyBranches: only}, nil
 }
 
 // authorizeJobToken: an Actions job token reads its run's repository
