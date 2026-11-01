@@ -21,7 +21,7 @@ A workspace is a user's development container for one branch of a repository. Wo
 | `workspaces.pids` | `1024` | Processes per workspace |
 | `workspaces.image` | code-server, by digest | Image of workspaces, which must be pinned as `name@sha256:...` |
 
-`idle_timeout` and `retention` have no effect yet.
+`idle_timeout` has no effect yet, and `retention` only applies to workspaces whose user lost access: unused workspaces aren't deleted yet.
 
 ## Agents
 
@@ -56,7 +56,7 @@ An agent unseen for 5 minutes loses its active workspaces, which stop with the r
 - Users can always stop and delete their own workspaces, even after losing access to the repository, or after workspaces are turned off.
 - Only stopped workspaces can be deleted, by their user. Admins can stop and delete any, which is logged.
 - Deleting a repository or a user deletes their workspaces.
-- A workspace whose user is disabled, or can no longer read the repository, is deleted within a minute with its files, including anything not pushed.
+- A workspace whose user is disabled, or can no longer read the repository, stops within a minute and its git token goes. Its files stay for `workspaces.retention`, then it's deleted, including anything not pushed. If the user gets access back before that, it stays and they can start it again.
 
 ## API
 

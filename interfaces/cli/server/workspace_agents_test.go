@@ -536,33 +536,184 @@ func TestWorkspaceSweep(t *testing.T) {
 		assert.Equal(t, "no agent started it in time", state["failure"])
 	})
 
-	t.Run("losing access deletes it", func(t *testing.T) {
-		id := f.running(t, "kicked")
-		token := agent.runtime.lastToken()
+	retention := 72 * time.Hour
+	srv.deps.WorkspaceApp.Config.Workspaces.Retention = retention
+	sweepAt := func(t *testing.T, id string, lostAgo time.Duration) {
+		t.Helper()
+		age(t, &domain.Workspace{}, "access_lost_at", "id = ?", lostAgo, id)
+		srv.deps.WorkspaceApp.Sweep()
+	}
+	kick := func(t *testing.T) {
+		t.Helper()
 		member := srv.memberID(t, "owner/app", f.owner, "dev")
 		status, body := srv.request(t, http.MethodDelete, repoAPI("owner/app")+"/members/"+member, f.owner.session, nil)
 		require.Equal(t, http.StatusOK, status, "%v", body)
+	}
+	invite := func(t *testing.T) {
+		t.Helper()
+		status, body := srv.post(t, repoAPI("owner/app")+"/members", f.owner.session, map[string]any{"username": "dev", "role": "developer"})
+		require.Equal(t, http.StatusOK, status, "%v", body)
+	}
+	setActive := func(t *testing.T, active bool) {
+		t.Helper()
+		status, body := srv.request(t, http.MethodPatch, "/api/v1/admin/users/dev", f.admin.session, map[string]any{"active": active})
+		require.Equal(t, http.StatusOK, status, "%v", body)
+	}
+	row := func(t *testing.T, id string) domain.Workspace {
+		t.Helper()
+		var w domain.Workspace
+		require.NoError(t, srv.deps.Database.Db.First(&w, "id = ?", id).Error)
+		return w
+	}
+	settled := func(t *testing.T, id string) {
+		t.Helper()
+		agent.sync(t)
+		agent.sync(t)
+		assert.NotContains(t, agent.runtime.running, id, "the container stops")
+		assert.NotContains(t, agent.runtime.removed, id, "its files stay")
+		assert.Equal(t, domain.WorkspaceStopped, row(t, id).State)
+		assert.Equal(t, "its user lost access", row(t, id).Failure)
+	}
+
+	t.Run("losing access stops it, and deletes it after the retention", func(t *testing.T) {
+		id := f.running(t, "kicked")
+		token := agent.runtime.lastToken()
+		kick(t)
 		assert.Error(t, tryClone(t, f.url, workspaceAuth(token)), "at once")
 		srv.deps.WorkspaceApp.Sweep()
+		w := row(t, id)
+		assert.Nil(t, w.TokenHash, "the token goes at once")
+		assert.Nil(t, w.TokenExpiresAt)
+		require.NotNil(t, w.AccessLostAt)
+		settled(t, id)
+
+		status, _ := srv.post(t, workspacePath(id, "start"), f.dev.session, nil)
+		assert.Equal(t, http.StatusNotFound, status, "the private repository stays hidden")
+		assert.Equal(t, domain.WorkspaceStopped, row(t, id).State)
+
+		mark := *row(t, id).AccessLostAt
+		srv.deps.WorkspaceApp.Sweep()
+		assert.WithinDuration(t, mark, *row(t, id).AccessLostAt, time.Second, "the clock starts once")
+		marked, err := srv.deps.WorkspaceApp.Workspaces.MarkAccessLost(id, "another server", mark.Add(time.Hour))
+		require.NoError(t, err)
+		assert.False(t, marked, "servers sweeping together mark it once")
+		assert.WithinDuration(t, mark, *row(t, id).AccessLostAt, time.Second)
+
+		sweepAt(t, id, retention-time.Hour)
+		assert.EqualValues(t, 1, srv.countRows(t, &domain.Workspace{}, "id = ?", id), "kept until the retention ends")
+		sweepAt(t, id, retention+time.Minute)
 		assert.Zero(t, srv.countRows(t, &domain.Workspace{}, "id = ?", id))
 		agent.sync(t)
 		assert.Contains(t, agent.runtime.removed, id)
-		status, body = srv.post(t, repoAPI("owner/app")+"/members", f.owner.session, map[string]any{"username": "dev", "role": "developer"})
-		require.Equal(t, http.StatusOK, status, "%v", body)
+		invite(t)
 	})
 
-	t.Run("disabled users lose it", func(t *testing.T) {
+	t.Run("getting access back keeps it", func(t *testing.T) {
+		id := f.running(t, "returns")
+		kick(t)
+		srv.deps.WorkspaceApp.Sweep()
+		settled(t, id)
+		sweepAt(t, id, retention-time.Hour)
+		invite(t)
+		sweepAt(t, id, retention+time.Hour)
+		w := row(t, id)
+		assert.Nil(t, w.AccessLostAt)
+		assert.Empty(t, w.Failure)
+
+		status, body := srv.post(t, workspacePath(id, "start"), f.dev.session, nil)
+		require.Equal(t, http.StatusOK, status, "%v", body)
+		agent.sync(t)
+		assert.NotEmpty(t, agent.runtime.lastToken())
+		assert.NotNil(t, row(t, id).TokenHash, "a new token")
+		status, _ = srv.post(t, workspacePath(id, "stop"), f.dev.session, nil)
+		require.Equal(t, http.StatusOK, status)
+		agent.sync(t)
+		agent.sync(t)
+
+		kick(t)
+		srv.deps.WorkspaceApp.Sweep()
+		srv.deps.WorkspaceApp.Sweep()
+		assert.EqualValues(t, 1, srv.countRows(t, &domain.Workspace{}, "id = ?", id), "losing it again starts the clock again")
+		invite(t)
+	})
+
+	t.Run("other failures survive getting access back", func(t *testing.T) {
+		id := f.running(t, "other-failure")
+		kick(t)
+		srv.deps.WorkspaceApp.Sweep()
+		agent.sync(t)
+		agent.sync(t)
+		require.NoError(t, srv.deps.Database.Db.Model(&domain.Workspace{}).Where("id = ?", id).Update("failure", "something else").Error)
+		invite(t)
+		srv.deps.WorkspaceApp.Sweep()
+		assert.Equal(t, "something else", row(t, id).Failure)
+		assert.Nil(t, row(t, id).AccessLostAt)
+	})
+
+	t.Run("a stopped workspace is marked too", func(t *testing.T) {
+		id := f.running(t, "was-stopped")
+		status, _ := srv.post(t, workspacePath(id, "stop"), f.dev.session, nil)
+		require.Equal(t, http.StatusOK, status)
+		agent.sync(t)
+		agent.sync(t)
+		kick(t)
+		srv.deps.WorkspaceApp.Sweep()
+		assert.NotNil(t, row(t, id).AccessLostAt)
+		invite(t)
+		srv.deps.WorkspaceApp.Sweep()
+	})
+
+	t.Run("one started as access went stops", func(t *testing.T) {
+		id := f.running(t, "raced")
+		kick(t)
+		srv.deps.WorkspaceApp.Sweep()
+		agent.sync(t)
+		agent.sync(t)
+		hash := "raced"
+		require.NoError(t, srv.deps.Database.Db.Model(&domain.Workspace{}).Where("id = ?", id).
+			Updates(map[string]any{"state": domain.WorkspaceRunning, "token_hash": hash}).Error)
+		sweepAt(t, id, time.Minute)
+		assert.Nil(t, row(t, id).TokenHash)
+		assert.NotEqual(t, domain.WorkspaceRunning, row(t, id).State)
+		invite(t)
+		srv.deps.WorkspaceApp.Sweep()
+		agent.sync(t)
+		agent.sync(t)
+	})
+
+	t.Run("without a retention setting it's 14 days", func(t *testing.T) {
+		srv.deps.WorkspaceApp.Config.Workspaces.Retention = 0
+		defer func() { srv.deps.WorkspaceApp.Config.Workspaces.Retention = retention }()
+		id := f.running(t, "default-retention")
+		kick(t)
+		srv.deps.WorkspaceApp.Sweep()
+		agent.sync(t)
+		agent.sync(t)
+		sweepAt(t, id, 13*24*time.Hour)
+		assert.EqualValues(t, 1, srv.countRows(t, &domain.Workspace{}, "id = ?", id))
+		sweepAt(t, id, 15*24*time.Hour)
+		assert.Zero(t, srv.countRows(t, &domain.Workspace{}, "id = ?", id))
+		invite(t)
+		agent.sync(t)
+	})
+
+	t.Run("disabled users lose it the same way", func(t *testing.T) {
 		id := f.running(t, "disabled")
 		token := agent.runtime.lastToken()
-		status, body := srv.request(t, http.MethodPatch, "/api/v1/admin/users/dev", f.admin.session, map[string]any{"active": false})
-		require.Equal(t, http.StatusOK, status, "%v", body)
+		setActive(t, false)
 		assert.Error(t, tryClone(t, f.url, workspaceAuth(token)), "at once")
 		srv.deps.WorkspaceApp.Sweep()
+		assert.Nil(t, row(t, id).TokenHash)
+		settled(t, id)
+		setActive(t, true)
+		srv.deps.WorkspaceApp.Sweep()
+		assert.Nil(t, row(t, id).AccessLostAt, "enabling them again keeps it")
+
+		setActive(t, false)
+		srv.deps.WorkspaceApp.Sweep()
+		sweepAt(t, id, retention+time.Minute)
 		assert.Zero(t, srv.countRows(t, &domain.Workspace{}, "id = ?", id))
-		agent.sync(t)
-		assert.Contains(t, agent.runtime.removed, id)
-		status, body = srv.request(t, http.MethodPatch, "/api/v1/admin/users/dev", f.admin.session, map[string]any{"active": true})
-		require.Equal(t, http.StatusOK, status, "%v", body)
+		setActive(t, true)
 	})
 }
 

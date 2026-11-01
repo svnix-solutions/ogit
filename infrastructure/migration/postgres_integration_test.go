@@ -93,4 +93,5 @@ func TestPostgresMigrationReleaseAssets(t *testing.T) {
 	checkRunnerScalingMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
 	checkWorkspacesMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
 	checkWorkspaceAgentsMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
+	checkWorkspaceAccessLostMigration(t, context.WithValue(ctx, "dbDialect", "postgres"), db)
 }

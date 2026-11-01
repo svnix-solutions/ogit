@@ -42,11 +42,13 @@ const (
 	agentTokenLifetime     = time.Hour
 	agentLostAfter         = 5 * time.Minute
 	workspaceStartTimeout  = 30 * time.Minute
+	defaultRetention       = 14 * 24 * time.Hour
 	maxWorkspaceFailure    = 500
 	failureAgentLost       = "its agent stopped reporting"
 	failureAgentDeleted    = "its agent was deleted"
 	failureNotStarted      = "no agent started it in time"
 	failureRepositoryGone  = "its repository is gone"
+	failureAccessLost      = "its user lost access"
 )
 
 // IsWorkspaceToken reports whether a git password is a workspace's token.
@@ -393,9 +395,9 @@ func (c *WorkspaceApp) task(a *domain.WorkspaceAgent, w domain.Workspace, now ti
 
 // --- the sweep ---------------------------------------------------------------
 
-// Sweep stops workspaces on lost agents and those that never started, and
-// deletes those whose user can't have them any more. A failing check
-// deletes nothing: only a definite answer does.
+// Sweep stops workspaces on lost agents, those that never started and those
+// whose user can't have them any more, deleting these a retention period
+// later. A failing check changes nothing: only a definite answer does.
 func (c *WorkspaceApp) Sweep() {
 	logger := c.Logger.With().Str("component", "application.workspaces").Logger()
 	now := time.Now().UTC()
@@ -421,15 +423,46 @@ func (c *WorkspaceApp) Sweep() {
 			logger.Warn().Err(err).Str("workspace_id", w.Id).Msg("failed to check a workspace's access")
 			continue
 		}
-		if allowed {
-			continue
+		if err := c.sweepAccess(w, allowed, now); err != nil {
+			logger.Warn().Err(err).Str("workspace_id", w.Id).Msg("failed to act on a workspace's access")
 		}
-		if _, err := c.Workspaces.Delete(w.Id, true); err != nil {
-			logger.Warn().Err(err).Str("workspace_id", w.Id).Msg("failed to delete a workspace")
-			continue
-		}
-		c.Logger.Info().Str("component", "audit").Str("workspace_id", w.Id).Str("user_id", w.UserId).Msg("workspace deleted: its user lost access")
 	}
+}
+
+// sweepAccess applies the rule on lost access to one workspace.
+func (c *WorkspaceApp) sweepAccess(w domain.Workspace, allowed bool, now time.Time) error {
+	audit := func(msg string) {
+		c.Logger.Info().Str("component", "audit").Str("workspace_id", w.Id).Str("user_id", w.UserId).Msg(msg)
+	}
+	if allowed {
+		if w.AccessLostAt == nil {
+			return nil
+		}
+		if err := c.Workspaces.ClearAccessLost(w.Id, failureAccessLost, now); err != nil {
+			return err
+		}
+		audit("workspace kept: its user got access back")
+		return nil
+	}
+	if w.AccessLostAt == nil {
+		marked, err := c.Workspaces.MarkAccessLost(w.Id, failureAccessLost, now)
+		if err == nil && marked {
+			audit("workspace stopped: its user lost access")
+		}
+		return err
+	}
+	retention := c.Config.Workspaces.Retention
+	if retention <= 0 {
+		retention = defaultRetention
+	}
+	if now.Sub(*w.AccessLostAt) < retention {
+		return c.Workspaces.Stop(w.Id, now) // started just before the access went
+	}
+	if _, err := c.Workspaces.Delete(w.Id, true); err != nil {
+		return err
+	}
+	audit("workspace deleted: its user lost access")
+	return nil
 }
 
 func (c *WorkspaceApp) mayKeep(w domain.Workspace) (bool, error) {

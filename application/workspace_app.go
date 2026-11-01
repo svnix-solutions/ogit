@@ -32,8 +32,10 @@ import (
 //   - a workspace stays on its agent, which holds its volume: starting one
 //     whose agent is offline is refused;
 //   - a workspace whose user was disabled or can't read the repository any
-//     more is deleted, clone included, by the sweep (workspace_agents.go has
-//     the agents' rules);
+//     more is stopped by the sweep, its token cleared, and deleted, clone
+//     included, workspaces.retention later; getting access back in time
+//     keeps it, and until then starting it is refused as for anyone without
+//     access (workspace_agents.go has the agents' rules);
 //   - listing a workspace of a repository the user can no longer read hides
 //     the repository's path.
 
