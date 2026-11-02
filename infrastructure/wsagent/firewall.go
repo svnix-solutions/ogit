@@ -20,6 +20,11 @@ import (
 // applies to a whole network, so they get one of their own.
 const DefaultNetwork = "ogit-workspaces"
 
+// iccOption off makes Docker drop traffic between a bridge's containers,
+// which otherwise never reaches the firewall's chains
+// (TestDockerWorkspaceFirewall).
+const iccOption = "com.docker.network.bridge.enable_icc"
+
 // ErrNoFirewallImage: agents have no default until the image is published.
 var ErrNoFirewallImage = errors.New("no firewall image: pass --firewall-image, or --no-firewall to run without network rules")
 
@@ -31,7 +36,7 @@ func (d *DockerRuntime) ensureNetwork(ctx context.Context) (network.Inspect, err
 	if !errdefs.IsNotFound(err) {
 		return inspect, err
 	}
-	if _, err := d.Docker.NetworkCreate(ctx, d.Network, network.CreateOptions{Driver: "bridge"}); err != nil && !errdefs.IsConflict(err) {
+	if _, err := d.Docker.NetworkCreate(ctx, d.Network, network.CreateOptions{Driver: "bridge", Options: map[string]string{iccOption: "false"}}); err != nil && !errdefs.IsConflict(err) {
 		return inspect, err
 	}
 	return d.Docker.NetworkInspect(ctx, d.Network, network.InspectOptions{})
@@ -98,6 +103,9 @@ func (d *DockerRuntime) protect(ctx context.Context) error {
 	if n.Driver != "bridge" || len(n.IPAM.Config) == 0 {
 		return fmt.Errorf("network %s isn't a bridge network with a subnet", d.Network)
 	}
+	if n.Options[iccOption] != "false" {
+		return fmt.Errorf("network %s lets containers reach each other: create it with -o %s=false", d.Network, iccOption)
+	}
 	allow, err := d.allowed(ctx)
 	if err != nil {
 		return err
@@ -107,7 +115,7 @@ func (d *DockerRuntime) protect(ctx context.Context) error {
 	}
 	created, err := d.Docker.ContainerCreate(ctx, &container.Config{Image: d.FirewallImage, Env: []string{
 		"OGIT_SUBNET=" + n.IPAM.Config[0].Subnet, "OGIT_BRIDGE=" + bridgeName(n),
-		"OGIT_ALLOW=" + strings.Join(allow, " "), "OGIT_PEERS=" + strings.Join(d.FirewallPeers, " "),
+		"OGIT_ALLOW=" + strings.Join(allow, " "),
 	}}, &container.HostConfig{NetworkMode: "host", CapDrop: []string{"ALL"}, CapAdd: []string{"NET_ADMIN", "NET_RAW"}}, nil, nil, "")
 	if err != nil {
 		return fmt.Errorf("the firewall helper: %w", err)

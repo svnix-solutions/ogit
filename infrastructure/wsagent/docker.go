@@ -64,10 +64,8 @@ type DockerRuntime struct {
 	FirewallImage string
 	NoFirewall    bool
 	// FirewallAllow lists host:port pairs workspaces may reach besides the
-	// server, FirewallPeers addresses that may connect to them (an agent in
-	// a container).
+	// server.
 	FirewallAllow []string
-	FirewallPeers []string
 }
 
 // NewDockerRuntime connects to the daemon at host (empty: DOCKER_HOST or the
@@ -103,7 +101,8 @@ func (d *DockerRuntime) Running(ctx context.Context) ([]string, error) {
 func (d *DockerRuntime) EditorPort() int { return editorPort }
 
 // Address finds a running workspace on its Docker network, which the agent
-// has to be able to reach: run it on the host or on that network.
+// has to be able to reach: run it on the host, or in a container on the host's
+// network.
 func (d *DockerRuntime) Address(ctx context.Context, id string) (string, error) {
 	inspect, err := d.Docker.ContainerInspect(ctx, containerName(id))
 	if err != nil {

@@ -38,17 +38,16 @@ curl -X POST $OGIT/api/v1/admin/workspace-agents/registration-token -H "Authoriz
 
 - `--listen` and `--advertise-url`: where the agent takes the server's connections, such as `:8443` and `https://10.0.0.5:8443`. Without them, its workspaces run but browsers can't reach them.
 - `--git-url`: where workspaces reach the server, if not the registered URL, such as `http://ogit:8080` with `--network`.
-- `--network`: the Docker network of workspaces (default `ogit-workspaces`, created if missing). The firewall covers the whole network, so keep it to workspaces.
+- `--network`: the Docker network of workspaces (default `ogit-workspaces`, created if missing). The firewall covers the whole network, so keep it to workspaces. If you create it yourself, use `-o com.docker.network.bridge.enable_icc=false`, or the agent refuses it.
 - `--firewall-image`: the image that installs the network rules, pinned by digest. Required unless you pass `--no-firewall`.
 - `--firewall-allow`: a `host:port` workspaces may reach besides the server, repeatable.
-- `--firewall-peer`: an address that may connect to workspaces, repeatable. Set it to the agent's own address when the agent runs in a container on `--network`.
 - `--no-firewall`: no network rules. Workspaces can then reach your private networks and cloud metadata, so keep this to test environments.
 - `--max-workspaces`: how many it runs at a time (default 10).
 - `--docker-host`: the Docker socket.
 
 Each workspace is a container with no Linux capabilities, no privilege escalation, a read-only root, a non-root user, the limits above, and no published port. Its files are a Docker volume on that agent, so a stopped workspace can only start again there, and starting it is refused while that agent is offline.
 
-**Browser access:** browsers talk to the oGit server, which dials the agent, so only the server needs to reach `--listen`; keep it off the internet. The agent makes its own certificate on each start and reports its fingerprint, which the server pins, so no CA is involved, and it only accepts requests signed by the server. The agent has to reach containers' addresses, so run it on the Docker host or on `--network`, not on Docker Desktop's host side.
+**Browser access:** browsers talk to the oGit server, which dials the agent, so only the server needs to reach `--listen`; keep it off the internet. The agent makes its own certificate on each start and reports its fingerprint, which the server pins, so no CA is involved, and it only accepts requests signed by the server. The agent has to reach containers' addresses, so run it on the Docker host, or in a container with `--network host`. It can't be a container on the workspace network, whose containers can't reach each other, or on Docker Desktop's host side.
 
 Your reverse proxy must pass `*.<domain>` to oGit with the `Host` header unchanged, and must allow WebSockets. Don't put anything else under that domain: its hosts serve workspaces and nothing else, and it should be a domain of its own, or at least not a parent of `http.public_url`'s host.
 
