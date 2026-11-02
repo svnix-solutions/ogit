@@ -161,6 +161,12 @@ func TestDockerWorkspace(t *testing.T) {
 	require.NoError(t, err, out)
 	assert.Equal(t, "work\n", out)
 
+	address, err := d.Address(ctx, id)
+	require.NoError(t, err)
+	assert.NotNil(t, net.ParseIP(address), address)
+	_, err = d.Address(ctx, "00000000-0000-4000-8000-000000000000")
+	assert.Error(t, err)
+
 	over, err := d.OverDisk(ctx)
 	require.NoError(t, err)
 	assert.NotContains(t, over, id)

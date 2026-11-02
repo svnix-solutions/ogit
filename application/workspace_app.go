@@ -59,7 +59,12 @@ type WorkspaceApp struct {
 	Repositories *RepositoryApp
 	Workspaces   domain.WorkspacePers
 	Users        domain.UserPers
+	Sessions     domain.SessionPers
 	Admin        *AdminApp
+	// Recheck overrides how old Route's answers may be, for tests.
+	Recheck time.Duration
+
+	routes routes
 }
 
 // WorkspaceView is a workspace with its repository's path, empty when the

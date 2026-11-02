@@ -3,6 +3,8 @@ package application
 import (
 	"context"
 	"errors"
+	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -266,6 +268,10 @@ type AgentReport struct {
 	Failed  []AgentFailure `json:"failed"`
 	Removed []string       `json:"removed"`
 	Slots   int            `json:"slots"`
+	// ProxyURL is where the server reaches this agent, and ProxyFingerprint
+	// the SHA-256 of its certificate; both empty: no browser access.
+	ProxyURL         string `json:"proxy_url"`
+	ProxyFingerprint string `json:"proxy_fingerprint"`
 	// Wait: seconds to wait for work (at most 30).
 	Wait int `json:"wait"`
 }
@@ -289,6 +295,8 @@ type AgentTasks struct {
 	Start  []WorkspaceTask `json:"start"`
 	Stop   []string        `json:"stop"`
 	Remove []string        `json:"remove"`
+	// ProxyKey checks that requests to the agent's listener are the server's.
+	ProxyKey string `json:"proxy_key"`
 }
 
 // Empty reports whether there's nothing to do.
@@ -300,10 +308,21 @@ func validIds(ids []string) []string {
 	return slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return !workspaceId.MatchString(id) })
 }
 
+var agentFingerprint = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// validAgentProxy: an https address and a certificate to pin, or nothing.
+func validAgentProxy(address, fingerprint string) bool {
+	u, err := url.Parse(address)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && agentFingerprint.MatchString(fingerprint)
+}
+
 // Report records what the agent says. Ids are checked: they reach Postgres.
 func (c *WorkspaceApp) Report(a *domain.WorkspaceAgent, r AgentReport) error {
 	now := time.Now().UTC()
-	if err := c.Workspaces.TouchAgent(a.Id, r.Version, now); err != nil {
+	if !validAgentProxy(r.ProxyURL, r.ProxyFingerprint) {
+		r.ProxyURL, r.ProxyFingerprint = "", ""
+	}
+	if err := c.Workspaces.TouchAgent(a.Id, r.Version, r.ProxyURL, r.ProxyFingerprint, now); err != nil {
 		return err
 	}
 	if err := c.Workspaces.AckCleanups(a.Id, validIds(r.Removed)); err != nil {
@@ -340,7 +359,7 @@ func (c *WorkspaceApp) Tasks(a *domain.WorkspaceAgent, r AgentReport) (*AgentTas
 	if err != nil {
 		return nil, err
 	}
-	tasks := &AgentTasks{}
+	tasks := &AgentTasks{ProxyKey: c.proxyKey(a.Id)}
 	if tasks.Remove, err = c.Workspaces.Cleanups(a.Id); err != nil {
 		return nil, err
 	}
@@ -411,6 +430,9 @@ func (c *WorkspaceApp) Sweep() {
 	}
 	if err := c.Workspaces.DeleteExpiredAgentTokens(now); err != nil {
 		logger.Warn().Err(err).Msg("failed to delete expired agent tokens")
+	}
+	if err := c.Workspaces.DeleteExpiredTickets(now); err != nil {
+		logger.Warn().Err(err).Msg("failed to delete expired workspace links")
 	}
 	workspaces, err := c.Workspaces.All()
 	if err != nil {

@@ -62,6 +62,8 @@ type WorkspaceAgent struct {
 	TokenHash           string
 	Version             string
 	RegistrationTokenId *string
+	ProxyURL            string `gorm:"column:proxy_url"`
+	ProxyFingerprint    string
 	LastSeenAt          time.Time
 	CreatedAt           time.Time
 }
@@ -77,6 +79,18 @@ type WorkspaceCleanup struct {
 }
 
 func (WorkspaceCleanup) TableName() string { return "workspace_cleanup" }
+
+// WorkspaceTicket is a one-time link that signs a browser in to a workspace's
+// host (port 0: the editor).
+type WorkspaceTicket struct {
+	TokenHash   string `gorm:"primaryKey"`
+	WorkspaceId string
+	SessionId   string
+	Port        int
+	ExpiresAt   time.Time
+}
+
+func (WorkspaceTicket) TableName() string { return "workspace_ticket" }
 
 type WorkspacePers interface {
 	// Create adds a workspace if the user has fewer than maxTotal (0: no
@@ -117,7 +131,11 @@ type WorkspacePers interface {
 	Agents() ([]WorkspaceAgent, error)
 	// DeleteAgent forgets an agent: its workspaces stop and lose it.
 	DeleteAgent(id, failure string, now time.Time) (bool, error)
-	TouchAgent(id, version string, now time.Time) error
+	TouchAgent(id, version, proxyURL, proxyFingerprint string, now time.Time) error
+	CreateTicket(t *WorkspaceTicket) error
+	// TakeTicket returns the unexpired ticket with that hash, once.
+	TakeTicket(hash string, now time.Time) (*WorkspaceTicket, error)
+	DeleteExpiredTickets(now time.Time) error
 
 	// ForAgent returns the agent's starting, running and stopping workspaces.
 	ForAgent(agentId string) ([]Workspace, error)

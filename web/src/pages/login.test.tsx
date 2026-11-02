@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LoginPage, safeNext } from "./login";
+import { leaveLogin, LoginPage, safeNext } from "./login";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -64,6 +64,22 @@ describe("LoginPage", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Send a new link" }));
     expect(await screen.findByRole("button", { name: /a new link is on its way/ })).toBeDisabled();
     expect((fetch.mock.calls as unknown as [string][]).map(([u]) => u)).toContain("/api/v1/auth/verify/resend");
+  });
+});
+
+describe("leaveLogin", () => {
+  it("loads the server's route that opens a workspace, and stays in the app otherwise", () => {
+    const replace = vi.fn();
+    vi.stubGlobal("location", { replace });
+    const navigate = vi.fn();
+    leaveLogin("/api/v1/workspaces/abc/enter?next=%2F", navigate);
+    expect(replace).toHaveBeenCalledWith("/api/v1/workspaces/abc/enter?next=%2F");
+    expect(navigate).not.toHaveBeenCalled();
+    replace.mockClear();
+    leaveLogin("/api/v1/auth/logout", navigate);
+    leaveLogin("/repos/x", navigate);
+    expect(replace).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledTimes(2);
   });
 });
 

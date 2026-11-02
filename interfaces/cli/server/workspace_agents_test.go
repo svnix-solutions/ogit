@@ -49,6 +49,7 @@ type fakeRuntime struct {
 	fail    error
 	leak    bool // fail with the token in the message
 	over    []string
+	editor  int
 }
 
 func (f *fakeRuntime) Running(context.Context) ([]string, error) {
@@ -95,6 +96,17 @@ func (f *fakeRuntime) OverDisk(context.Context) ([]string, error) {
 	defer f.mu.Unlock()
 	return f.over, nil
 }
+
+func (f *fakeRuntime) Address(_ context.Context, id string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.running[id] {
+		return "", errors.New("not running")
+	}
+	return "127.0.0.1", nil
+}
+
+func (f *fakeRuntime) EditorPort() int { return f.editor }
 
 func (f *fakeRuntime) lastToken() string {
 	f.mu.Lock()

@@ -27,6 +27,10 @@ type Runtime interface {
 	Remove(ctx context.Context, id string) error
 	// OverDisk lists the workspaces using more than their disk limit.
 	OverDisk(ctx context.Context) ([]string, error)
+	// Address is the host at which the agent reaches a running workspace.
+	Address(ctx context.Context, id string) (string, error)
+	// EditorPort is the port the editor listens on.
+	EditorPort() int
 }
 
 // Agent reconciles the runtime with the server.
@@ -41,8 +45,13 @@ type Agent struct {
 	// DiskEvery: how often disk use is checked (5 minutes if 0).
 	DiskEvery time.Duration
 	Out       io.Writer
+	// ProxyURL is where the server reaches Proxy, ProxyFingerprint its
+	// certificate; see ServeProxy.
+	ProxyURL         string
+	ProxyFingerprint string
 
 	mu      sync.Mutex
+	key     string // the server's, from the last sync
 	busy    map[string]bool
 	failed  map[string]string
 	removed map[string]bool
@@ -130,12 +139,13 @@ func (a *Agent) Sync(ctx context.Context) error {
 	report := application.AgentReport{Version: a.Version, Running: running, Busy: slices.Collect(maps.Keys(a.busy)),
 		Removed: slices.Collect(maps.Keys(a.removed)), Wait: int(a.Wait.Seconds())}
 	report.Slots = max(a.MaxWorkspaces-len(running)-len(a.busy), 0)
+	report.ProxyURL, report.ProxyFingerprint = a.ProxyURL, a.ProxyFingerprint
 	failed := maps.Clone(a.failed)
 	for id, message := range failed {
 		report.Failed = append(report.Failed, application.AgentFailure{Id: id, Message: message})
 	}
 	removed := slices.Clone(report.Removed)
-	if len(report.Failed)+len(report.Removed) > 0 {
+	if len(report.Failed)+len(report.Removed) > 0 || a.key == "" {
 		report.Wait = 0
 	}
 	a.mu.Unlock()
@@ -146,6 +156,7 @@ func (a *Agent) Sync(ctx context.Context) error {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.key = tasks.ProxyKey
 	for id := range failed {
 		delete(a.failed, id)
 	}

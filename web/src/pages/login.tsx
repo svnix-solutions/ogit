@@ -16,6 +16,12 @@ export function safeNext(next: string | null): string {
   return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/";
 }
 
+// Opening a workspace is the server's route, which needs a real page load.
+export function leaveLogin(next: string, navigate: (to: string, options: { replace: boolean }) => void) {
+  if (next.startsWith("/api/v1/workspaces/")) window.location.replace(next);
+  else navigate(next, { replace: true });
+}
+
 // CodeStep is the second step for accounts with two-factor authentication.
 function CodeStep({ challenge, methods, onDone, onRestart }: { challenge: string; methods: string[]; onDone: () => void; onRestart: () => void }) {
   const [code, setCode] = useState("");
@@ -113,7 +119,7 @@ export function LoginPage() {
   const [local, setLocal] = useState(false);
   // An LDAP directory: its user names work in the form too.
   const directory = !!instance.data?.directory_sign_in;
-  const done = () => navigate(next, { replace: true });
+  const done = () => leaveLogin(next, navigate);
 
   function submit(e: FormEvent) {
     e.preventDefault();
