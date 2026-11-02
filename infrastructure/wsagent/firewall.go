@@ -110,7 +110,9 @@ func (d *DockerRuntime) protect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("the firewall helper: %w", err)
 	}
-	defer func() { _ = d.Docker.ContainerRemove(context.WithoutCancel(ctx), created.ID, container.RemoveOptions{Force: true}) }()
+	defer func() {
+		_ = d.Docker.ContainerRemove(context.WithoutCancel(ctx), created.ID, container.RemoveOptions{Force: true})
+	}()
 	if err := d.Docker.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("the firewall helper: %w", err)
 	}
