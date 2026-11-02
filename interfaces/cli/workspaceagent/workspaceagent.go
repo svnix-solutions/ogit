@@ -26,7 +26,9 @@ type State struct {
 }
 
 func NewInstance(version string) *cli.Command {
-	var file, url, token, name, network, dockerHost, gitURL, listen, advertise string
+	var file, url, token, name, network, dockerHost, gitURL, listen, advertise, firewallImage string
+	var noFirewall bool
+	var firewallAllow, firewallPeers []string
 	var maxWorkspaces int
 	fileFlag := &cli.StringFlag{Name: "file", Value: ".workspace-agent", Usage: "the agent's state file (holds its token)", Destination: &file}
 	return &cli.Command{
@@ -64,7 +66,11 @@ func NewInstance(version string) *cli.Command {
 				Flags: []cli.Flag{
 					fileFlag,
 					&cli.StringFlag{Name: "docker-host", Usage: "the Docker socket (default: DOCKER_HOST or the usual socket)", Destination: &dockerHost},
-					&cli.StringFlag{Name: "network", Usage: "Docker network for workspaces; they must reach the server", Destination: &network},
+					&cli.StringFlag{Name: "network", Value: wsagent.DefaultNetwork, Usage: "Docker network for workspaces, created if missing; the firewall covers all of it, so give it to nothing else", Destination: &network},
+					&cli.StringFlag{Name: "firewall-image", Usage: "the image that installs the network rules, pinned by digest", Destination: &firewallImage},
+					&cli.BoolFlag{Name: "no-firewall", Usage: "run without network rules: workspaces can reach private networks and cloud metadata", Destination: &noFirewall},
+					&cli.StringSliceFlag{Name: "firewall-allow", Usage: "host:port workspaces may reach besides the server (repeatable)", Destination: &firewallAllow},
+					&cli.StringSliceFlag{Name: "firewall-peer", Usage: "address that may connect to workspaces, such as this agent's when it runs in a container on --network (repeatable)", Destination: &firewallPeers},
 					&cli.StringFlag{Name: "git-url", Usage: "where workspaces reach the server, if not the registered URL (e.g. http://ogit:8080 on a Docker network)", Destination: &gitURL},
 					&cli.StringFlag{Name: "listen", Usage: "address for the server's connections (e.g. :8443); browsers reach workspaces through it", Destination: &listen},
 					&cli.StringFlag{Name: "advertise-url", Usage: "where the server reaches --listen (e.g. https://10.0.0.5:8443)", Destination: &advertise},
@@ -88,6 +94,13 @@ func NewInstance(version string) *cli.Command {
 					runtime, err := wsagent.NewDockerRuntime(dockerHost, gitURL, network)
 					if err != nil {
 						return err
+					}
+					runtime.FirewallImage, runtime.NoFirewall = firewallImage, noFirewall
+					runtime.FirewallAllow, runtime.FirewallPeers = firewallAllow, firewallPeers
+					if noFirewall {
+						fmt.Fprintln(cmd.Root().Writer, "WARNING: no network rules: workspaces can reach private networks and cloud metadata")
+					} else if firewallImage == "" {
+						return wsagent.ErrNoFirewallImage
 					}
 					ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 					defer stop()

@@ -38,7 +38,11 @@ curl -X POST $OGIT/api/v1/admin/workspace-agents/registration-token -H "Authoriz
 
 - `--listen` and `--advertise-url`: where the agent takes the server's connections, such as `:8443` and `https://10.0.0.5:8443`. Without them, its workspaces run but browsers can't reach them.
 - `--git-url`: where workspaces reach the server, if not the registered URL, such as `http://ogit:8080` with `--network`.
-- `--network`: the Docker network of workspaces.
+- `--network`: the Docker network of workspaces (default `ogit-workspaces`, created if missing). The firewall covers the whole network, so keep it to workspaces.
+- `--firewall-image`: the image that installs the network rules, pinned by digest. Required unless you pass `--no-firewall`.
+- `--firewall-allow`: a `host:port` workspaces may reach besides the server, repeatable.
+- `--firewall-peer`: an address that may connect to workspaces, repeatable. Set it to the agent's own address when the agent runs in a container on `--network`.
+- `--no-firewall`: no network rules. Workspaces can then reach your private networks and cloud metadata, so keep this to test environments.
 - `--max-workspaces`: how many it runs at a time (default 10).
 - `--docker-host`: the Docker socket.
 
@@ -47,6 +51,8 @@ Each workspace is a container with no Linux capabilities, no privilege escalatio
 **Browser access:** browsers talk to the oGit server, which dials the agent, so only the server needs to reach `--listen`; keep it off the internet. The agent makes its own certificate on each start and reports its fingerprint, which the server pins, so no CA is involved, and it only accepts requests signed by the server. The agent has to reach containers' addresses, so run it on the Docker host or on `--network`, not on Docker Desktop's host side.
 
 Your reverse proxy must pass `*.<domain>` to oGit with the `Host` header unchanged, and must allow WebSockets. Don't put anything else under that domain: its hosts serve workspaces and nothing else, and it should be a domain of its own, or at least not a parent of `http.public_url`'s host.
+
+**Network rules:** before each start, the agent runs a short-lived helper with network admin rights that installs firewall rules on the host, and a workspace doesn't start if that fails. Workspaces reach the internet and the server, but not private ranges, cloud metadata (`169.254.169.254`), each other, or the host's services. This needs a Linux host with Docker's iptables firewall backend. Rules cover IPv4, and workspace networks don't have IPv6 unless you enable it, so don't.
 
 **Disk:** Docker can't limit a volume's size on its usual storage drivers. The agent checks volumes every 5 minutes and stops a workspace over `disk_gb`, so a workspace can run past its limit for that long. Leave room on the host.
 

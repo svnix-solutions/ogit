@@ -1,0 +1,98 @@
+name: Workspace images
+
+# Builds the images of `ogit workspace-agent` on native amd64 and arm64
+# runners: docker/workspace (the editor) and docker/workspace-firewall (its
+# network rules). Pushes to main publish them on ghcr.io, tagged with the
+# commit; oGit's defaults then pin the printed digests. Pull requests only
+# build.
+on:
+  push:
+    branches: [main]
+    paths: ['docker/workspace/**', 'docker/workspace-firewall/**', .github/workflows/workspace-images.yaml]
+  pull_request:
+    branches: [main]
+    paths: ['docker/workspace/**', 'docker/workspace-firewall/**', .github/workflows/workspace-images.yaml]
+
+permissions:
+  contents: read
+
+env:
+  PUBLISH: ${{ github.event_name == 'push' }}
+
+jobs:
+  build:
+    name: ${{ matrix.image.name }} (${{ matrix.arch.name }})
+    strategy:
+      matrix:
+        image:
+          - {name: ogit-workspace, context: docker/workspace}
+          - {name: ogit-workspace-firewall, context: docker/workspace-firewall}
+        arch:
+          - {name: amd64, runner: ubuntu-24.04}
+          - {name: arm64, runner: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.arch.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+    - uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry
+      if: env.PUBLISH == 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Pushed by digest only; the publish job tags the multi-arch image.
+    - name: Build the image
+      id: image
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ matrix.image.context }}
+        platforms: linux/${{ matrix.arch.name }}
+        outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=${{ env.PUBLISH }}
+        cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch.name }}
+        cache-to: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch.name }},mode=max
+
+    - run: mkdir -p out && echo "${{ steps.image.outputs.digest }}" > "out/${{ matrix.image.name }}-${{ matrix.arch.name }}"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: digest-${{ matrix.image.name }}-${{ matrix.arch.name }}
+        path: out/
+        retention-days: 7
+
+  publish:
+    name: Publish the images
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: digest-*
+        merge-multiple: true
+        path: out
+
+    - uses: docker/setup-buildx-action@v3
+
+    - uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create the multi-arch images
+      run: |
+        for name in ogit-workspace ogit-workspace-firewall; do
+          image="ghcr.io/$GITHUB_REPOSITORY_OWNER/$name"
+          refs=$(for f in out/"$name"-amd64 out/"$name"-arm64; do printf '%s@%s ' "$image" "$(cat "$f")"; done)
+          docker buildx imagetools create -t "$image:$GITHUB_SHA" $refs
+          docker buildx imagetools inspect "$image:$GITHUB_SHA"
+        done
