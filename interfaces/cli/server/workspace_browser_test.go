@@ -226,7 +226,9 @@ func TestWorkspaceBrowserAccess(t *testing.T) {
 	t.Run("a session of someone else", func(t *testing.T) {
 		// Enter refuses them; this is the check behind it, on every request.
 		var session domain.Session
-		require.NoError(t, f.srv.deps.Database.Db.Where("user_id <> ?", "").Not("user_id = (SELECT user_id FROM workspace WHERE id = ?)", f.id).First(&session).Error)
+		w, err := f.srv.deps.WorkspaceApp.Workspaces.GetAny(f.id)
+		require.NoError(t, err)
+		require.NoError(t, f.srv.deps.Database.Db.Where("user_id <> ?", w.UserId).First(&session).Error)
 		const raw = "ogitt_handmade"
 		require.NoError(t, f.srv.deps.WorkspaceApp.Workspaces.CreateTicket(&domain.WorkspaceTicket{TokenHash: application.HashToken(raw), WorkspaceId: f.id, SessionId: session.Id, ExpiresAt: time.Now().UTC().Add(time.Minute)}))
 		other := f.browser(t)
