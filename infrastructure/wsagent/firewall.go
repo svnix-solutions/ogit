@@ -1,6 +1,7 @@
 package wsagent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/errdefs"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 // DefaultNetwork is the workspaces' network when none is given: the firewall
@@ -129,8 +131,9 @@ func (d *DockerRuntime) protect(ctx context.Context) error {
 	message := "no output"
 	if err == nil {
 		defer logs.Close()
-		if data, err := io.ReadAll(io.LimitReader(logs, 2048)); err == nil {
-			message = strings.TrimSpace(string(data))
+		var output bytes.Buffer
+		if _, err := stdcopy.StdCopy(&output, &output, io.LimitReader(logs, 2048)); err == nil || output.Len() > 0 {
+			message = strings.TrimSpace(output.String())
 		}
 	}
 	return fmt.Errorf("the firewall rules failed: %s", message)

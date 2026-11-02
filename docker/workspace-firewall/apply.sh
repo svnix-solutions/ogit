@@ -10,7 +10,11 @@
 set -eu
 
 chain() { iptables -N "$1" 2>/dev/null || iptables -F "$1"; }
-hook() { iptables -C "$1" "$2" "$3" "$4" "$5" "$6" 2>/dev/null || iptables -I "$1" 1 "$2" "$3" "$4" "$5" "$6"; }
+hook() {
+	chain=$1
+	shift
+	iptables -C "$chain" "$@" 2>/dev/null || iptables -I "$chain" 1 "$@"
+}
 
 chain OGIT-WORKSPACES
 iptables -A OGIT-WORKSPACES -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
