@@ -115,8 +115,11 @@ func WorkspaceFlags(cfg *Config) []cli.Flag {
 	}
 }
 
-// DefaultWorkspaceImage is code-server 4.144.0, by digest.
-const DefaultWorkspaceImage = "codercom/code-server@sha256:b9e8056bb74bd0c4f90284c7559eddeccd38400cfedc28e64c9d3ca50fef1f83"
+// DefaultWorkspaceImage is docker/workspace (code-server 4.144.0), by digest.
+const DefaultWorkspaceImage = "ghcr.io/svnix-solutions/ogit-workspace@sha256:43f14fedab69a245d65555e300b3b56ae5617c927dc2891341fc960553aac7eb"
+
+// DefaultFirewallImage is docker/workspace-firewall, by digest.
+const DefaultFirewallImage = "ghcr.io/svnix-solutions/ogit-workspace-firewall@sha256:39e3a37501a7d5688acc16822f74d5d04aab96f4b6678f1efb7dae36d7d97f7d"
 
 // CheckWorkspaceImage refuses an image a retag could change.
 func CheckWorkspaceImage(image string) error {

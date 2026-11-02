@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/labbs/ogit/infrastructure/config"
 	"github.com/labbs/ogit/infrastructure/wsagent"
 	"github.com/urfave/cli/v3"
 )
@@ -67,7 +68,7 @@ func NewInstance(version string) *cli.Command {
 					fileFlag,
 					&cli.StringFlag{Name: "docker-host", Usage: "the Docker socket (default: DOCKER_HOST or the usual socket)", Destination: &dockerHost},
 					&cli.StringFlag{Name: "network", Value: wsagent.DefaultNetwork, Usage: "Docker network for workspaces, created if missing; the firewall covers all of it, so give it to nothing else", Destination: &network},
-					&cli.StringFlag{Name: "firewall-image", Usage: "the image that installs the network rules, pinned by digest", Destination: &firewallImage},
+					&cli.StringFlag{Name: "firewall-image", Value: config.DefaultFirewallImage, Usage: "the image that installs the network rules, pinned by digest", Destination: &firewallImage},
 					&cli.BoolFlag{Name: "no-firewall", Usage: "run without network rules: workspaces can reach private networks and cloud metadata", Destination: &noFirewall},
 					&cli.StringSliceFlag{Name: "firewall-allow", Usage: "host:port workspaces may reach besides the server (repeatable)", Destination: &firewallAllow},
 					&cli.StringFlag{Name: "git-url", Usage: "where workspaces reach the server, if not the registered URL (e.g. http://ogit:8080 on a Docker network)", Destination: &gitURL},
@@ -98,8 +99,6 @@ func NewInstance(version string) *cli.Command {
 					runtime.FirewallAllow = firewallAllow
 					if noFirewall {
 						fmt.Fprintln(cmd.Root().Writer, "WARNING: no network rules: workspaces can reach private networks and cloud metadata")
-					} else if firewallImage == "" {
-						return wsagent.ErrNoFirewallImage
 					}
 					ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 					defer stop()
