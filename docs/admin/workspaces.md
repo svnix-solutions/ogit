@@ -1,7 +1,7 @@
 # Workspaces
 
-::: warning Test environments only
-Browsers can open workspaces now, but the image with the network rules ships in a later release, and there is no page for workspaces in the web UI yet. Until then, a workspace's code has unfiltered network access, so don't turn this on outside a test environment.
+::: warning Early access
+There is no page for workspaces in the web UI yet, and workspaces aren't stopped when idle or deleted when unused. Use the API for now.
 :::
 
 A workspace is a user's development container for one branch of a repository. Workspaces are off until you set `workspaces.domain`.
@@ -19,7 +19,7 @@ A workspace is a user's development container for one branch of a repository. Wo
 | `workspaces.max_running` | `1` | Active workspaces per user |
 | `workspaces.max_total` | `5` | Workspaces per user, stopped ones included (`0`: no limit) |
 | `workspaces.pids` | `1024` | Processes per workspace |
-| `workspaces.image` | code-server, by digest | Image of workspaces, which must be pinned as `name@sha256:...` |
+| `workspaces.image` | `ghcr.io/svnix-solutions/ogit-workspace`, by digest | Image of workspaces, which must be pinned as `name@sha256:...` |
 
 `idle_timeout` has no effect yet, and `retention` only applies to workspaces whose user lost access: unused workspaces aren't deleted yet.
 
@@ -39,7 +39,7 @@ curl -X POST $OGIT/api/v1/admin/workspace-agents/registration-token -H "Authoriz
 - `--listen` and `--advertise-url`: where the agent takes the server's connections, such as `:8443` and `https://10.0.0.5:8443`. Without them, its workspaces run but browsers can't reach them.
 - `--git-url`: where workspaces reach the server, if not the registered URL, such as `http://ogit:8080` with `--network`.
 - `--network`: the Docker network of workspaces (default `ogit-workspaces`, created if missing). The firewall covers the whole network, so keep it to workspaces. If you create it yourself, use `-o com.docker.network.bridge.enable_icc=false`, or the agent refuses it.
-- `--firewall-image`: the image that installs the network rules, pinned by digest. Required unless you pass `--no-firewall`.
+- `--firewall-image`: the image that installs the network rules, pinned by digest (default `ghcr.io/svnix-solutions/ogit-workspace-firewall`).
 - `--firewall-allow`: a `host:port` workspaces may reach besides the server, repeatable.
 - `--no-firewall`: no network rules. Workspaces can then reach your private networks and cloud metadata, so keep this to test environments.
 - `--max-workspaces`: how many it runs at a time (default 10).

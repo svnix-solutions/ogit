@@ -25,7 +25,8 @@ const DefaultNetwork = "ogit-workspaces"
 // (TestDockerWorkspaceFirewall).
 const iccOption = "com.docker.network.bridge.enable_icc"
 
-// ErrNoFirewallImage: agents have no default until the image is published.
+// ErrNoFirewallImage: the flag's default is config.DefaultFirewallImage, so
+// this takes an explicitly empty --firewall-image.
 var ErrNoFirewallImage = errors.New("no firewall image: pass --firewall-image, or --no-firewall to run without network rules")
 
 func (d *DockerRuntime) ensureNetwork(ctx context.Context) (network.Inspect, error) {
