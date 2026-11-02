@@ -60,6 +60,12 @@ type DockerRuntime struct {
 	Network string
 	// Command overrides CodeServerCommand.
 	Command []string
+	// FirewallImage installs the network's rules; NoFirewall skips them.
+	FirewallImage string
+	NoFirewall    bool
+	// FirewallAllow lists host:port pairs workspaces may reach besides the
+	// server.
+	FirewallAllow []string
 }
 
 // NewDockerRuntime connects to the daemon at host (empty: DOCKER_HOST or the
@@ -95,7 +101,8 @@ func (d *DockerRuntime) Running(ctx context.Context) ([]string, error) {
 func (d *DockerRuntime) EditorPort() int { return editorPort }
 
 // Address finds a running workspace on its Docker network, which the agent
-// has to be able to reach: run it on the host or on that network.
+// has to be able to reach: run it on the host, or in a container on the host's
+// network.
 func (d *DockerRuntime) Address(ctx context.Context, id string) (string, error) {
 	inspect, err := d.Docker.ContainerInspect(ctx, containerName(id))
 	if err != nil {
@@ -155,6 +162,9 @@ func (d *DockerRuntime) hostConfig(task application.WorkspaceTask) *container.Ho
 func (d *DockerRuntime) Start(ctx context.Context, task application.WorkspaceTask) error {
 	if !strings.Contains(task.Image, "@sha256:") {
 		return errors.New("the workspace image isn't pinned by digest")
+	}
+	if err := d.protect(ctx); err != nil {
+		return err
 	}
 	if err := d.pull(ctx, task.Image); err != nil {
 		return fmt.Errorf("pulling the image: %w", err)

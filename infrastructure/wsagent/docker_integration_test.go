@@ -85,6 +85,7 @@ func TestDockerWorkspace(t *testing.T) {
 		t.Skip("docker is not available")
 	}
 	d.GitURL = "http://" + hostFor(t, d) + ":" + gitServer(t)
+	d.NoFirewall = true
 
 	id := "00000000-0000-4000-8000-" + fmt.Sprintf("%012d", time.Now().UnixNano()%1_000_000_000_000)
 	task := application.WorkspaceTask{Id: id, Image: config.DefaultWorkspaceImage, Repository: "app.git", Branch: "main", Token: testToken,
@@ -179,4 +180,76 @@ func TestDockerWorkspace(t *testing.T) {
 	bad := task
 	bad.Image = "codercom/code-server:latest"
 	assert.ErrorContains(t, d.Start(ctx, bad), "digest")
+}
+
+// firewallTask is a small workspace.
+func firewallTask(id string) application.WorkspaceTask {
+	return application.WorkspaceTask{Id: id, Image: config.DefaultWorkspaceImage, Repository: "app.git", Branch: "main", Token: testToken,
+		CPUs: 1, MemoryGB: 1, DiskGB: 1, Pids: 256}
+}
+
+func TestDockerWorkspaceFirewall(t *testing.T) {
+	d, err := NewDockerRuntime("", "", "ogit-firewall-test")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if _, err := d.Docker.Ping(ctx); err != nil {
+		t.Skip("docker is not available")
+	}
+	info, err := d.Docker.Info(ctx)
+	require.NoError(t, err)
+	if strings.Contains(info.OperatingSystem, "Docker Desktop") {
+		t.Skip("the rules are for Linux hosts")
+	}
+	const image = "ogit-workspace-firewall:test"
+	out, err := exec.CommandContext(ctx, "docker", "build", "-q", "-t", image, "../../docker/workspace-firewall").CombinedOutput()
+	require.NoError(t, err, string(out))
+	host := hostFor(t, d)
+	d.GitURL = "http://" + host + ":" + gitServer(t)
+	refused := gitServer(t) // on the host too, but not the allowed port
+
+	d.FirewallImage = image
+	base := fmt.Sprintf("%012d", time.Now().UnixNano()%1_000_000_000_000)
+	one, two := "00000000-0000-4000-8001-"+base, "00000000-0000-4000-8002-"+base
+	t.Cleanup(func() {
+		_ = d.Remove(context.Background(), one)
+		_ = d.Remove(context.Background(), two)
+		_ = d.Docker.NetworkRemove(context.Background(), d.Network)
+	})
+	require.NoError(t, d.Start(ctx, firewallTask(one)), "the clone needs the server: it stays reachable")
+	require.NoError(t, d.Start(ctx, firewallTask(two)), "running the rules again is fine")
+
+	reach := func(url string) string {
+		out, _ := exec.CommandContext(ctx, "docker", "exec", containerName(one), "curl", "-s", "-o", "/dev/null", "-m", "4", "-w", "%{http_code}", url).CombinedOutput()
+		return string(out)
+	}
+	assert.NotEqual(t, "000", reach("https://github.com"), "the internet is open")
+	assert.Equal(t, "000", reach("http://169.254.169.254/"), "cloud metadata")
+	assert.Equal(t, "000", reach("http://"+host+":"+refused+"/"), "the host's other services")
+	assert.Equal(t, "000", reach("http://10.255.255.1/"), "private ranges")
+	neighbour, err := d.Address(ctx, two)
+	require.NoError(t, err)
+	var health string
+	for range 60 {
+		if health = reachFrom(ctx, containerName(two), "http://127.0.0.1:8080/healthz"); health == "200" {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	require.Equal(t, "200", health)
+	assert.Equal(t, "000", reach("http://"+neighbour+":8080/healthz"), "other workspaces")
+
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Get("http://" + neighbour + ":8080/healthz")
+	require.NoError(t, err, "the agent's host still reaches workspaces")
+	resp.Body.Close()
+
+	d.FirewallImage = ""
+	assert.ErrorIs(t, d.Start(ctx, firewallTask(one)), ErrNoFirewallImage, "no rules, no workspace")
+	d.FirewallImage = "ogit-workspace-firewall:missing@sha256:" + strings.Repeat("0", 64)
+	assert.Error(t, d.Start(ctx, firewallTask(one)))
+}
+
+func reachFrom(ctx context.Context, name, url string) string {
+	out, _ := exec.CommandContext(ctx, "docker", "exec", name, "curl", "-s", "-o", "/dev/null", "-m", "4", "-w", "%{http_code}", url).CombinedOutput()
+	return string(out)
 }
