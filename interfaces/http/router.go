@@ -15,6 +15,7 @@ import (
 	v1 "github.com/labbs/ogit/interfaces/http/v1"
 	"github.com/labbs/ogit/interfaces/http/websession"
 	"github.com/labbs/ogit/interfaces/http/workspaceagent"
+	"github.com/labbs/ogit/interfaces/http/workspaceproxy"
 	"github.com/labbs/ogit/web"
 )
 
@@ -22,7 +23,11 @@ func SetupRoutes(deps infrastructure.Deps) {
 	logger := deps.Logger.With().Str("component", "http.router").Logger()
 	logger.Info().Str("event", "setup_routes").Msg("Setting up HTTP routes")
 
-	// First: sub-groups' repository URLs (/org/team/app.git/...) take the
+	// Before anything else: a workspace's hosts serve nothing of this site.
+	proxy := &workspaceproxy.Controller{Config: deps.Config, Logger: deps.Logger, Workspaces: deps.WorkspaceApp, Sessions: deps.SessionApp}
+	deps.Http.Fiber.Use(proxy.Middleware())
+
+	// Then sub-groups' repository URLs (/org/team/app.git/...) take the
 	// repository routes, rewritten (so the body limit below sees them too).
 	deps.Http.Fiber.Use(repopath.Middleware(func(paths []string) ([]string, error) {
 		groups, err := deps.GroupApp.GroupPers.GetByNames(paths)
@@ -46,6 +51,9 @@ func SetupRoutes(deps infrastructure.Deps) {
 	deps.Http.Fiber.Use("/api/v1", twoFactorGate(deps.SessionApp, deps.TwoFactorApp, deps.Logger))
 	// Then the request budget per user (or IP).
 	deps.Http.Fiber.Use("/api/v1", apiLimit(deps.Config, deps.Limits))
+
+	// Starts signing a browser in to a workspace.
+	proxy.Setup(deps.Http.Fiber)
 
 	// Setup system routes (health, metrics, etc.)
 	setupSystemRoutes(deps)

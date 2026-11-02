@@ -26,7 +26,7 @@ type State struct {
 }
 
 func NewInstance(version string) *cli.Command {
-	var file, url, token, name, network, dockerHost, gitURL string
+	var file, url, token, name, network, dockerHost, gitURL, listen, advertise string
 	var maxWorkspaces int
 	fileFlag := &cli.StringFlag{Name: "file", Value: ".workspace-agent", Usage: "the agent's state file (holds its token)", Destination: &file}
 	return &cli.Command{
@@ -66,6 +66,8 @@ func NewInstance(version string) *cli.Command {
 					&cli.StringFlag{Name: "docker-host", Usage: "the Docker socket (default: DOCKER_HOST or the usual socket)", Destination: &dockerHost},
 					&cli.StringFlag{Name: "network", Usage: "Docker network for workspaces; they must reach the server", Destination: &network},
 					&cli.StringFlag{Name: "git-url", Usage: "where workspaces reach the server, if not the registered URL (e.g. http://ogit:8080 on a Docker network)", Destination: &gitURL},
+					&cli.StringFlag{Name: "listen", Usage: "address for the server's connections (e.g. :8443); browsers reach workspaces through it", Destination: &listen},
+					&cli.StringFlag{Name: "advertise-url", Usage: "where the server reaches --listen (e.g. https://10.0.0.5:8443)", Destination: &advertise},
 					&cli.IntFlag{Name: "max-workspaces", Value: 10, Usage: "workspaces this agent runs at a time", Destination: &maxWorkspaces},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -76,6 +78,9 @@ func NewInstance(version string) *cli.Command {
 					var st State
 					if err := json.Unmarshal(data, &st); err != nil {
 						return err
+					}
+					if (listen == "") != (advertise == "") {
+						return fmt.Errorf("--listen and --advertise-url go together")
 					}
 					if gitURL == "" {
 						gitURL = st.URL
@@ -89,6 +94,11 @@ func NewInstance(version string) *cli.Command {
 					fmt.Fprintf(cmd.Root().Writer, "Waiting for workspaces (at most %d)\n", maxWorkspaces)
 					agent := &wsagent.Agent{Client: &wsagent.Client{URL: st.URL, Token: st.Token}, Runtime: runtime, Version: version,
 						MaxWorkspaces: maxWorkspaces, Wait: 30 * time.Second, Out: cmd.Root().Writer}
+					if listen != "" {
+						if err := agent.ServeProxy(ctx, listen, advertise); err != nil {
+							return err
+						}
+					}
 					return agent.Run(ctx)
 				},
 			},

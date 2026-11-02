@@ -30,6 +30,7 @@ const (
 	cloneDir       = homeDir + "/workspace"
 	tokenDir       = "/run/ogit"
 	provisionLimit = 10 * time.Minute
+	editorPort     = 8080
 	gb             = int64(1) << 30
 )
 
@@ -88,6 +89,30 @@ func (d *DockerRuntime) Running(ctx context.Context) ([]string, error) {
 		ids = append(ids, c.Labels[labelWorkspace])
 	}
 	return ids, nil
+}
+
+// EditorPort is the port of CodeServerCommand.
+func (d *DockerRuntime) EditorPort() int { return editorPort }
+
+// Address finds a running workspace on its Docker network, which the agent
+// has to be able to reach: run it on the host or on that network.
+func (d *DockerRuntime) Address(ctx context.Context, id string) (string, error) {
+	inspect, err := d.Docker.ContainerInspect(ctx, containerName(id))
+	if err != nil {
+		return "", err
+	}
+	if inspect.Config.Labels[labelWorkspace] != id || inspect.State == nil || !inspect.State.Running || inspect.NetworkSettings == nil {
+		return "", fmt.Errorf("workspace %s isn't running", id)
+	}
+	if n, ok := inspect.NetworkSettings.Networks[d.Network]; ok && n.IPAddress != "" {
+		return n.IPAddress, nil
+	}
+	for _, n := range inspect.NetworkSettings.Networks {
+		if n.IPAddress != "" {
+			return n.IPAddress, nil
+		}
+	}
+	return "", fmt.Errorf("workspace %s has no address", id)
 }
 
 func (d *DockerRuntime) pull(ctx context.Context, ref string) error {

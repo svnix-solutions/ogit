@@ -251,9 +251,32 @@ func (p *workspacePers) DeleteAgent(id, failure string, now time.Time) (bool, er
 	return deleted, err
 }
 
-func (p *workspacePers) TouchAgent(id, version string, now time.Time) error {
+func (p *workspacePers) TouchAgent(id, version, proxyURL, proxyFingerprint string, now time.Time) error {
 	return p.db.Model(&domain.WorkspaceAgent{}).Where("id = ?", id).
-		Updates(map[string]any{"version": version, "last_seen_at": now}).Error
+		Updates(map[string]any{"version": version, "proxy_url": proxyURL, "proxy_fingerprint": proxyFingerprint, "last_seen_at": now}).Error
+}
+
+func (p *workspacePers) CreateTicket(t *domain.WorkspaceTicket) error {
+	return p.db.Create(t).Error
+}
+
+func (p *workspacePers) TakeTicket(hash string, now time.Time) (*domain.WorkspaceTicket, error) {
+	var t domain.WorkspaceTicket
+	if err := p.db.Where("token_hash = ? AND expires_at > ?", hash, now).First(&t).Error; err != nil {
+		return nil, err
+	}
+	res := p.db.Where("token_hash = ?", hash).Delete(&domain.WorkspaceTicket{})
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected != 1 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &t, nil
+}
+
+func (p *workspacePers) DeleteExpiredTickets(now time.Time) error {
+	return p.db.Where("expires_at < ?", now).Delete(&domain.WorkspaceTicket{}).Error
 }
 
 func (p *workspacePers) ForAgent(agentId string) ([]domain.Workspace, error) {

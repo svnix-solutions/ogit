@@ -357,6 +357,33 @@ func TestWorkspaceAccessLostMigration(t *testing.T) {
 	checkWorkspaceAccessLostMigration(t, context.WithValue(context.Background(), "dbDialect", "sqlite"), db)
 }
 
+func TestWorkspaceBrowserMigration(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "ogit.sqlite")), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	goose.SetBaseFS(migrationFiles)
+	require.NoError(t, goose.SetDialect("sqlite3"))
+	checkWorkspaceBrowserMigration(t, context.WithValue(context.Background(), "dbDialect", "sqlite"), db)
+}
+
+func checkWorkspaceBrowserMigration(t *testing.T, ctx context.Context, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	const before, browser = 20261117100000, 20261118100000
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", browser))
+	require.True(t, db.Migrator().HasTable("workspace_ticket"))
+	require.True(t, db.Migrator().HasColumn("workspace_agent", "proxy_url"))
+	require.True(t, db.Migrator().HasColumn("workspace_agent", "proxy_fingerprint"))
+	require.NoError(t, goose.DownToContext(ctx, sqlDB, "files", before))
+	assert.False(t, db.Migrator().HasTable("workspace_ticket"))
+	assert.False(t, db.Migrator().HasColumn("workspace_agent", "proxy_url"))
+	require.NoError(t, goose.UpToContext(ctx, sqlDB, "files", browser))
+}
+
 func checkWorkspaceAccessLostMigration(t *testing.T, ctx context.Context, db *gorm.DB) {
 	t.Helper()
 	sqlDB, err := db.DB()
